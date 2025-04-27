@@ -1,3 +1,82 @@
+import * as cd from "./canvas.js"
+
+interface Node {
+    posX: number
+    posY: number
+
+    doc: string
+
+    id: number
+}
+
+function calculateSum(a: number, b: number): number {
+    return (b - a + 1) * (a + b) / 2
+}
+
+class ConnectionManager {
+    isConnected(nodeIdA: number, nodeIdB: number): boolean {
+        if (nodeIdA == nodeIdB) {
+            return false
+        }
+        return this.connectionMatrix[this.getMatrixIndex(nodeIdA, nodeIdB)]
+    }
+
+    setConnected(
+        nodeIdA: number, nodeIdB: number,
+        connected: boolean
+    ): void {
+        if (nodeIdA == nodeIdB) {
+            return
+        }
+        this.connectionMatrix[this.getMatrixIndex(nodeIdA, nodeIdB)] = connected
+    }
+
+    getConnections(nodeId: number): Array<number> {
+        let connectedIds: Array<number> = []
+
+        for (let otherId = 0; otherId < this.matrixSize; otherId++) {
+            if (nodeId == otherId) {
+                continue
+            }
+            if (this.isConnected(nodeId, otherId)) {
+                connectedIds.push(otherId)
+            }
+        }
+
+        return connectedIds
+    }
+
+    connectionMatrix: Array<boolean>
+
+    matrixSize: number
+
+    constructor(size: number) {
+        const arraySize = calculateSum(1, size - 1)
+
+        this.connectionMatrix = Array(arraySize).fill(false)
+        this.matrixSize = size
+    }
+
+    getMatrixIndex(nodeIdA: number, nodeIdB: number): number {
+        if (nodeIdA == nodeIdB) {
+            return -1
+        }
+
+        const minId = Math.min(nodeIdA, nodeIdB)
+        const maxId = Math.max(nodeIdA, nodeIdB)
+
+        let index = 0
+
+        if (minId > 0) {
+            index = calculateSum(this.matrixSize - minId, this.matrixSize - 1)
+        }
+        index += maxId - (minId + 1)
+
+        return index
+    }
+}
+
+    ;
 (async () => {
     // we don't really have to rate limit ourself
     // but I think it's a good etiquette
@@ -95,4 +174,4 @@
     const results = await retrieveAllLiks("Miss Meyers")
 
     console.log(results)
-})()
+})
