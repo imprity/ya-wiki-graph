@@ -1,0 +1,16 @@
+{
+  "name": "namu_tree2",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+      "tsc": "tsc",
+      "tsfmt": "tsfmt"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "typescript-formatter": "^7.2.2"
+  }
+}
