@@ -2,35 +2,95 @@ import * as cd from "./canvas.js"
 
 let NODE_ID_MAX = 0
 
-function getNewNodeId(): number {
+function getNewDocNodeId(): number {
     NODE_ID_MAX++;
     return NODE_ID_MAX
 }
 
-class Node {
+class DocNode {
     posX: number = 0
     posY: number = 0
+
+    forceX: number = 0
+    forceY: number = 0
 
     doc: string = ""
 
     id: number = 0
 
     constructor() {
-        this.id = getNewNodeId()
+        this.id = getNewDocNodeId()
     }
 }
 
-function drawNode(
+function drawDocNode(
     ctx: CanvasRenderingContext2D,
-    node: Node,
+    node: DocNode,
 ) {
     const radius = 8
     cd.fillCircle(ctx, node.posX, node.posY, radius, "rgb(100, 100, 100)")
 
     ctx.font = "12px sans-serif"
     ctx.textAlign = "center"
+    ctx.textRendering = "optimizeSpeed"
     ctx.textBaseline = "bottom"
-    ctx.fillText(node.doc, node.posX, node.posY - radius - 2)
+    ctx.fillText(node.doc, node.posX, node.posY - radius - 2.0)
+}
+
+function applyRepulsion(nodeA: DocNode, nodeB: DocNode, force: number) {
+    const atobX = nodeB.posX - nodeA.posY
+    const atobY = nodeB.posX - nodeA.posY
+
+    const distSquared = atobX * atobX + atobY * atobY
+    const dist = Math.sqrt(distSquared)
+
+    const atobNX = atobX / dist
+    const atobNY = atobY / dist
+
+    let atobFX = atobNX * (force / distSquared)
+    let atobFY = atobNY * (force / distSquared)
+
+    nodeA.forceX -= atobFX
+    nodeA.forceY -= atobFY
+
+    nodeB.forceX += atobFX
+    nodeB.forceY += atobFY
+}
+
+function applySpring(
+    nodeA: DocNode, nodeB: DocNode,
+    relaxedDist: number,
+    force: number
+) {
+    const atobX = nodeB.posX - nodeA.posY
+    const atobY = nodeB.posX - nodeA.posY
+
+    const distSquared = atobX * atobX + atobY * atobY
+    const dist = Math.sqrt(distSquared)
+
+    const atobNX = atobX / dist
+    const atobNY = atobY / dist
+
+    const delta = relaxedDist - dist
+
+    let atobFX = atobNX * delta * force
+    let atobFY = atobNY * delta * force
+
+    nodeA.forceX -= atobFX
+    nodeA.forceY -= atobFY
+
+    nodeB.forceX += atobFX
+    nodeB.forceY += atobFY
+}
+
+function applyForce(node: DocNode) {
+    node.posX += node.forceX
+    node.posY += node.forceY
+}
+
+function resetForce(node: DocNode) {
+    node.forceX = 0
+    node.forceY = 0
 }
 
 function calculateSum(a: number, b: number): number {
@@ -121,12 +181,35 @@ function main() {
         document.body.appendChild(canvas)
     }
 
-    const node = new Node()
-    node.doc = 'test node'
-    node.posX = 150
-    node.posY = 150
+    const nodeA = new DocNode()
+    nodeA.doc = 'A'
+    nodeA.posX = 100
+    nodeA.posY = 100
 
-    drawNode(ctx, node)
+    const nodeB = new DocNode()
+    nodeB.doc = 'B'
+    nodeB.posX = 200
+    nodeB.posY = 200
+
+    const onFrame = () => {
+        ctx.clearRect(0, 0, 300, 300)
+        //applyRepulsion(nodeA, nodeB, 1000)
+        applySpring(nodeA, nodeB, 50, 0.01)
+
+        applyForce(nodeA)
+        applyForce(nodeB)
+
+        resetForce(nodeA)
+        resetForce(nodeB)
+
+
+        drawDocNode(ctx, nodeA)
+        drawDocNode(ctx, nodeB)
+
+        requestAnimationFrame(onFrame)
+    }
+
+    requestAnimationFrame(onFrame)
 }
 
 main()
