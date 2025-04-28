@@ -8,7 +8,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 import * as cd from "./canvas.js";
-let NODE_ID_MAX = 0;
+let NODE_ID_MAX = -1;
 function getNewDocNodeId() {
     NODE_ID_MAX++;
     return NODE_ID_MAX;
@@ -34,8 +34,8 @@ function drawDocNode(ctx, node) {
     ctx.fillText(node.doc, node.posX, node.posY - radius - 2.0);
 }
 function applyRepulsion(nodeA, nodeB, force) {
-    const atobX = nodeB.posX - nodeA.posY;
-    const atobY = nodeB.posX - nodeA.posY;
+    const atobX = nodeB.posX - nodeA.posX;
+    const atobY = nodeB.posY - nodeA.posY;
     const distSquared = atobX * atobX + atobY * atobY;
     const dist = Math.sqrt(distSquared);
     const atobNX = atobX / dist;
@@ -48,8 +48,8 @@ function applyRepulsion(nodeA, nodeB, force) {
     nodeB.forceY += atobFY;
 }
 function applySpring(nodeA, nodeB, relaxedDist, force) {
-    const atobX = nodeB.posX - nodeA.posY;
-    const atobY = nodeB.posX - nodeA.posY;
+    const atobX = nodeB.posX - nodeA.posX;
+    const atobY = nodeB.posY - nodeA.posY;
     const distSquared = atobX * atobX + atobY * atobY;
     const dist = Math.sqrt(distSquared);
     const atobNX = atobX / dist;
@@ -119,12 +119,14 @@ class ConnectionManager {
 }
 function main() {
     let ctx;
+    const WIDTH = 300;
+    const HEIGHT = 300;
     {
         const canvas = document.createElement('canvas');
-        canvas.width = 300;
-        canvas.height = 300;
-        canvas.style.width = '300px';
-        canvas.style.height = '300px';
+        canvas.width = WIDTH;
+        canvas.height = HEIGHT;
+        canvas.style.width = `${WIDTH}px`;
+        canvas.style.height = `${HEIGHT}px`;
         const tmp = canvas.getContext('2d');
         if (tmp == null) {
             throw new Error('failed to get canvas context');
@@ -132,25 +134,61 @@ function main() {
         ctx = tmp;
         document.body.appendChild(canvas);
     }
-    const nodeA = new DocNode();
-    nodeA.doc = 'A';
-    nodeA.posX = 100;
-    nodeA.posY = 100;
-    const nodeB = new DocNode();
-    nodeB.doc = 'B';
-    nodeB.posX = 200;
-    nodeB.posY = 200;
+    let nodes = [];
+    for (let i = 0; i < 5; i++) {
+        const node = new DocNode();
+        node.posY = HEIGHT / 2;
+        node.posX = 20 + i * 40;
+        node.posX += Math.random() * 30;
+        node.posY += Math.random() * 40;
+        node.doc = `node ${i}`;
+        nodes.push(node);
+    }
+    const nodeCount = nodes.length;
+    const conManager = new ConnectionManager(nodeCount);
+    conManager.setConnected(0, 1, true);
+    conManager.setConnected(2, 4, true);
+    conManager.setConnected(2, 3, true);
+    conManager.setConnected(0, 2, true);
+    const REPULSION = 2000;
+    const SPRING_DIST = 30;
+    const SPRING = 0.01;
+    let doLog = true;
     const onFrame = () => {
         ctx.clearRect(0, 0, 300, 300);
-        //applyRepulsion(nodeA, nodeB, 1000)
-        applySpring(nodeA, nodeB, 50, 0.01);
-        applyForce(nodeA);
-        applyForce(nodeB);
-        resetForce(nodeA);
-        resetForce(nodeB);
-        drawDocNode(ctx, nodeA);
-        drawDocNode(ctx, nodeB);
-        requestAnimationFrame(onFrame);
+        for (let a = 0; a < nodeCount; a++) {
+            for (let b = a + 1; b < nodeCount; b++) {
+                applyRepulsion(nodes[a], nodes[b], REPULSION);
+                if (conManager.isConnected(a, b)) {
+                    applySpring(nodes[a], nodes[b], SPRING_DIST, SPRING);
+                }
+                if (doLog) {
+                    console.log(`${a}, ${b}`);
+                }
+            }
+        }
+        if (doLog && conManager.isConnected(1, 2)) {
+            console.log("is connected");
+        }
+        doLog = false;
+        for (let i = 0; i < nodeCount; i++) {
+            applyForce(nodes[i]);
+            resetForce(nodes[i]);
+        }
+        for (let a = 0; a < nodeCount; a++) {
+            for (let b = a + 1; b < nodeCount; b++) {
+                if (conManager.isConnected(a, b)) {
+                    cd.strokeLine(ctx, nodes[a].posX, nodes[a].posY, nodes[b].posX, nodes[b].posY, 2, "grey");
+                }
+            }
+        }
+        for (let i = 0; i < nodeCount; i++) {
+            drawDocNode(ctx, nodes[i]);
+        }
+        // TODO: very bad way of keeping a 60 frames per second
+        setTimeout(() => {
+            requestAnimationFrame(onFrame);
+        }, 1000 / 60);
     };
     requestAnimationFrame(onFrame);
 }
