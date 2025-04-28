@@ -1,12 +1,36 @@
 import * as cd from "./canvas.js"
 
-interface Node {
-    posX: number
-    posY: number
+let NODE_ID_MAX = 0
 
-    doc: string
+function getNewNodeId(): number {
+    NODE_ID_MAX++;
+    return NODE_ID_MAX
+}
 
-    id: number
+class Node {
+    posX: number = 0
+    posY: number = 0
+
+    doc: string = ""
+
+    id: number = 0
+
+    constructor() {
+        this.id = getNewNodeId()
+    }
+}
+
+function drawNode(
+    ctx: CanvasRenderingContext2D,
+    node: Node,
+) {
+    const radius = 8
+    cd.fillCircle(ctx, node.posX, node.posY, radius, "rgb(100, 100, 100)")
+
+    ctx.font = "12px sans-serif"
+    ctx.textAlign = "center"
+    ctx.textBaseline = "bottom"
+    ctx.fillText(node.doc, node.posX, node.posY - radius - 2)
 }
 
 function calculateSum(a: number, b: number): number {
@@ -76,8 +100,38 @@ class ConnectionManager {
     }
 }
 
-    ;
-(async () => {
+function main() {
+    let ctx: CanvasRenderingContext2D
+
+    {
+        const canvas = document.createElement('canvas')
+
+        canvas.width = 300
+        canvas.height = 300
+
+        canvas.style.width = '300px'
+        canvas.style.height = '300px'
+
+        const tmp = canvas.getContext('2d')
+        if (tmp == null) {
+            throw new Error('failed to get canvas context')
+        }
+        ctx = tmp
+
+        document.body.appendChild(canvas)
+    }
+
+    const node = new Node()
+    node.doc = 'test node'
+    node.posX = 150
+    node.posY = 150
+
+    drawNode(ctx, node)
+}
+
+main()
+
+async function main2() {
     // we don't really have to rate limit ourself
     // but I think it's a good etiquette
     const RATE_LIMIT: number = 20 // rate / second
@@ -174,4 +228,4 @@ class ConnectionManager {
     const results = await retrieveAllLiks("Miss Meyers")
 
     console.log(results)
-})
+}

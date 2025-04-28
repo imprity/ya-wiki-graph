@@ -1,6 +1,3 @@
-export function sup() {
-    console.log('sup');
-}
 export function strokeLine(ctx, x1, y1, x2, y2, lineWidth, color) {
     ctx.beginPath();
     ctx.lineWidth = lineWidth;
