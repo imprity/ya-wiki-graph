@@ -1,10 +1,19 @@
 import * as cd from "./canvas.js"
+import * as wiki from "./wiki.js"
 
-let NODE_ID_MAX = -1
+interface Vector2 {
+    x: number
+    y: number
+}
 
-function getNewDocNodeId(): number {
-    NODE_ID_MAX++;
-    return NODE_ID_MAX
+function vector2Rotate(v: Vector2, rot: number): Vector2 {
+    const sin = Math.sin(rot)
+    const cos = Math.cos(rot)
+
+    return {
+        x: v.x * cos - v.y * sin,
+        y: v.x * sin + v.y * cos,
+    }
 }
 
 class DocNode {
@@ -15,12 +24,6 @@ class DocNode {
     forceY: number = 0
 
     doc: string = ""
-
-    id: number = 0
-
-    constructor() {
-        this.id = getNewDocNodeId()
-    }
 }
 
 function drawDocNode(
@@ -98,11 +101,22 @@ function calculateSum(a: number, b: number): number {
 }
 
 class ConnectionManager {
+    _connectionMatrix: Array<boolean>
+
+    _matrixSize: number
+
+    constructor(size: number) {
+        const arraySize = calculateSum(1, size - 1)
+
+        this._connectionMatrix = Array(arraySize).fill(false)
+        this._matrixSize = size
+    }
+
     isConnected(nodeIdA: number, nodeIdB: number): boolean {
         if (nodeIdA == nodeIdB) {
             return false
         }
-        return this.connectionMatrix[this.getMatrixIndex(nodeIdA, nodeIdB)]
+        return this._connectionMatrix[this.getMatrixIndex(nodeIdA, nodeIdB)]
     }
 
     setConnected(
@@ -112,13 +126,13 @@ class ConnectionManager {
         if (nodeIdA == nodeIdB) {
             return
         }
-        this.connectionMatrix[this.getMatrixIndex(nodeIdA, nodeIdB)] = connected
+        this._connectionMatrix[this.getMatrixIndex(nodeIdA, nodeIdB)] = connected
     }
 
     getConnections(nodeId: number): Array<number> {
         let connectedIds: Array<number> = []
 
-        for (let otherId = 0; otherId < this.matrixSize; otherId++) {
+        for (let otherId = 0; otherId < this._matrixSize; otherId++) {
             if (nodeId == otherId) {
                 continue
             }
@@ -130,18 +144,10 @@ class ConnectionManager {
         return connectedIds
     }
 
-    connectionMatrix: Array<boolean>
-
-    matrixSize: number
-
-    constructor(size: number) {
-        const arraySize = calculateSum(1, size - 1)
-
-        this.connectionMatrix = Array(arraySize).fill(false)
-        this.matrixSize = size
-    }
-
-    getMatrixIndex(nodeIdA: number, nodeIdB: number): number {
+    _getMatrixIndexImpl(
+        nodeIdA: number, nodeIdB: number,
+        matrixSize: number
+    ): number {
         if (nodeIdA == nodeIdB) {
             return -1
         }
@@ -152,15 +158,297 @@ class ConnectionManager {
         let index = 0
 
         if (minId > 0) {
-            index = calculateSum(this.matrixSize - minId, this.matrixSize - 1)
+            index = calculateSum(matrixSize - minId, matrixSize - 1)
         }
         index += maxId - (minId + 1)
 
         return index
     }
+
+    getMatrixIndex(nodeIdA: number, nodeIdB: number): number {
+        return this._getMatrixIndexImpl(nodeIdA, nodeIdB, this._matrixSize)
+    }
+
+    getMatrixSize(): number {
+        return this._matrixSize
+    }
+
+    setMatrixSize(newSize: number) {
+        const oldSize = this._matrixSize
+        const newArraySize = calculateSum(1, newSize - 1)
+
+        const oldMatrix = this._connectionMatrix
+        const newMatrix = Array(newArraySize).fill(false)
+
+        const minSize = Math.min(newSize, oldSize)
+
+        for (let a = 0; a < minSize; a++) {
+            for (let b = a + 1; b < minSize; b++) {
+                const oldIndex = this._getMatrixIndexImpl(a, b, oldSize)
+                const newIndex = this._getMatrixIndexImpl(a, b, newSize)
+
+                newMatrix[newIndex] = oldMatrix[oldIndex]
+            }
+        }
+
+        this._matrixSize = newSize
+        this._connectionMatrix = newMatrix
+    }
+}
+
+class App {
+    canvasElement: HTMLCanvasElement
+    ctx: CanvasRenderingContext2D
+
+    width: number = 0
+    height: number = 0
+
+    offsetX: number = 0
+    offsetY: number = 0
+
+    zoom: number = 1
+
+    nodes: DocNode[] = []
+
+    isRequesting: boolean = false
+
+    // constants
+    nodeRadius: number = 8
+
+    conManager: ConnectionManager
+
+    constructor(canvas: HTMLCanvasElement) {
+        this.canvasElement = canvas
+
+        const ctx = canvas.getContext('2d')
+        if (ctx == null) {
+            throw new Error("failed to get canvas context")
+        }
+        this.ctx = ctx
+
+        this.updateWidthAndHeight()
+
+        this.conManager = new ConnectionManager(16)
+
+        // NOTE: we have to add it to window because canvas
+        // doesn't take keyboard input
+        // TODO: put canvas inside a div
+        window.addEventListener("keydown", (e) => {
+            this.handleEvent(e)
+        })
+
+        this.canvasElement.addEventListener("wheel", (e) => {
+            this.handleEvent(e)
+        })
+
+        this.canvasElement.addEventListener("pointerdown", (e) => {
+            this.handleEvent(e)
+        })
+
+        // TEST TEST TEST TEST
+        const testNode = new DocNode()
+        testNode.posX = 150
+        testNode.posY = 150
+        testNode.doc = "Miss Meyers"
+        this.nodes.push(testNode)
+        // TEST TEST TEST TEST
+    }
+
+    handleEvent(e: Event) {
+
+        //console.log(e)
+
+        switch (e.type) {
+            case "keydown":
+                const keyEvent = e as KeyboardEvent
+                switch (keyEvent.code) {
+                    case "KeyW":
+                        this.offsetY -= 10
+                        break
+                    case "KeyS":
+                        this.offsetY += 10
+                        break
+                    case "KeyA":
+                        this.offsetX -= 10
+                        break
+                    case "KeyD":
+                        this.offsetX += 10
+                        break
+                }
+
+                break
+            case "wheel":
+                const wheelEvent = e as WheelEvent
+                this.zoom -= wheelEvent.deltaY * 0.001
+                break
+            case "pointerdown":
+                const pointerEvent = e as PointerEvent
+
+                const pos = this.viewportToWorld(
+                    pointerEvent.offsetX, pointerEvent.offsetY)
+
+                for (let i = 0; i < this.nodes.length; i++) {
+                    const node = this.nodes[i]
+
+                    const dx = pos.x - node.posX
+                    const dy = pos.y - node.posY
+
+                    const distSquared = dx * dx + dy * dy
+
+                    if (distSquared < this.nodeRadius * this.nodeRadius) {
+                        //console.log(`clicked ${node.doc}`)
+                        this.expandNode(i)
+                        break
+                    }
+                }
+                break
+        }
+    }
+
+    expandNode = async (nodeId: number) => {
+        if (this.isRequesting) {
+            console.log("busy")
+            return
+        }
+
+        if (!(0 <= nodeId && nodeId < this.nodes.length)) {
+            console.error(`node id ${nodeId} out of bound`)
+            return
+        }
+
+        const node = this.nodes[nodeId]
+
+        console.log(`requesting ${node.doc}`)
+
+        this.isRequesting = true
+
+
+        try {
+            const regex = / /g
+            const links = await wiki.retrieveAllLiks(node.doc.replace(regex, "_"))
+
+            if (links.length > 0) {
+                const angle: number = Math.PI * 2 / links.length
+
+                const offsetV = { x: 0, y: - 50 }
+
+                let newNodeId = this.nodes.length
+
+                //for (const link of links) {
+                for (let i = 0; i < links.length; i++) {
+                    const link = links[i]
+                    const newNode = new DocNode()
+                    newNode.doc = link
+
+                    const v = vector2Rotate(offsetV, angle * i)
+                    newNode.posX = node.posX + v.x
+                    newNode.posY = node.posY + v.y
+
+                    this.addNode(newNode)
+
+                    this.conManager.setConnected(nodeId, newNodeId, true)
+
+                    newNodeId++
+                }
+            }
+        } catch (err) {
+            console.error(err)
+        } finally {
+            this.isRequesting = false
+        }
+    }
+
+    addNode(node: DocNode) {
+        if (this.nodes.length >= this.conManager.getMatrixSize()) {
+            this.conManager.setMatrixSize(this.conManager.getMatrixSize() * 2)
+        }
+        this.nodes.push(node)
+    }
+
+    update() {
+        this.updateWidthAndHeight()
+    }
+
+    draw() {
+        // draw circles
+        for (let i = 0; i < this.nodes.length; i++) {
+            const node = this.nodes[i]
+            const pos = this.worldToViewport(node.posX, node.posY)
+
+            const radius = this.nodeRadius * this.zoom
+
+            cd.fillCircle(this.ctx, pos.x, pos.y, radius, "grey")
+        }
+
+        // draw texts
+        this.ctx.font = `${this.zoom * 12}px sans-serif`
+        this.ctx.textAlign = "center"
+        this.ctx.textRendering = "optimizeSpeed"
+        this.ctx.textBaseline = "bottom"
+        for (let i = 0; i < this.nodes.length; i++) {
+            const node = this.nodes[i]
+            const pos = this.worldToViewport(node.posX, node.posY)
+
+            this.ctx.fillText(node.doc, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom)
+        }
+    }
+
+    updateWidthAndHeight() {
+        const rect = this.canvasElement.getBoundingClientRect()
+
+        this.width = rect.width
+        this.height = rect.height
+
+        this.canvasElement.width = rect.width
+        this.canvasElement.height = rect.height
+    }
+
+    worldToViewport(x: number, y: number): Vector2 {
+        x *= this.zoom
+        y *= this.zoom
+
+        x += this.offsetX
+        y += this.offsetY
+
+        return { x: x, y: y }
+    }
+
+    viewportToWorld(x: number, y: number): Vector2 {
+        x -= this.offsetX
+        y -= this.offsetY
+
+        x /= this.zoom
+        y /= this.zoom
+
+        return { x: x, y: y }
+    }
 }
 
 function main() {
+    const canvas = document.createElement('canvas')
+
+    document.body.appendChild(canvas)
+
+    canvas.style.width = "500px"
+    canvas.style.height = "500px"
+    canvas.style.border = 'solid'
+
+    const app = new App(canvas)
+
+    const onFrame = () => {
+        app.update()
+        app.draw()
+
+        // TODO: very bad way of keeping a 60 frames per second
+        setTimeout(() => {
+            requestAnimationFrame(onFrame)
+        }, 1000 / 60)
+    }
+
+    requestAnimationFrame(onFrame)
+}
+
+function main2() {
     let ctx: CanvasRenderingContext2D
 
     const WIDTH = 300
@@ -270,101 +558,3 @@ function main() {
 
 main()
 
-async function main2() {
-    // we don't really have to rate limit ourself
-    // but I think it's a good etiquette
-    const RATE_LIMIT: number = 20 // rate / second
-    let LAST_REQUEST_AT: number = 0
-
-    const makeRequestToWiki = async (query: Record<string, string>): Promise<any> => {
-        const wait = (milliseconds: number): Promise<void> => {
-            return new Promise(res => {
-                setTimeout(() => {
-                    res()
-                }, milliseconds,)
-            })
-        }
-
-        let now: number = Date.now()
-
-        if (now - LAST_REQUEST_AT < 1000 / RATE_LIMIT) {
-            const toWait = 1000 / RATE_LIMIT - (now - LAST_REQUEST_AT)
-
-            await wait(toWait)
-
-            now = Date.now()
-        }
-
-        LAST_REQUEST_AT = now
-
-        let link = 'https://en.wikipedia.org/w/api.php?'
-
-        for (const key in query) {
-            link = link + `&${key}=${query[key]}`
-        }
-
-        const response = await fetch(link)
-        const json = await response.json()
-
-        return json
-    }
-
-    const retrieveAllLiks = async (title: string): Promise<Array<any>> => {
-        let results: Array<any> = []
-
-        let doContinue = false
-        let nextContinue = ""
-
-        while (true) {
-            let doBreak = false
-
-            const query: Record<string, string> = {
-                "action": "query",
-                "prop": "links",
-                "titles": title,
-                "format": "json",
-                "pllimit": "max",
-                "plnamespace": "0",
-                "origin": "*"
-            }
-
-            if (doContinue) {
-                query["plcontinue"] = nextContinue
-            }
-
-            const response: any = await makeRequestToWiki(query)
-            // TEST TEST TEST TEST TEST
-            console.log(response)
-            // TEST TEST TEST TEST TEST
-
-            if (!("continue" in response)) {
-                doBreak = true
-            } else {
-                doContinue = true
-                nextContinue = response.continue.plcontinue
-            }
-
-            for (const pageId in response.query.pages) {
-                const page = response.query.pages[pageId]
-
-                // TEST TEST TEST TEST TEST
-                for (const link of page.links) {
-                    console.log(link)
-                }
-                // TEST TEST TEST TEST TEST
-
-                results = results.concat(page.links)
-            }
-
-            if (doBreak) {
-                break
-            }
-        }
-
-        return results
-    }
-
-    const results = await retrieveAllLiks("Miss Meyers")
-
-    console.log(results)
-}
