@@ -23,7 +23,7 @@ class DocNode {
     forceX: number = 0
     forceY: number = 0
 
-    doc: string = ""
+    title: string = ""
 }
 
 function drawDocNode(
@@ -37,7 +37,7 @@ function drawDocNode(
     ctx.textAlign = "center"
     ctx.textRendering = "optimizeSpeed"
     ctx.textBaseline = "bottom"
-    ctx.fillText(node.doc, node.posX, node.posY - radius - 2.0)
+    ctx.fillText(node.title, node.posX, node.posY - radius - 2.0)
 }
 
 function applyRepulsion(nodeA: DocNode, nodeB: DocNode, force: number, minDist: number) {
@@ -120,6 +120,7 @@ class NodeManager {
     _capacity: number
 
     _nodes: Array<DocNode>
+    _titleToNodes: Record<string, number> = {}
 
     constructor() {
         const initCapacity = 16
@@ -232,7 +233,15 @@ class NodeManager {
         }
 
         this._nodes[this._length] = node
+        this._titleToNodes[node.title] = this._length
         this._length++
+    }
+
+    findNodeFromTitle(title: string): number {
+        if (title in this._titleToNodes) {
+            return this._titleToNodes[title]
+        }
+        return -1
     }
 
     length(): number {
@@ -266,7 +275,7 @@ class App {
     // constants
     nodeRadius: number = 8
 
-    repulsion = 2000
+    repulsion = 3000
     springDist = 200
     spring = 0.002
 
@@ -306,7 +315,7 @@ class App {
         const testNode = new DocNode()
         testNode.posX = 150
         testNode.posY = 150
-        testNode.doc = "Miss Meyers"
+        testNode.title = "Miss Meyers"
         this.nodeManager.pushNode(testNode)
         // TEST TEST TEST TEST
     }
@@ -401,13 +410,13 @@ class App {
 
         const node = this.nodeManager.getNodeAt(nodeId)
 
-        console.log(`requesting ${node.doc}`)
+        console.log(`requesting ${node.title}`)
 
         this.isRequesting = true
 
         try {
             const regex = / /g
-            const links = await wiki.retrieveAllLiks(node.doc.replace(regex, "_"))
+            const links = await wiki.retrieveAllLiks(node.title.replace(regex, "_"))
 
             if (links.length > 0) {
                 const angle: number = Math.PI * 2 / links.length
@@ -419,17 +428,24 @@ class App {
                     if (index >= links.length) {
                         return
                     }
+
                     const link = links[index]
-                    const newNode = new DocNode()
-                    const newNodeId = this.nodeManager.length()
-                    newNode.doc = link
+                    const existingNodeId = this.nodeManager.findNodeFromTitle(link)
 
-                    const v = vector2Rotate(offsetV, angle * index)
-                    newNode.posX = node.posX + v.x + (Math.random() - 0.5) * 20
-                    newNode.posY = node.posY + v.y + (Math.random() - 0.5) * 20
+                    if (existingNodeId < 0) {
+                        const newNode = new DocNode()
+                        const newNodeId = this.nodeManager.length()
+                        newNode.title = link
 
-                    this.nodeManager.pushNode(newNode)
-                    this.nodeManager.setConnected(nodeId, newNodeId, true)
+                        const v = vector2Rotate(offsetV, angle * index)
+                        newNode.posX = node.posX + v.x + (Math.random() - 0.5) * 20
+                        newNode.posY = node.posY + v.y + (Math.random() - 0.5) * 20
+
+                        this.nodeManager.pushNode(newNode)
+                        this.nodeManager.setConnected(nodeId, newNodeId, true)
+                    } else {
+                        this.nodeManager.setConnected(nodeId, existingNodeId, true)
+                    }
 
                     index += 1
 
@@ -508,7 +524,7 @@ class App {
             const node = this.nodeManager.getNodeAt(i)
             const pos = this.worldToViewport(node.posX, node.posY)
 
-            this.ctx.fillText(node.doc, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom)
+            this.ctx.fillText(node.title, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom)
         }
 
         // draw circles

@@ -23,7 +23,7 @@ class DocNode {
         this.posY = 0;
         this.forceX = 0;
         this.forceY = 0;
-        this.doc = "";
+        this.title = "";
     }
 }
 function drawDocNode(ctx, node) {
@@ -33,7 +33,7 @@ function drawDocNode(ctx, node) {
     ctx.textAlign = "center";
     ctx.textRendering = "optimizeSpeed";
     ctx.textBaseline = "bottom";
-    ctx.fillText(node.doc, node.posX, node.posY - radius - 2.0);
+    ctx.fillText(node.title, node.posX, node.posY - radius - 2.0);
 }
 function applyRepulsion(nodeA, nodeB, force, minDist) {
     const atobX = nodeB.posX - nodeA.posX;
@@ -86,6 +86,7 @@ function calculateSum(a, b) {
 class NodeManager {
     constructor() {
         this._length = 0;
+        this._titleToNodes = {};
         const initCapacity = 16;
         const matrixSize = calculateSum(1, initCapacity - 1);
         this._connectionMatrix = Array(matrixSize).fill(false);
@@ -166,7 +167,14 @@ class NodeManager {
             this._capacity = newCap;
         }
         this._nodes[this._length] = node;
+        this._titleToNodes[node.title] = this._length;
         this._length++;
+    }
+    findNodeFromTitle(title) {
+        if (title in this._titleToNodes) {
+            return this._titleToNodes[title];
+        }
+        return -1;
     }
     length() {
         return this._length;
@@ -187,7 +195,7 @@ class App {
         this.mouseY = 0;
         // constants
         this.nodeRadius = 8;
-        this.repulsion = 2000;
+        this.repulsion = 3000;
         this.springDist = 200;
         this.spring = 0.002;
         this.expandNode = (nodeId) => __awaiter(this, void 0, void 0, function* () {
@@ -200,11 +208,11 @@ class App {
                 return;
             }
             const node = this.nodeManager.getNodeAt(nodeId);
-            console.log(`requesting ${node.doc}`);
+            console.log(`requesting ${node.title}`);
             this.isRequesting = true;
             try {
                 const regex = / /g;
-                const links = yield wiki.retrieveAllLiks(node.doc.replace(regex, "_"));
+                const links = yield wiki.retrieveAllLiks(node.title.replace(regex, "_"));
                 if (links.length > 0) {
                     const angle = Math.PI * 2 / links.length;
                     const offsetV = { x: 0, y: -100 };
@@ -214,14 +222,20 @@ class App {
                             return;
                         }
                         const link = links[index];
-                        const newNode = new DocNode();
-                        const newNodeId = this.nodeManager.length();
-                        newNode.doc = link;
-                        const v = vector2Rotate(offsetV, angle * index);
-                        newNode.posX = node.posX + v.x + (Math.random() - 0.5) * 20;
-                        newNode.posY = node.posY + v.y + (Math.random() - 0.5) * 20;
-                        this.nodeManager.pushNode(newNode);
-                        this.nodeManager.setConnected(nodeId, newNodeId, true);
+                        const existingNodeId = this.nodeManager.findNodeFromTitle(link);
+                        if (existingNodeId < 0) {
+                            const newNode = new DocNode();
+                            const newNodeId = this.nodeManager.length();
+                            newNode.title = link;
+                            const v = vector2Rotate(offsetV, angle * index);
+                            newNode.posX = node.posX + v.x + (Math.random() - 0.5) * 20;
+                            newNode.posY = node.posY + v.y + (Math.random() - 0.5) * 20;
+                            this.nodeManager.pushNode(newNode);
+                            this.nodeManager.setConnected(nodeId, newNodeId, true);
+                        }
+                        else {
+                            this.nodeManager.setConnected(nodeId, existingNodeId, true);
+                        }
                         index += 1;
                         setTimeout(addNode, 3);
                     };
@@ -262,7 +276,7 @@ class App {
         const testNode = new DocNode();
         testNode.posX = 150;
         testNode.posY = 150;
-        testNode.doc = "Miss Meyers";
+        testNode.title = "Miss Meyers";
         this.nodeManager.pushNode(testNode);
         // TEST TEST TEST TEST
     }
@@ -379,7 +393,7 @@ class App {
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i);
             const pos = this.worldToViewport(node.posX, node.posY);
-            this.ctx.fillText(node.doc, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom);
+            this.ctx.fillText(node.title, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom);
         }
         // draw circles
         {
