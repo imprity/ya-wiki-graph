@@ -8,7 +8,6 @@ export function strokeLine(
     ctx.beginPath();
 
     ctx.lineWidth = lineWidth
-    ctx.lineCap = 'round'
     ctx.strokeStyle = color
 
     ctx.moveTo(x1, y1);

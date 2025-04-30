@@ -1,7 +1,6 @@
 export function strokeLine(ctx, x1, y1, x2, y2, lineWidth, color) {
     ctx.beginPath();
     ctx.lineWidth = lineWidth;
-    ctx.lineCap = 'round';
     ctx.strokeStyle = color;
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);

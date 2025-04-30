@@ -113,8 +113,20 @@ function calculateSum(a: number, b: number): number {
     return (b - a + 1) * (a + b) / 2
 }
 
+class Connection {
+    nodeIdA: number
+    nodeIdB: number
+
+    constructor(nodeIdA: number, nodeIdB: number) {
+        this.nodeIdA = nodeIdA
+        this.nodeIdB = nodeIdB
+    }
+}
+
 class NodeManager {
     _connectionMatrix: Array<boolean>
+
+    _connections: Array<Connection> = []
 
     _length: number = 0
     _capacity: number
@@ -132,7 +144,7 @@ class NodeManager {
     }
 
     isConnected(nodeIdA: number, nodeIdB: number): boolean {
-        if (nodeIdA == nodeIdB) {
+        if (nodeIdA === nodeIdB) {
             return false
         }
         return this._connectionMatrix[this.getConMatIndex(nodeIdA, nodeIdB)]
@@ -142,25 +154,41 @@ class NodeManager {
         nodeIdA: number, nodeIdB: number,
         connected: boolean
     ): void {
-        if (nodeIdA == nodeIdB) {
+        if (nodeIdA === nodeIdB) {
             return
         }
-        this._connectionMatrix[this.getConMatIndex(nodeIdA, nodeIdB)] = connected
+
+        const index = this.getConMatIndex(nodeIdA, nodeIdB)
+        const wasConnedted = this._connectionMatrix[index]
+
+        if (wasConnedted != connected) {
+            if (wasConnedted) { // we have to remove connection
+                let toRemoveAt = -1
+
+                for (let i = 0; i < this._connections.length; i++) {
+                    const con = this._connections[i]
+                    if (con.nodeIdA === nodeIdA && con.nodeIdB === nodeIdB) {
+                        toRemoveAt = i
+                        break
+                    }
+                }
+
+                if (toRemoveAt >= 0) {
+                    if (this._connections.length > 0) {
+                        this._connections[toRemoveAt] = this._connections[this._connections.length - 1]
+                    }
+                    this._connections.length = this._connections.length - 1
+                }
+            } else { // we have to add connection
+                this._connections.push(new Connection(nodeIdA, nodeIdB))
+            }
+
+            this._connectionMatrix[index] = connected
+        }
     }
 
-    getConnections(nodeId: number): Array<number> {
-        let connectedIds: Array<number> = []
-
-        for (let otherId = 0; otherId < this._length; otherId++) {
-            if (nodeId == otherId) {
-                continue
-            }
-            if (this.isConnected(nodeId, otherId)) {
-                connectedIds.push(otherId)
-            }
-        }
-
-        return connectedIds
+    getConnections(): Array<Connection> {
+        return this._connections
     }
 
     getNodeAt(index: number): DocNode {
@@ -171,7 +199,7 @@ class NodeManager {
         nodeIdA: number, nodeIdB: number,
         capacity: number
     ): number {
-        if (nodeIdA == nodeIdB) {
+        if (nodeIdA === nodeIdB) {
             return -1
         }
 
@@ -282,11 +310,13 @@ class App {
     constructor(canvas: HTMLCanvasElement) {
         this.canvasElement = canvas
 
-        const ctx = canvas.getContext('2d', { desynchronized: true })
-        if (ctx == null) {
+        const ctx = canvas.getContext('2d')
+        if (ctx === null) {
             throw new Error("failed to get canvas context")
         }
         this.ctx = ctx
+
+        this.ctx.imageSmoothingEnabled = false
 
         this.updateWidthAndHeight()
 
@@ -469,11 +499,14 @@ class App {
                 const nodeB = this.nodeManager.getNodeAt(b)
 
                 applyRepulsion(nodeA, nodeB, this.repulsion, this.nodeRadius)
-                if (this.nodeManager.isConnected(a, b)) {
-                    applySpring(nodeA, nodeB, this.springDist, this.spring, this.nodeRadius)
-                }
             }
         }
+
+        this.nodeManager.getConnections().forEach((con) => {
+            const nodeA = this.nodeManager.getNodeAt(con.nodeIdA)
+            const nodeB = this.nodeManager.getNodeAt(con.nodeIdB)
+            applySpring(nodeA, nodeB, this.springDist, this.spring, this.nodeRadius)
+        })
 
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i)
@@ -485,24 +518,21 @@ class App {
 
     draw(deltaTime: DOMHighResTimeStamp) {
         // draw connections
-        for (let a = 0; a < this.nodeManager.length(); a++) {
-            for (let b = 0; b < this.nodeManager.length(); b++) {
-                if (this.nodeManager.isConnected(a, b)) {
-                    const nodeA = this.nodeManager.getNodeAt(a)
-                    const nodeB = this.nodeManager.getNodeAt(b)
+        this.nodeManager.getConnections().forEach((con) => {
+            const nodeA = this.nodeManager.getNodeAt(con.nodeIdA)
+            const nodeB = this.nodeManager.getNodeAt(con.nodeIdB)
 
-                    const posA = this.worldToViewport(nodeA.posX, nodeA.posY)
-                    const posB = this.worldToViewport(nodeB.posX, nodeB.posY)
+            const posA = this.worldToViewport(nodeA.posX, nodeA.posY)
+            const posB = this.worldToViewport(nodeB.posX, nodeB.posY)
 
-                    cd.strokeLine(
-                        this.ctx,
-                        posA.x, posA.y,
-                        posB.x, posB.y,
-                        2 * this.zoom, "grey"
-                    )
-                }
-            }
-        }
+            cd.strokeLine(
+                this.ctx,
+                posA.x, posA.y,
+                posB.x, posB.y,
+                2 * this.zoom, "grey"
+            )
+        })
+
 
         // draw circles
         for (let i = 0; i < this.nodeManager.length(); i++) {
