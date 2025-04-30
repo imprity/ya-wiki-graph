@@ -282,7 +282,7 @@ class App {
     constructor(canvas: HTMLCanvasElement) {
         this.canvasElement = canvas
 
-        const ctx = canvas.getContext('2d')
+        const ctx = canvas.getContext('2d', { desynchronized: true })
         if (ctx == null) {
             throw new Error("failed to get canvas context")
         }
@@ -460,7 +460,7 @@ class App {
         }
     }
 
-    update() {
+    update(deltaTime: DOMHighResTimeStamp) {
         this.updateWidthAndHeight()
 
         for (let a = 0; a < this.nodeManager.length(); a++) {
@@ -483,7 +483,7 @@ class App {
         }
     }
 
-    draw() {
+    draw(deltaTime: DOMHighResTimeStamp) {
         // draw connections
         for (let a = 0; a < this.nodeManager.length(); a++) {
             for (let b = 0; b < this.nodeManager.length(); b++) {
@@ -533,6 +533,18 @@ class App {
             pos = this.worldToViewport(pos.x, pos.y)
             cd.fillCircle(this.ctx, pos.x, pos.y, 10 * this.zoom, "red")
         }
+
+        // draw fps estimate
+        {
+            let estimate = 1000.0 / deltaTime
+
+            this.ctx.font = `16px sans-serif`
+            this.ctx.fillStyle = "red"
+            this.ctx.textAlign = "start"
+            this.ctx.textRendering = "optimizeSpeed"
+            this.ctx.textBaseline = "top"
+            this.ctx.fillText(Math.round(estimate).toString(), 0, 0)
+        }
     }
 
     updateWidthAndHeight() {
@@ -578,9 +590,17 @@ function main() {
 
     const app = new App(canvas)
 
-    const onFrame = () => {
-        app.update()
-        app.draw()
+    let prevTime: DOMHighResTimeStamp | undefined
+
+    const onFrame = (timestamp: DOMHighResTimeStamp) => {
+        if (prevTime === undefined) {
+            prevTime = timestamp
+        }
+        const deltaTime = timestamp - prevTime
+        prevTime = timestamp
+
+        app.update(deltaTime)
+        app.draw(deltaTime)
         requestAnimationFrame(onFrame)
 
         /*

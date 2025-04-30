@@ -250,7 +250,7 @@ class App {
             }
         });
         this.canvasElement = canvas;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { desynchronized: true });
         if (ctx == null) {
             throw new Error("failed to get canvas context");
         }
@@ -346,7 +346,7 @@ class App {
                 break;
         }
     }
-    update() {
+    update(deltaTime) {
         this.updateWidthAndHeight();
         for (let a = 0; a < this.nodeManager.length(); a++) {
             for (let b = a + 1; b < this.nodeManager.length(); b++) {
@@ -364,7 +364,7 @@ class App {
             resetForce(node);
         }
     }
-    draw() {
+    draw(deltaTime) {
         // draw connections
         for (let a = 0; a < this.nodeManager.length(); a++) {
             for (let b = 0; b < this.nodeManager.length(); b++) {
@@ -401,6 +401,16 @@ class App {
             pos = this.worldToViewport(pos.x, pos.y);
             cd.fillCircle(this.ctx, pos.x, pos.y, 10 * this.zoom, "red");
         }
+        // draw fps estimate
+        {
+            let estimate = 1000.0 / deltaTime;
+            this.ctx.font = `16px sans-serif`;
+            this.ctx.fillStyle = "red";
+            this.ctx.textAlign = "start";
+            this.ctx.textRendering = "optimizeSpeed";
+            this.ctx.textBaseline = "top";
+            this.ctx.fillText(Math.round(estimate).toString(), 0, 0);
+        }
     }
     updateWidthAndHeight() {
         const rect = this.canvasElement.getBoundingClientRect();
@@ -431,9 +441,15 @@ function main() {
     canvas.style.height = "500px";
     canvas.style.border = 'solid';
     const app = new App(canvas);
-    const onFrame = () => {
-        app.update();
-        app.draw();
+    let prevTime;
+    const onFrame = (timestamp) => {
+        if (prevTime === undefined) {
+            prevTime = timestamp;
+        }
+        const deltaTime = timestamp - prevTime;
+        prevTime = timestamp;
+        app.update(deltaTime);
+        app.draw(deltaTime);
         requestAnimationFrame(onFrame);
         /*
         // TODO: very bad way of keeping a 60 frames per second
