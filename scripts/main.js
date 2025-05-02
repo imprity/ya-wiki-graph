@@ -105,6 +105,128 @@ class Connection {
         this.nodeIdB = nodeIdB;
     }
 }
+var Direction;
+(function (Direction) {
+    Direction[Direction["TopLeft"] = 0] = "TopLeft";
+    Direction[Direction["TopRight"] = 1] = "TopRight";
+    Direction[Direction["BottomLeft"] = 2] = "BottomLeft";
+    Direction[Direction["BottomRight"] = 3] = "BottomRight";
+})(Direction || (Direction = {}));
+class QuadTree {
+    constructor(minX, minY, maxX, maxY) {
+        this.hasChildren = false;
+        this.childrenTrees = new Array(4).fill(null);
+        this.node = null;
+        this.centerOfMassX = 0;
+        this.centerOfMassY = 0;
+        this.centerOfMassXSum = 0;
+        this.centerOfMassYSum = 0;
+        this.centerOfMassCached = false;
+        this.nodeCount = 0;
+        this.minX = minX;
+        this.minY = minY;
+        this.maxX = maxX;
+        this.maxY = maxY;
+        this.centerX = (this.minX + this.maxX) * 0.5;
+        this.centerY = (this.minY + this.maxY) * 0.5;
+    }
+    getPosDirection(posX, posY) {
+        let onLeft = false;
+        let onTop = false;
+        if (posX < this.centerX) {
+            onLeft = true;
+        }
+        if (posY < this.centerY) {
+            onTop = true;
+        }
+        if (onLeft) { // left
+            if (onTop) { // top
+                return Direction.TopLeft;
+            }
+            else { // bottom
+                return Direction.BottomLeft;
+            }
+        }
+        else { // right
+            if (onTop) { // top
+                return Direction.TopRight;
+            }
+            else { // bottom
+                return Direction.BottomRight;
+            }
+        }
+    }
+    createChild(dir) {
+        switch (dir) {
+            case Direction.TopLeft:
+                {
+                    return new QuadTree(this.minX, this.minY, this.centerX, this.centerY);
+                }
+                break;
+            case Direction.TopRight:
+                {
+                    return new QuadTree(this.centerX, this.minY, this.maxX, this.centerY);
+                }
+                break;
+            case Direction.BottomLeft:
+                {
+                    return new QuadTree(this.minX, this.centerY, this.centerX, this.maxY);
+                }
+                break;
+            case Direction.BottomRight:
+                {
+                    return new QuadTree(this.centerX, this.centerY, this.maxX, this.maxY);
+                }
+                break;
+        }
+    }
+    cacheCenterOfMass() {
+        if (this.centerOfMassCached) {
+            return;
+        }
+        this.centerOfMassCached = true;
+        if (this.node !== null) {
+            this.centerOfMassX = this.node.posX;
+            this.centerOfMassY = this.node.posY;
+            this.centerOfMassXSum = this.node.posX;
+            this.centerOfMassYSum = this.node.posY;
+            return;
+        }
+        this.centerOfMassXSum = 0;
+        this.centerOfMassYSum = 0;
+        for (const child of this.childrenTrees) {
+            if (child !== null) {
+                child.cacheCenterOfMass();
+                this.centerOfMassXSum += child.centerOfMassXSum;
+                this.centerOfMassYSum += child.centerOfMassYSum;
+            }
+        }
+        this.centerOfMassX = this.centerOfMassXSum / this.nodeCount;
+        this.centerOfMassY = this.centerOfMassYSum / this.nodeCount;
+    }
+    pushNode(node) {
+        this.nodeCount++;
+        if (this.node === null && !this.hasChildren) {
+            this.node = node;
+            return;
+        }
+        this.hasChildren = true;
+        if (this.node !== null) {
+            const ogNode = this.node;
+            this.node = null;
+            const ogNodeDirection = this.getPosDirection(ogNode.posX, ogNode.posY);
+            if (this.childrenTrees[ogNodeDirection] === null) {
+                this.childrenTrees[ogNodeDirection] = this.createChild(ogNodeDirection);
+            }
+            this.childrenTrees[ogNodeDirection].pushNode(ogNode);
+        }
+        const nodeDirection = this.getPosDirection(node.posX, node.posY);
+        if (this.childrenTrees[nodeDirection] === null) {
+            this.childrenTrees[nodeDirection] = this.createChild(nodeDirection);
+        }
+        this.childrenTrees[nodeDirection].pushNode(node);
+    }
+}
 class SerializationContainer {
     constructor() {
         this.nodes = [];
@@ -267,6 +389,28 @@ class NodeManager {
         }
         return -1;
     }
+    buildQuadTree() {
+        if (this.length() <= 0) {
+            return new QuadTree(0, 0, 0, 0);
+        }
+        let minX = Number.MAX_VALUE;
+        let minY = Number.MAX_VALUE;
+        let maxX = -Number.MAX_VALUE;
+        let maxY = -Number.MAX_VALUE;
+        for (let i = 0; i < this.length(); i++) {
+            const node = this._nodes[i];
+            minX = Math.min(node.posX, minX);
+            minY = Math.min(node.posY, minY);
+            maxX = Math.max(node.posX, maxX);
+            maxY = Math.max(node.posY, maxY);
+        }
+        const root = new QuadTree(minX, minY, maxX, maxY);
+        for (let i = 0; i < this.length(); i++) {
+            const node = this._nodes[i];
+            root.pushNode(node);
+        }
+        return root;
+    }
     length() {
         return this._length;
     }
@@ -380,7 +524,8 @@ class App {
         const testNode = new DocNode();
         testNode.posX = 150;
         testNode.posY = 150;
-        testNode.title = "English language";
+        //testNode.title = "English language"
+        testNode.title = "Miss Meyers";
         this.nodeManager.pushNode(testNode);
         // TEST TEST TEST TEST
     }
@@ -503,6 +648,28 @@ class App {
             pos = this.worldToViewport(pos.x, pos.y);
             cd.fillCircle(this.ctx, pos.x, pos.y, 10 * this.zoom, "red");
         }
+        // TEST TEST TEST TEST TEST
+        // draw quad tree
+        {
+            const drawTree = (tree) => {
+                const min = this.worldToViewport(tree.minX, tree.minY);
+                const max = this.worldToViewport(tree.maxX, tree.maxY);
+                cd.strokeRect(this.ctx, min.x, min.y, (max.x - min.x) * 0.95, (max.y - min.y) * 0.95, 1, "green");
+                if (tree.hasChildren) {
+                    const mass = this.worldToViewport(tree.centerOfMassX, tree.centerOfMassY);
+                    cd.fillCircle(this.ctx, mass.x, mass.y, 4, "blue");
+                }
+                for (const child of tree.childrenTrees) {
+                    if (child != null) {
+                        drawTree(child);
+                    }
+                }
+            };
+            const root = this.nodeManager.buildQuadTree();
+            root.cacheCenterOfMass();
+            drawTree(root);
+        }
+        // TEST TEST TEST TEST TEST
         // draw fps estimate
         {
             let estimate = 1000.0 / deltaTime;
