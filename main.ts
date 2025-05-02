@@ -1,5 +1,6 @@
 import * as cd from "./canvas.js"
 import * as wiki from "./wiki.js"
+import * as util from "./util.js"
 
 interface Vector2 {
     x: number
@@ -19,9 +20,6 @@ function vector2Rotate(v: Vector2, rot: number): Vector2 {
 class DocNode {
     posX: number = 0
     posY: number = 0
-
-    forceX: number = 0
-    forceY: number = 0
 
     title: string = ""
 }
@@ -99,16 +97,6 @@ function applySpring(
     nodeB.posY += atobFY
 }
 
-function applyForce(node: DocNode) {
-    node.posX += node.forceX
-    node.posY += node.forceY
-}
-
-function resetForce(node: DocNode) {
-    node.forceX *= 0
-    node.forceY *= 0
-}
-
 function calculateSum(a: number, b: number): number {
     return (b - a + 1) * (a + b) / 2
 }
@@ -123,24 +111,92 @@ class Connection {
     }
 }
 
+class SerializationContainer {
+    nodes: Array<DocNode> = []
+    connections: Array<Connection> = []
+
+    offsetX: number = 0
+    offsetY: number = 0
+
+    zoom: number = 0
+}
+
+
+function isSerializationContainer(obj: any): boolean {
+    if (typeof obj !== 'object') {
+        return false
+    }
+
+    function objHasMatchingKeys(obj: any, instance: any): boolean {
+        const keys = Reflect.ownKeys(instance)
+
+        for (const key of keys) {
+            const instanceType = typeof instance[key]
+            const objType = typeof obj[key]
+
+            if (instanceType !== objType) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    if (!objHasMatchingKeys(obj, new SerializationContainer())) {
+        return false
+    }
+
+    if (obj.nodes.length > 0) {
+        const dummyNode = new DocNode()
+
+        for (const objNode of obj.nodes) {
+            if (!objHasMatchingKeys(objNode, dummyNode)) {
+                return false
+            }
+        }
+    }
+
+    if (obj.connections.length > 0) {
+        const dummyCon = new Connection(0, 0)
+
+        for (const objCon of obj.connections) {
+            if (!objHasMatchingKeys(objCon, dummyCon)) {
+                return false
+            }
+        }
+    }
+
+    return true
+}
+
 class NodeManager {
-    _connectionMatrix: Array<boolean>
+    _connectionMatrix: Array<boolean> = []
 
     _connections: Array<Connection> = []
 
     _length: number = 0
-    _capacity: number
+    _capacity: number = 0
 
-    _nodes: Array<DocNode>
+    _nodes: Array<DocNode> = []
     _titleToNodes: Record<string, number> = {}
 
     constructor() {
+        this.reset()
+    }
+
+    reset() {
         const initCapacity = 16
         const matrixSize = calculateSum(1, initCapacity - 1)
 
         this._connectionMatrix = Array(matrixSize).fill(false)
-        this._nodes = Array(matrixSize)
+
+        this._connections = []
+
+        this._length = 0
         this._capacity = initCapacity
+
+        this._nodes = Array(initCapacity)
+        this._titleToNodes = {}
     }
 
     isConnected(nodeIdA: number, nodeIdB: number): boolean {
@@ -351,9 +407,6 @@ class App {
     }
 
     handleEvent(e: Event) {
-
-        //console.log(e)
-
         switch (e.type) {
             case "keydown": {
                 const keyEvent = e as KeyboardEvent
@@ -371,9 +424,6 @@ class App {
                         this.offsetX -= 10
                         break
                 }
-
-                console.log(`x:${this.offsetX}, y:${this.offsetY}`)
-
             } break
 
             case "wheel": {
@@ -418,7 +468,6 @@ class App {
                     const distSquared = dx * dx + dy * dy
 
                     if (distSquared < this.nodeRadius * this.nodeRadius) {
-                        //console.log(`clicked ${node.doc}`)
                         this.expandNode(i)
                         break
                     }
@@ -454,6 +503,8 @@ class App {
                 const offsetV = { x: 0, y: - 100 }
                 let index = 0;
 
+                const addNodeOneByOne = false
+
                 const addNode = () => {
                     if (index >= links.length) {
                         return
@@ -479,9 +530,17 @@ class App {
 
                     index += 1
 
-                    setTimeout(addNode, 3)
+                    if (addNodeOneByOne) {
+                        setTimeout(addNode, 3)
+                    } else {
+                        addNode()
+                    }
                 }
-                setTimeout(addNode, 3)
+                if (addNodeOneByOne) {
+                    setTimeout(addNode, 3)
+                } else {
+                    addNode()
+                }
             }
         } catch (err) {
             console.error(err)
@@ -507,13 +566,6 @@ class App {
             const nodeB = this.nodeManager.getNodeAt(con.nodeIdB)
             applySpring(nodeA, nodeB, this.springDist, this.spring, this.nodeRadius)
         })
-
-        for (let i = 0; i < this.nodeManager.length(); i++) {
-            const node = this.nodeManager.getNodeAt(i)
-
-            applyForce(node)
-            resetForce(node)
-        }
     }
 
     draw(deltaTime: DOMHighResTimeStamp) {
@@ -607,18 +659,91 @@ class App {
 
         return { x: x, y: y }
     }
+
+    serialize(): string {
+        const container = new SerializationContainer()
+
+        for (let i = 0; i < this.nodeManager.length(); i++) {
+            container.nodes.push(this.nodeManager.getNodeAt(i))
+        }
+        container.connections = this.nodeManager.getConnections()
+
+        container.offsetX = this.offsetX
+        container.offsetY = this.offsetY
+
+        container.zoom = this.zoom
+
+        return JSON.stringify(container)
+    }
+
+    deserialize(jsonString: string) {
+        try {
+            const jsonObj = JSON.parse(jsonString)
+            if (!isSerializationContainer(jsonObj)) {
+                throw new Error("json object is not a SerializationContainer")
+            }
+            const container = jsonObj as SerializationContainer
+
+            this.nodeManager.reset()
+
+            for (const node of container.nodes) {
+                const nodeCopy = new DocNode()
+                nodeCopy.posX = node.posX
+                nodeCopy.posY = node.posY
+
+                nodeCopy.title = node.title
+
+                this.nodeManager.pushNode(nodeCopy)
+            }
+
+            for (const con of container.connections) {
+                this.nodeManager.setConnected(
+                    con.nodeIdA, con.nodeIdB, true,
+                )
+            }
+
+            this.offsetX = container.offsetX
+            this.offsetY = container.offsetY
+
+            this.zoom = container.zoom
+        } catch (err) {
+            console.error(err)
+        }
+    }
 }
 
 function main() {
-    const canvas = document.createElement('canvas')
-
-    document.body.appendChild(canvas)
-
-    canvas.style.width = "500px"
-    canvas.style.height = "500px"
-    canvas.style.border = 'solid'
+    const canvas = document.getElementById('my-canvas') as HTMLCanvasElement
+    if (canvas === null) {
+        throw new Error("failed to get canvas context")
+    }
 
     const app = new App(canvas)
+
+    // set up UI elements
+    {
+        const downloadButton = document.getElementById('download-button') as HTMLButtonElement
+        downloadButton.onclick = () => {
+            const jsonString = app.serialize()
+            util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.json')
+        }
+
+        const uploadInput = document.getElementById('upload-input') as HTMLInputElement
+
+        uploadInput.addEventListener('change', async (ev: Event) => {
+            if (uploadInput.files !== null) {
+                if (uploadInput.files.length > 0) {
+                    try {
+                        const file = uploadInput.files[0]
+                        const text = await file.text()
+                        app.deserialize(text)
+                    } catch (err) {
+                        console.error(err)
+                    }
+                }
+            }
+        })
+    }
 
     let prevTime: DOMHighResTimeStamp | undefined
 

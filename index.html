@@ -1,14 +1,56 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta name="viewport" content="width=device-width, maximum-scale=1.0, initial-scale=1.0, user-scalable=no" />
     <meta charset="UTF-8">
+    <style>
+        /*margin border padding zero*/
+        .mbp-zero {
+            margin: 0px;
+            border-width: 0px;
+            padding: 0px;
+            outline: none;
+        }
+
+        .parent-div {
+            display: flex;
+            width: 100dvw;
+            height: 100dvh;
+        }
+
+        .debug-ui-container {
+            margin: 3px;
+        }
+
+        label {
+            line-height : 2.3;
+        }
+
+        @media only screen and (max-width: 500px) {
+            .parent-div {
+                flex-direction: column;
+            }
+        }
+    </style>
 </head>
 
-<body>
-    <h1>Sup</h1>
-    <script src="scripts/canvas.js" type="module"></script>
+<body class="mbp-zero" style="width:100dvw; height:100dvh;">
+    <div class="mbp-zero parent-div">
+        <div style="border:solid; flex-grow:1; position:relative; min-width:50%; min-height:50%; margin:3px;">
+            <canvas style="position:absolute; width:100%; height:100%" id="my-canvas"></canvas>
+        </div>
+        <div style="margin:3px; overflow:auto">
+            <div class="debug-ui-container">
+                <button id="download-button">download graph</button>
+            </div>
+            <div class="debug-ui-container">
+                <label for="upload-input">upload graph</label>
+                <input type="file" accept=".json" id="upload-input"/>
+            </div>
+        </div>
+    </div>
     <script src="scripts/main.js" type="module"></script>
 </body>
-</html>
 
+</html>
