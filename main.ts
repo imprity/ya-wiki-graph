@@ -21,6 +21,9 @@ class DocNode {
     posX: number = 0
     posY: number = 0
 
+    forceX: number = 0
+    forceY: number = 0
+
     title: string = ""
 }
 
@@ -39,8 +42,14 @@ function drawDocNode(
 }
 
 function applyRepulsion(nodeA: DocNode, nodeB: DocNode, force: number, minDist: number) {
-    const atobX = nodeB.posX - nodeA.posX
-    const atobY = nodeB.posY - nodeA.posY
+    const aPosX = nodeA.posX + nodeA.forceX
+    const aPosY = nodeA.posY + nodeA.forceY
+
+    const bPosX = nodeB.posX + nodeB.forceX
+    const bPosY = nodeB.posY + nodeB.forceY
+
+    const atobX = bPosX - aPosX
+    const atobY = bPosY - aPosY
 
     let distSquared = atobX * atobX + atobY * atobY
     if (distSquared < 0.001) {
@@ -57,21 +66,34 @@ function applyRepulsion(nodeA: DocNode, nodeB: DocNode, force: number, minDist: 
     let atobFX = atobNX * (force / distSquared)
     let atobFY = atobNY * (force / distSquared)
 
-    nodeA.posX -= atobFX
-    nodeA.posY -= atobFY
+    // nodeA.posX -= atobFX
+    // nodeA.posY -= atobFY
 
-    nodeB.posX += atobFX
-    nodeB.posY += atobFY
+    // nodeB.posX += atobFX
+    // nodeB.posY += atobFY
+
+    nodeA.forceX -= atobFX
+    nodeA.forceY -= atobFY
+
+    nodeB.forceX += atobFX
+    nodeB.forceY += atobFY
 }
 
 function applySpring(
     nodeA: DocNode, nodeB: DocNode,
     relaxedDist: number,
+    maxDistDiff: number,
     force: number,
     minDist: number
 ) {
-    const atobX = nodeB.posX - nodeA.posX
-    const atobY = nodeB.posY - nodeA.posY
+    const aPosX = nodeA.posX + nodeA.forceX
+    const aPosY = nodeA.posY + nodeA.forceY
+
+    const bPosX = nodeB.posX + nodeB.forceX
+    const bPosY = nodeB.posY + nodeB.forceY
+
+    const atobX = bPosX - aPosX
+    const atobY = bPosY - aPosY
 
     let distSquared = atobX * atobX + atobY * atobY
     if (distSquared < 0.001) {
@@ -87,14 +109,26 @@ function applySpring(
 
     let delta = relaxedDist - dist
 
+    if (delta < -maxDistDiff) {
+        delta = -maxDistDiff
+    } else if (delta > maxDistDiff) {
+        delta = maxDistDiff
+    }
+
     let atobFX = atobNX * delta * force
     let atobFY = atobNY * delta * force
 
-    nodeA.posX -= atobFX
-    nodeA.posY -= atobFY
+    // nodeA.posX -= atobFX
+    // nodeA.posY -= atobFY
+    //
+    // nodeB.posX += atobFX
+    // nodeB.posY += atobFY
 
-    nodeB.posX += atobFX
-    nodeB.posY += atobFY
+    nodeA.forceX -= atobFX
+    nodeA.forceY -= atobFY
+
+    nodeB.forceX += atobFX
+    nodeB.forceY += atobFY
 }
 
 function calculateSum(a: number, b: number): number {
@@ -361,6 +395,7 @@ class App {
 
     repulsion = 3000
     springDist = 200
+    springDistDiffMax = 5000
     spring = 0.002
 
     constructor(canvas: HTMLCanvasElement) {
@@ -401,7 +436,7 @@ class App {
         const testNode = new DocNode()
         testNode.posX = 150
         testNode.posY = 150
-        testNode.title = "Miss Meyers"
+        testNode.title = "English language"
         this.nodeManager.pushNode(testNode)
         // TEST TEST TEST TEST
     }
@@ -564,8 +599,25 @@ class App {
         this.nodeManager.getConnections().forEach((con) => {
             const nodeA = this.nodeManager.getNodeAt(con.nodeIdA)
             const nodeB = this.nodeManager.getNodeAt(con.nodeIdB)
-            applySpring(nodeA, nodeB, this.springDist, this.spring, this.nodeRadius)
+
+            applySpring(
+                nodeA, nodeB,
+                this.springDist,
+                this.springDistDiffMax,
+                this.spring,
+                this.nodeRadius,
+            )
         })
+
+        //apply force
+        for (let i = 0; i < this.nodeManager.length(); i++) {
+            const node = this.nodeManager.getNodeAt(i)
+            node.posX += node.forceX
+            node.posY += node.forceY
+
+            node.forceX = 0
+            node.forceY = 0
+        }
     }
 
     draw(deltaTime: DOMHighResTimeStamp) {
@@ -688,8 +740,12 @@ class App {
 
             for (const node of container.nodes) {
                 const nodeCopy = new DocNode()
+
                 nodeCopy.posX = node.posX
                 nodeCopy.posY = node.posY
+
+                // we don't need to deserialize force
+                // it will be handled by at later tick
 
                 nodeCopy.title = node.title
 

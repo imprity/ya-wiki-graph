@@ -22,6 +22,8 @@ class DocNode {
     constructor() {
         this.posX = 0;
         this.posY = 0;
+        this.forceX = 0;
+        this.forceY = 0;
         this.title = "";
     }
 }
@@ -35,8 +37,12 @@ function drawDocNode(ctx, node) {
     ctx.fillText(node.title, node.posX, node.posY - radius - 2.0);
 }
 function applyRepulsion(nodeA, nodeB, force, minDist) {
-    const atobX = nodeB.posX - nodeA.posX;
-    const atobY = nodeB.posY - nodeA.posY;
+    const aPosX = nodeA.posX + nodeA.forceX;
+    const aPosY = nodeA.posY + nodeA.forceY;
+    const bPosX = nodeB.posX + nodeB.forceX;
+    const bPosY = nodeB.posY + nodeB.forceY;
+    const atobX = bPosX - aPosX;
+    const atobY = bPosY - aPosY;
     let distSquared = atobX * atobX + atobY * atobY;
     if (distSquared < 0.001) {
         return;
@@ -47,14 +53,22 @@ function applyRepulsion(nodeA, nodeB, force, minDist) {
     const atobNY = atobY / dist;
     let atobFX = atobNX * (force / distSquared);
     let atobFY = atobNY * (force / distSquared);
-    nodeA.posX -= atobFX;
-    nodeA.posY -= atobFY;
-    nodeB.posX += atobFX;
-    nodeB.posY += atobFY;
+    // nodeA.posX -= atobFX
+    // nodeA.posY -= atobFY
+    // nodeB.posX += atobFX
+    // nodeB.posY += atobFY
+    nodeA.forceX -= atobFX;
+    nodeA.forceY -= atobFY;
+    nodeB.forceX += atobFX;
+    nodeB.forceY += atobFY;
 }
-function applySpring(nodeA, nodeB, relaxedDist, force, minDist) {
-    const atobX = nodeB.posX - nodeA.posX;
-    const atobY = nodeB.posY - nodeA.posY;
+function applySpring(nodeA, nodeB, relaxedDist, maxDistDiff, force, minDist) {
+    const aPosX = nodeA.posX + nodeA.forceX;
+    const aPosY = nodeA.posY + nodeA.forceY;
+    const bPosX = nodeB.posX + nodeB.forceX;
+    const bPosY = nodeB.posY + nodeB.forceY;
+    const atobX = bPosX - aPosX;
+    const atobY = bPosY - aPosY;
     let distSquared = atobX * atobX + atobY * atobY;
     if (distSquared < 0.001) {
         return;
@@ -64,12 +78,23 @@ function applySpring(nodeA, nodeB, relaxedDist, force, minDist) {
     const atobNX = atobX / dist;
     const atobNY = atobY / dist;
     let delta = relaxedDist - dist;
+    if (delta < -maxDistDiff) {
+        delta = -maxDistDiff;
+    }
+    else if (delta > maxDistDiff) {
+        delta = maxDistDiff;
+    }
     let atobFX = atobNX * delta * force;
     let atobFY = atobNY * delta * force;
-    nodeA.posX -= atobFX;
-    nodeA.posY -= atobFY;
-    nodeB.posX += atobFX;
-    nodeB.posY += atobFY;
+    // nodeA.posX -= atobFX
+    // nodeA.posY -= atobFY
+    //
+    // nodeB.posX += atobFX
+    // nodeB.posY += atobFY
+    nodeA.forceX -= atobFX;
+    nodeA.forceY -= atobFY;
+    nodeB.forceX += atobFX;
+    nodeB.forceY += atobFY;
 }
 function calculateSum(a, b) {
     return (b - a + 1) * (a + b) / 2;
@@ -263,6 +288,7 @@ class App {
         this.nodeRadius = 8;
         this.repulsion = 3000;
         this.springDist = 200;
+        this.springDistDiffMax = 5000;
         this.spring = 0.002;
         this.expandNode = (nodeId) => __awaiter(this, void 0, void 0, function* () {
             if (this.isRequesting) {
@@ -354,7 +380,7 @@ class App {
         const testNode = new DocNode();
         testNode.posX = 150;
         testNode.posY = 150;
-        testNode.title = "Miss Meyers";
+        testNode.title = "English language";
         this.nodeManager.pushNode(testNode);
         // TEST TEST TEST TEST
     }
@@ -433,8 +459,16 @@ class App {
         this.nodeManager.getConnections().forEach((con) => {
             const nodeA = this.nodeManager.getNodeAt(con.nodeIdA);
             const nodeB = this.nodeManager.getNodeAt(con.nodeIdB);
-            applySpring(nodeA, nodeB, this.springDist, this.spring, this.nodeRadius);
+            applySpring(nodeA, nodeB, this.springDist, this.springDistDiffMax, this.spring, this.nodeRadius);
         });
+        //apply force
+        for (let i = 0; i < this.nodeManager.length(); i++) {
+            const node = this.nodeManager.getNodeAt(i);
+            node.posX += node.forceX;
+            node.posY += node.forceY;
+            node.forceX = 0;
+            node.forceY = 0;
+        }
     }
     draw(deltaTime) {
         // draw connections
@@ -524,6 +558,8 @@ class App {
                 const nodeCopy = new DocNode();
                 nodeCopy.posX = node.posX;
                 nodeCopy.posY = node.posY;
+                // we don't need to deserialize force
+                // it will be handled by at later tick
                 nodeCopy.title = node.title;
                 this.nodeManager.pushNode(nodeCopy);
             }
