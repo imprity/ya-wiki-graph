@@ -774,6 +774,8 @@ class App {
     update(deltaTime: DOMHighResTimeStamp) {
         this.updateWidthAndHeight()
 
+        const barnesHutLimit = 1.1
+
         // apply repulsion
         {
             const root = this.treeBuilder.buildTree(this.nodeManager)
@@ -795,10 +797,19 @@ class App {
                 const toCenterY = tree.centerOfMassY - node.posY
 
                 let distSquared = toCenterX * toCenterX + toCenterY * toCenterY
-                distSquared = Math.max(distSquared, 0.0001)
-                const dist = Math.sqrt(distSquared)
 
-                if ((tree.maxX - tree.minX) / dist < 1) {
+                let doBarnesHutOpt = false
+
+                if (distSquared < 0.0001) {
+                    doBarnesHutOpt = true
+                } else {
+                    const dist = Math.sqrt(distSquared)
+                    if ((tree.maxX - tree.minX) / dist < barnesHutLimit) {
+                        doBarnesHutOpt = true
+                    }
+                }
+
+                if (doBarnesHutOpt) {
                     applyRepulsion(
                         node,
                         tree.centerOfMassX, tree.centerOfMassY,
