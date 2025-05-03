@@ -288,36 +288,35 @@ class QuadTreeBuilder {
 }
 class NodeManager {
     constructor() {
-        this._connectionMatrix = [];
+        this._connectionMatrix = new Map();
         this._connections = [];
         this._length = 0;
         this._capacity = 0;
         this._nodes = [];
-        this._titleToNodes = {};
+        this._titleToNodes = new Map();
         this.reset();
     }
     reset() {
         const initCapacity = 512;
         const matrixSize = calculateSum(1, initCapacity - 1);
-        this._connectionMatrix = Array(matrixSize).fill(false);
         this._connections = [];
         this._length = 0;
         this._capacity = initCapacity;
         this._nodes = Array(initCapacity);
-        this._titleToNodes = {};
+        this._titleToNodes = new Map();
     }
     isConnected(nodeIndexA, nodeIndexB) {
         if (nodeIndexA === nodeIndexB) {
             return false;
         }
-        return this._connectionMatrix[this.getConMatIndex(nodeIndexA, nodeIndexB)];
+        return this._connectionMatrix.has(this.getConMatIndex(nodeIndexA, nodeIndexB));
     }
     setConnected(nodeIndexA, nodeIndexB, connected) {
         if (nodeIndexA === nodeIndexB) {
             return;
         }
         const index = this.getConMatIndex(nodeIndexA, nodeIndexB);
-        const wasConnedted = this._connectionMatrix[index];
+        const wasConnedted = this._connectionMatrix.has(index);
         if (wasConnedted != connected) {
             if (wasConnedted) { // we have to remove connection
                 let toRemoveAt = -1;
@@ -338,7 +337,8 @@ class NodeManager {
             else { // we have to add connection
                 this._connections.push(new Connection(nodeIndexA, nodeIndexB));
             }
-            this._connectionMatrix[index] = connected;
+            //this._connectionMatrix[index] = connected
+            this._connectionMatrix.set(index, connected);
         }
     }
     getConnections() {
@@ -369,79 +369,50 @@ class NodeManager {
             const newCap = this._capacity * 2;
             const minCap = Math.min(oldCap, newCap);
             // grow connection matrix
+            /*
             {
-                const newMatrixSize = calculateSum(1, newCap - 1);
-                const oldMatrix = this._connectionMatrix;
-                const newMatrix = Array(newMatrixSize).fill(false);
+                const newMatrixSize = calculateSum(1, newCap - 1)
+
+                const oldMatrix = this._connectionMatrix
+                const newMatrix = Array(newMatrixSize).fill(false)
+
+
                 for (let a = 0; a < minCap; a++) {
                     for (let b = a + 1; b < minCap; b++) {
-                        const oldIndex = this._getConMatIndexImpl(a, b, oldCap);
-                        const newIndex = this._getConMatIndexImpl(a, b, newCap);
-                        newMatrix[newIndex] = oldMatrix[oldIndex];
+                        const oldIndex = this._getConMatIndexImpl(a, b, oldCap)
+                        const newIndex = this._getConMatIndexImpl(a, b, newCap)
+
+                        newMatrix[newIndex] = oldMatrix[oldIndex]
                     }
                 }
-                this._connectionMatrix = newMatrix;
+
+                this._connectionMatrix = newMatrix
+            }
+            */
+            {
+                this._connectionMatrix.clear();
+                for (const con of this._connections) {
+                    const index = this._getConMatIndexImpl(con.nodeIndexA, con.nodeIndexB, newCap);
+                    this._connectionMatrix.set(index, true);
+                }
             }
             // grow nodes
             {
-                /*
-                const oldNodes = this._nodes
-                const newNodes = Array(newCap)
-
-                for (let i = 0; i < minCap; i++) {
-                    newNodes[i] = oldNodes[i]
-                }
-                this._nodes = newNodes
-                */
                 this._nodes.length = newCap;
             }
             this._capacity = newCap;
         }
         this._nodes[this._length] = node;
-        this._titleToNodes[node.title] = this._length;
+        this._titleToNodes.set(node.title, this._length);
         this._length++;
     }
     findNodeFromTitle(title) {
-        if (title in this._titleToNodes) {
-            return this._titleToNodes[title];
+        const index = this._titleToNodes.get(title);
+        if (index === undefined) {
+            return -1;
         }
-        return -1;
+        return index;
     }
-    /*
-    buildQuadTree(): QuadTree {
-        if (this.length() <= 0) {
-            const tree = this.getNewTree()
-            tree.setRect(0, 0, 0, 0)
-            return tree
-        }
-
-        let minX: number = Number.MAX_VALUE
-        let minY: number = Number.MAX_VALUE
-
-        let maxX: number = -Number.MAX_VALUE
-        let maxY: number = -Number.MAX_VALUE
-
-        for (let i = 0; i < this.length(); i++) {
-            const node = this._nodes[i]
-
-            minX = Math.min(node.posX, minX)
-            minY = Math.min(node.posY, minY)
-
-            maxX = Math.max(node.posX, maxX)
-            maxY = Math.max(node.posY, maxY)
-        }
-
-        const root = new QuadTree(minX, minY, maxX, maxY)
-
-        for (let i = 0; i < this.length(); i++) {
-            const node = this._nodes[i]
-            root.pushNode(node)
-        }
-        root.cacheCenterOfMass()
-
-        return root
-    }
-    */
     length() {
         return this._length;
     }

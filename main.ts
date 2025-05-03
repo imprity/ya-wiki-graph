@@ -384,7 +384,7 @@ class QuadTreeBuilder {
 }
 
 class NodeManager {
-    _connectionMatrix: Array<boolean> = []
+    _connectionMatrix: Map<number, boolean> = new Map()
 
     _connections: Array<Connection> = []
 
@@ -392,7 +392,7 @@ class NodeManager {
     _capacity: number = 0
 
     _nodes: Array<DocNode> = []
-    _titleToNodes: Record<string, number> = {}
+    _titleToNodes: Map<string, number> = new Map()
 
     constructor() {
         this.reset()
@@ -402,22 +402,20 @@ class NodeManager {
         const initCapacity = 512
         const matrixSize = calculateSum(1, initCapacity - 1)
 
-        this._connectionMatrix = Array(matrixSize).fill(false)
-
         this._connections = []
 
         this._length = 0
         this._capacity = initCapacity
 
         this._nodes = Array(initCapacity)
-        this._titleToNodes = {}
+        this._titleToNodes = new Map()
     }
 
     isConnected(nodeIndexA: number, nodeIndexB: number): boolean {
         if (nodeIndexA === nodeIndexB) {
             return false
         }
-        return this._connectionMatrix[this.getConMatIndex(nodeIndexA, nodeIndexB)]
+        return this._connectionMatrix.has(this.getConMatIndex(nodeIndexA, nodeIndexB))
     }
 
     setConnected(
@@ -429,7 +427,7 @@ class NodeManager {
         }
 
         const index = this.getConMatIndex(nodeIndexA, nodeIndexB)
-        const wasConnedted = this._connectionMatrix[index]
+        const wasConnedted = this._connectionMatrix.has(index)
 
         if (wasConnedted != connected) {
             if (wasConnedted) { // we have to remove connection
@@ -453,7 +451,8 @@ class NodeManager {
                 this._connections.push(new Connection(nodeIndexA, nodeIndexB))
             }
 
-            this._connectionMatrix[index] = connected
+            //this._connectionMatrix[index] = connected
+            this._connectionMatrix.set(index, connected)
         }
     }
 
@@ -498,6 +497,7 @@ class NodeManager {
             const minCap = Math.min(oldCap, newCap)
 
             // grow connection matrix
+            /*
             {
                 const newMatrixSize = calculateSum(1, newCap - 1)
 
@@ -516,17 +516,18 @@ class NodeManager {
 
                 this._connectionMatrix = newMatrix
             }
+            */
+            {
+                this._connectionMatrix.clear()
+
+                for (const con of this._connections) {
+                    const index = this._getConMatIndexImpl(con.nodeIndexA, con.nodeIndexB, newCap)
+                    this._connectionMatrix.set(index, true)
+                }
+            }
+
             // grow nodes
             {
-                /*
-                const oldNodes = this._nodes
-                const newNodes = Array(newCap)
-
-                for (let i = 0; i < minCap; i++) {
-                    newNodes[i] = oldNodes[i]
-                }
-                this._nodes = newNodes
-                */
                 this._nodes.length = newCap
             }
 
@@ -534,15 +535,16 @@ class NodeManager {
         }
 
         this._nodes[this._length] = node
-        this._titleToNodes[node.title] = this._length
+        this._titleToNodes.set(node.title, this._length)
         this._length++
     }
 
     findNodeFromTitle(title: string): number {
-        if (title in this._titleToNodes) {
-            return this._titleToNodes[title]
+        const index = this._titleToNodes.get(title)
+        if (index === undefined) {
+            return -1
         }
-        return -1
+        return index
     }
 
     length(): number {
