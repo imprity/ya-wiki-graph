@@ -17,14 +17,27 @@ function vector2Rotate(v: Vector2, rot: number): Vector2 {
     }
 }
 
+let DOC_NODE_MAX_ID = 0
+
 class DocNode {
     posX: number = 0
     posY: number = 0
 
-    forceX: number = 0
-    forceY: number = 0
+    id: number = 0
 
     title: string = ""
+
+    constructor() {
+        this.id = DOC_NODE_MAX_ID
+        DOC_NODE_MAX_ID++
+    }
+}
+
+class CenterOfMass {
+    posX: number = 0
+    posY: number = 0
+
+    mass: number = 0
 }
 
 function drawDocNode(
@@ -41,12 +54,17 @@ function drawDocNode(
     ctx.fillText(node.title, node.posX, node.posY - radius - 2.0)
 }
 
-function applyRepulsion(nodeA: DocNode, nodeB: DocNode, force: number, minDist: number) {
-    const aPosX = nodeA.posX + nodeA.forceX
-    const aPosY = nodeA.posY + nodeA.forceY
+function applyRepulsion(
+    node: DocNode,
+    otherX: number, otherY: number,
+    force: number,
+    minDist: number
+) {
+    const aPosX = node.posX
+    const aPosY = node.posY
 
-    const bPosX = nodeB.posX + nodeB.forceX
-    const bPosY = nodeB.posY + nodeB.forceY
+    const bPosX = otherX
+    const bPosY = otherY
 
     const atobX = bPosX - aPosX
     const atobY = bPosY - aPosY
@@ -66,17 +84,17 @@ function applyRepulsion(nodeA: DocNode, nodeB: DocNode, force: number, minDist: 
     let atobFX = atobNX * (force / distSquared)
     let atobFY = atobNY * (force / distSquared)
 
-    // nodeA.posX -= atobFX
-    // nodeA.posY -= atobFY
+    node.posX -= atobFX
+    node.posY -= atobFY
 
     // nodeB.posX += atobFX
     // nodeB.posY += atobFY
 
-    nodeA.forceX -= atobFX
-    nodeA.forceY -= atobFY
-
-    nodeB.forceX += atobFX
-    nodeB.forceY += atobFY
+    // nodeA.forceX -= atobFX
+    // nodeA.forceY -= atobFY
+    //
+    // nodeB.forceX += atobFX
+    // nodeB.forceY += atobFY
 }
 
 function applySpring(
@@ -86,11 +104,11 @@ function applySpring(
     force: number,
     minDist: number
 ) {
-    const aPosX = nodeA.posX + nodeA.forceX
-    const aPosY = nodeA.posY + nodeA.forceY
+    const aPosX = nodeA.posX
+    const aPosY = nodeA.posY
 
-    const bPosX = nodeB.posX + nodeB.forceX
-    const bPosY = nodeB.posY + nodeB.forceY
+    const bPosX = nodeB.posX
+    const bPosY = nodeB.posY
 
     const atobX = bPosX - aPosX
     const atobY = bPosY - aPosY
@@ -118,17 +136,11 @@ function applySpring(
     let atobFX = atobNX * delta * force
     let atobFY = atobNY * delta * force
 
-    // nodeA.posX -= atobFX
-    // nodeA.posY -= atobFY
-    //
-    // nodeB.posX += atobFX
-    // nodeB.posY += atobFY
+    nodeA.posX -= atobFX
+    nodeA.posY -= atobFY
 
-    nodeA.forceX -= atobFX
-    nodeA.forceY -= atobFY
-
-    nodeB.forceX += atobFX
-    nodeB.forceY += atobFY
+    nodeB.posX += atobFX
+    nodeB.posY += atobFY
 }
 
 function calculateSum(a: number, b: number): number {
@@ -626,8 +638,8 @@ class App {
         const testNode = new DocNode()
         testNode.posX = 150
         testNode.posY = 150
-        //testNode.title = "English language"
-        testNode.title = "Miss Meyers"
+        testNode.title = "English language"
+        //testNode.title = "Miss Meyers"
         this.nodeManager.pushNode(testNode)
         // TEST TEST TEST TEST
     }
@@ -778,15 +790,62 @@ class App {
     update(deltaTime: DOMHighResTimeStamp) {
         this.updateWidthAndHeight()
 
-        for (let a = 0; a < this.nodeManager.length(); a++) {
-            for (let b = a + 1; b < this.nodeManager.length(); b++) {
-                const nodeA = this.nodeManager.getNodeAt(a)
-                const nodeB = this.nodeManager.getNodeAt(b)
+        // apply repulsion
+        // for (let a = 0; a < this.nodeManager.length(); a++) {
+        //     for (let b = a + 1; b < this.nodeManager.length(); b++) {
+        //         const nodeA = this.nodeManager.getNodeAt(a)
+        //         const nodeB = this.nodeManager.getNodeAt(b)
+        //
+        //         applyRepulsion(nodeA, nodeB, this.repulsion, this.nodeRadius)
+        //     }
+        // }
+        {
+            const root = this.nodeManager.buildQuadTree()
+            root.cacheCenterOfMass()
 
-                applyRepulsion(nodeA, nodeB, this.repulsion, this.nodeRadius)
+            const applyRepulsionFromTree = (node: DocNode, tree: QuadTree) => {
+                if (tree.node !== null) {
+                    if (tree.node.id != node.id) {
+                        applyRepulsion(
+                            node,
+                            tree.node.posX, tree.node.posY,
+                            this.repulsion,
+                            this.nodeRadius,
+                        )
+                    }
+                    return
+                }
+
+                const toCenterX = tree.centerOfMassX - node.posX
+                const toCenterY = tree.centerOfMassY - node.posY
+
+                let distSquared = toCenterX * toCenterX + toCenterY * toCenterY
+                distSquared = Math.max(distSquared, 0.0001)
+                const dist = Math.sqrt(distSquared)
+
+                if ((tree.maxX - tree.minX) / dist < 1) {
+                    applyRepulsion(
+                        node,
+                        tree.centerOfMassX, tree.centerOfMassY,
+                        this.repulsion * tree.nodeCount,
+                        this.nodeRadius,
+                    )
+                } else {
+                    for (const child of tree.childrenTrees) {
+                        if (child !== null) {
+                            applyRepulsionFromTree(node, child)
+                        }
+                    }
+                }
+            }
+
+            for (let i = 0; i < this.nodeManager.length(); i++) {
+                const node = this.nodeManager.getNodeAt(i)
+                applyRepulsionFromTree(node, root)
             }
         }
 
+        // apply spring
         this.nodeManager.getConnections().forEach((con) => {
             const nodeA = this.nodeManager.getNodeAt(con.nodeIdA)
             const nodeB = this.nodeManager.getNodeAt(con.nodeIdB)
@@ -799,16 +858,6 @@ class App {
                 this.nodeRadius,
             )
         })
-
-        //apply force
-        for (let i = 0; i < this.nodeManager.length(); i++) {
-            const node = this.nodeManager.getNodeAt(i)
-            node.posX += node.forceX
-            node.posY += node.forceY
-
-            node.forceX = 0
-            node.forceY = 0
-        }
     }
 
     draw(deltaTime: DOMHighResTimeStamp) {
@@ -858,6 +907,7 @@ class App {
             cd.fillCircle(this.ctx, pos.x, pos.y, 10 * this.zoom, "red")
         }
 
+        /*
         // TEST TEST TEST TEST TEST
         // draw quad tree
         {
@@ -889,6 +939,7 @@ class App {
             drawTree(root)
         }
         // TEST TEST TEST TEST TEST
+        */
 
         // draw fps estimate
         {
