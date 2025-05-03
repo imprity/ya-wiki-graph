@@ -720,7 +720,16 @@ class App {
             this.ctx.textAlign = "start";
             this.ctx.textRendering = "optimizeSpeed";
             this.ctx.textBaseline = "top";
-            this.ctx.fillText(Math.round(estimate).toString(), 0, 0);
+            this.ctx.fillText(`FPS: ${Math.round(estimate).toString()}`, 0, 0);
+        }
+        // draw node count
+        {
+            this.ctx.font = `16px sans-serif`;
+            this.ctx.fillStyle = "red";
+            this.ctx.textAlign = "start";
+            this.ctx.textRendering = "optimizeSpeed";
+            this.ctx.textBaseline = "top";
+            this.ctx.fillText(`node cout: ${this.nodeManager.length()}`, 0, 20);
         }
     }
     updateWidthAndHeight() {
