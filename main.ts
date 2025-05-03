@@ -1,25 +1,17 @@
 import * as cd from "./canvas.js"
 import * as wiki from "./wiki.js"
 import * as util from "./util.js"
-
-interface Vector2 {
-    x: number
-    y: number
-}
-
-function vector2Rotate(v: Vector2, rot: number): Vector2 {
-    const sin = Math.sin(rot)
-    const cos = Math.cos(rot)
-
-    return {
-        x: v.x * cos - v.y * sin,
-        y: v.x * sin + v.y * cos,
-    }
-}
-
-let DOC_NODE_MAX_ID = 0
+import * as math from "./math.js"
 
 class DocNode {
+    static nodeIdMax: number = 0
+
+    static getNewNodeId(): number {
+        const id = DocNode.nodeIdMax + 1
+        DocNode.nodeIdMax += 1
+        return id
+    }
+
     posX: number = 0
     posY: number = 0
 
@@ -28,16 +20,8 @@ class DocNode {
     title: string = ""
 
     constructor() {
-        this.id = DOC_NODE_MAX_ID
-        DOC_NODE_MAX_ID++
+        this.id = DocNode.getNewNodeId()
     }
-}
-
-class CenterOfMass {
-    posX: number = 0
-    posY: number = 0
-
-    mass: number = 0
 }
 
 function drawDocNode(
@@ -60,16 +44,12 @@ function applyRepulsion(
     force: number,
     minDist: number
 ) {
-    const aPosX = node.posX
-    const aPosY = node.posY
+    const nodePos = new math.Vector2(node.posX, node.posY)
+    const otherPos = new math.Vector2(otherX, otherY)
 
-    const bPosX = otherX
-    const bPosY = otherY
+    const nodeToOther = math.vector2Sub(otherPos, nodePos)
 
-    const atobX = bPosX - aPosX
-    const atobY = bPosY - aPosY
-
-    let distSquared = atobX * atobX + atobY * atobY
+    let distSquared = math.vector2DistSquared(nodeToOther)
     if (distSquared < 0.001) {
         return
     }
@@ -78,23 +58,12 @@ function applyRepulsion(
 
     const dist = Math.sqrt(distSquared)
 
-    const atobNX = atobX / dist
-    const atobNY = atobY / dist
+    const normalized = math.vector2Scale(nodeToOther, 1 / dist)
 
-    let atobFX = atobNX * (force / distSquared)
-    let atobFY = atobNY * (force / distSquared)
+    const forceV = math.vector2Scale(normalized, force / distSquared)
 
-    node.posX -= atobFX
-    node.posY -= atobFY
-
-    // nodeB.posX += atobFX
-    // nodeB.posY += atobFY
-
-    // nodeA.forceX -= atobFX
-    // nodeA.forceY -= atobFY
-    //
-    // nodeB.forceX += atobFX
-    // nodeB.forceY += atobFY
+    node.posX -= forceV.x
+    node.posY -= forceV.y
 }
 
 function applySpring(
@@ -104,16 +73,12 @@ function applySpring(
     force: number,
     minDist: number
 ) {
-    const aPosX = nodeA.posX
-    const aPosY = nodeA.posY
+    const aPos = new math.Vector2(nodeA.posX, nodeA.posY)
+    const bPos = new math.Vector2(nodeB.posX, nodeB.posY)
 
-    const bPosX = nodeB.posX
-    const bPosY = nodeB.posY
+    const atob = math.vector2Sub(bPos, aPos)
 
-    const atobX = bPosX - aPosX
-    const atobY = bPosY - aPosY
-
-    let distSquared = atobX * atobX + atobY * atobY
+    let distSquared = math.vector2DistSquared(atob)
     if (distSquared < 0.001) {
         return
     }
@@ -122,8 +87,7 @@ function applySpring(
 
     const dist = Math.sqrt(distSquared)
 
-    const atobNX = atobX / dist
-    const atobNY = atobY / dist
+    const atobN = math.vector2Scale(atob, 1 / dist)
 
     let delta = relaxedDist - dist
 
@@ -133,14 +97,13 @@ function applySpring(
         delta = maxDistDiff
     }
 
-    let atobFX = atobNX * delta * force
-    let atobFY = atobNY * delta * force
+    let atobF = math.vector2Scale(atobN, delta * force)
 
-    nodeA.posX -= atobFX
-    nodeA.posY -= atobFY
+    nodeA.posX -= atobF.x
+    nodeA.posY -= atobF.y
 
-    nodeB.posX += atobFX
-    nodeB.posY += atobFY
+    nodeB.posX += atobF.x
+    nodeB.posY += atobF.y
 }
 
 function calculateSum(a: number, b: number): number {
@@ -148,12 +111,12 @@ function calculateSum(a: number, b: number): number {
 }
 
 class Connection {
-    nodeIdA: number
-    nodeIdB: number
+    nodeIndexA: number
+    nodeIndexB: number
 
-    constructor(nodeIdA: number, nodeIdB: number) {
-        this.nodeIdA = nodeIdA
-        this.nodeIdB = nodeIdB
+    constructor(nodeIndexA: number, nodeIndexB: number) {
+        this.nodeIndexA = nodeIndexA
+        this.nodeIndexB = nodeIndexB
     }
 }
 
@@ -165,14 +128,14 @@ enum Direction {
 }
 
 class QuadTree {
-    minX: number
-    minY: number
+    minX: number = 0
+    minY: number = 0
 
-    maxX: number
-    maxY: number
+    maxX: number = 0
+    maxY: number = 0
 
-    centerX: number
-    centerY: number
+    centerX: number = 0
+    centerY: number = 0
 
     hasChildren: boolean = false
     childrenTrees: Array<QuadTree | null> = new Array(4).fill(null)
@@ -189,7 +152,33 @@ class QuadTree {
 
     nodeCount: number = 0
 
-    constructor(minX: number, minY: number, maxX: number, maxY: number) {
+    reset() {
+        this.minX = 0
+        this.minY = 0
+
+        this.maxX = 0
+        this.maxY = 0
+
+        this.centerX = 0
+        this.centerY = 0
+
+        this.hasChildren = false
+        this.childrenTrees.fill(null)
+
+        this.node = null
+
+        this.centerOfMassX = 0
+        this.centerOfMassY = 0
+
+        this.centerOfMassXSum = 0
+        this.centerOfMassYSum = 0
+
+        this.centerOfMassCached = false
+
+        this.nodeCount = 0
+    }
+
+    setRect(minX: number, minY: number, maxX: number, maxY: number) {
         this.minX = minX
         this.minY = minY
 
@@ -225,153 +214,173 @@ class QuadTree {
             }
         }
     }
+}
 
-    createChild(dir: Direction): QuadTree {
+class QuadTreeBuilder {
+    _treePool: Array<QuadTree>
+    _treePoolCursor: number = 0
+
+    constructor() {
+        const initCapacity = 512
+
+        this._treePool = new Array(initCapacity)
+
+        for (let i = 0; i < initCapacity; i++) {
+            this._treePool[i] = new QuadTree()
+        }
+    }
+
+    getNewTree(): QuadTree {
+        if (this._treePoolCursor >= this._treePool.length) {
+            const oldLen = this._treePool.length
+            const newLen = oldLen * 2
+
+            this._treePool.length = newLen
+
+            for (let i = oldLen; i < newLen; i++) {
+                this._treePool[i] = new QuadTree()
+            }
+        }
+        const tree = this._treePool[this._treePoolCursor]
+        tree.reset()
+        this._treePoolCursor++
+        return tree
+    }
+
+    _createTreeChild(tree: QuadTree, dir: Direction): QuadTree {
+        const child = this.getNewTree()
+
         switch (dir) {
             case Direction.TopLeft: {
-                return new QuadTree(
-                    this.minX, this.minY,
-                    this.centerX, this.centerY
+                child.setRect(
+                    tree.minX, tree.minY,
+                    tree.centerX, tree.centerY
                 )
             } break
             case Direction.TopRight: {
-                return new QuadTree(
-                    this.centerX, this.minY,
-                    this.maxX, this.centerY
+                child.setRect(
+                    tree.centerX, tree.minY,
+                    tree.maxX, tree.centerY
                 )
             } break
             case Direction.BottomLeft: {
-                return new QuadTree(
-                    this.minX, this.centerY,
-                    this.centerX, this.maxY
+                child.setRect(
+                    tree.minX, tree.centerY,
+                    tree.centerX, tree.maxY
                 )
             } break
             case Direction.BottomRight: {
-                return new QuadTree(
-                    this.centerX, this.centerY,
-                    this.maxX, this.maxY
+                child.setRect(
+                    tree.centerX, tree.centerY,
+                    tree.maxX, tree.maxY
                 )
             } break
         }
+
+        return child
     }
 
-    cacheCenterOfMass() {
-        if (this.centerOfMassCached) {
+    _pushNodeToTree(tree: QuadTree, node: DocNode) {
+        tree.nodeCount++
+
+        if (tree.node === null && !tree.hasChildren) {
+            tree.node = node
             return
         }
 
-        this.centerOfMassCached = true
+        tree.hasChildren = true
 
-        if (this.node !== null) {
-            this.centerOfMassX = this.node.posX
-            this.centerOfMassY = this.node.posY
-            this.centerOfMassXSum = this.node.posX
-            this.centerOfMassYSum = this.node.posY
+        if (tree.node !== null) {
+            const ogNode = tree.node
+            tree.node = null
+
+            const ogNodeDirection = tree.getPosDirection(ogNode.posX, ogNode.posY)
+            if (tree.childrenTrees[ogNodeDirection] === null) {
+                tree.childrenTrees[ogNodeDirection] = this._createTreeChild(tree, ogNodeDirection)
+            }
+            this._pushNodeToTree(tree.childrenTrees[ogNodeDirection], ogNode)
+        }
+
+        const nodeDirection = tree.getPosDirection(node.posX, node.posY)
+        if (tree.childrenTrees[nodeDirection] === null) {
+            tree.childrenTrees[nodeDirection] = this._createTreeChild(tree, nodeDirection)
+        }
+        this._pushNodeToTree(tree.childrenTrees[nodeDirection], node)
+    }
+
+    _cacheCenterOfMass(tree: QuadTree) {
+        if (tree.centerOfMassCached) {
+            return
+        }
+
+        tree.centerOfMassCached = true
+
+        if (tree.node !== null) {
+            tree.centerOfMassX = tree.node.posX
+            tree.centerOfMassY = tree.node.posY
+            tree.centerOfMassXSum = tree.node.posX
+            tree.centerOfMassYSum = tree.node.posY
 
             return
         }
 
-        this.centerOfMassXSum = 0
-        this.centerOfMassYSum = 0
+        tree.centerOfMassXSum = 0
+        tree.centerOfMassYSum = 0
 
-        for (const child of this.childrenTrees) {
+        for (const child of tree.childrenTrees) {
             if (child !== null) {
-                child.cacheCenterOfMass()
+                this._cacheCenterOfMass(child)
 
-                this.centerOfMassXSum += child.centerOfMassXSum
-                this.centerOfMassYSum += child.centerOfMassYSum
+                tree.centerOfMassXSum += child.centerOfMassXSum
+                tree.centerOfMassYSum += child.centerOfMassYSum
             }
         }
 
-        this.centerOfMassX = this.centerOfMassXSum / this.nodeCount
-        this.centerOfMassY = this.centerOfMassYSum / this.nodeCount
+        tree.centerOfMassX = tree.centerOfMassXSum / tree.nodeCount
+        tree.centerOfMassY = tree.centerOfMassYSum / tree.nodeCount
     }
 
-    pushNode(node: DocNode) {
-        this.nodeCount++
+    buildTree(nodeManager: NodeManager) {
+        this._treePoolCursor = 0
 
-        if (this.node === null && !this.hasChildren) {
-            this.node = node
-            return
+        if (nodeManager.length() <= 0) {
+            const tree = this.getNewTree()
+            tree.setRect(0, 0, 0, 0)
+            return tree
         }
 
-        this.hasChildren = true
+        const root = this.getNewTree()
 
-        if (this.node !== null) {
-            const ogNode = this.node
-            this.node = null
+        // calculate root rect
+        {
+            let minX: number = Number.MAX_VALUE
+            let minY: number = Number.MAX_VALUE
 
-            const ogNodeDirection = this.getPosDirection(ogNode.posX, ogNode.posY)
-            if (this.childrenTrees[ogNodeDirection] === null) {
-                this.childrenTrees[ogNodeDirection] = this.createChild(ogNodeDirection)
+            let maxX: number = -Number.MAX_VALUE
+            let maxY: number = -Number.MAX_VALUE
+
+            for (let i = 0; i < nodeManager.length(); i++) {
+                const node = nodeManager.getNodeAt(i)
+
+                minX = Math.min(node.posX, minX)
+                minY = Math.min(node.posY, minY)
+
+                maxX = Math.max(node.posX, maxX)
+                maxY = Math.max(node.posY, maxY)
             }
-            this.childrenTrees[ogNodeDirection].pushNode(ogNode)
+
+            root.setRect(minX, minY, maxX, maxY)
         }
 
-        const nodeDirection = this.getPosDirection(node.posX, node.posY)
-        if (this.childrenTrees[nodeDirection] === null) {
-            this.childrenTrees[nodeDirection] = this.createChild(nodeDirection)
-        }
-        this.childrenTrees[nodeDirection].pushNode(node)
-    }
-}
-
-class SerializationContainer {
-    nodes: Array<DocNode> = []
-    connections: Array<Connection> = []
-
-    offsetX: number = 0
-    offsetY: number = 0
-
-    zoom: number = 0
-}
-
-
-function isSerializationContainer(obj: any): boolean {
-    if (typeof obj !== 'object') {
-        return false
-    }
-
-    function objHasMatchingKeys(obj: any, instance: any): boolean {
-        const keys = Reflect.ownKeys(instance)
-
-        for (const key of keys) {
-            const instanceType = typeof instance[key]
-            const objType = typeof obj[key]
-
-            if (instanceType !== objType) {
-                return false
-            }
+        for (let i = 0; i < nodeManager.length(); i++) {
+            const node = nodeManager._nodes[i]
+            this._pushNodeToTree(root, node)
         }
 
-        return true
+        this._cacheCenterOfMass(root)
+
+        return root
     }
-
-    if (!objHasMatchingKeys(obj, new SerializationContainer())) {
-        return false
-    }
-
-    if (obj.nodes.length > 0) {
-        const dummyNode = new DocNode()
-
-        for (const objNode of obj.nodes) {
-            if (!objHasMatchingKeys(objNode, dummyNode)) {
-                return false
-            }
-        }
-    }
-
-    if (obj.connections.length > 0) {
-        const dummyCon = new Connection(0, 0)
-
-        for (const objCon of obj.connections) {
-            if (!objHasMatchingKeys(objCon, dummyCon)) {
-                return false
-            }
-        }
-    }
-
-    return true
 }
 
 class NodeManager {
@@ -390,7 +399,7 @@ class NodeManager {
     }
 
     reset() {
-        const initCapacity = 16
+        const initCapacity = 512
         const matrixSize = calculateSum(1, initCapacity - 1)
 
         this._connectionMatrix = Array(matrixSize).fill(false)
@@ -404,22 +413,22 @@ class NodeManager {
         this._titleToNodes = {}
     }
 
-    isConnected(nodeIdA: number, nodeIdB: number): boolean {
-        if (nodeIdA === nodeIdB) {
+    isConnected(nodeIndexA: number, nodeIndexB: number): boolean {
+        if (nodeIndexA === nodeIndexB) {
             return false
         }
-        return this._connectionMatrix[this.getConMatIndex(nodeIdA, nodeIdB)]
+        return this._connectionMatrix[this.getConMatIndex(nodeIndexA, nodeIndexB)]
     }
 
     setConnected(
-        nodeIdA: number, nodeIdB: number,
+        nodeIndexA: number, nodeIndexB: number,
         connected: boolean
     ): void {
-        if (nodeIdA === nodeIdB) {
+        if (nodeIndexA === nodeIndexB) {
             return
         }
 
-        const index = this.getConMatIndex(nodeIdA, nodeIdB)
+        const index = this.getConMatIndex(nodeIndexA, nodeIndexB)
         const wasConnedted = this._connectionMatrix[index]
 
         if (wasConnedted != connected) {
@@ -428,7 +437,7 @@ class NodeManager {
 
                 for (let i = 0; i < this._connections.length; i++) {
                     const con = this._connections[i]
-                    if (con.nodeIdA === nodeIdA && con.nodeIdB === nodeIdB) {
+                    if (con.nodeIndexA === nodeIndexA && con.nodeIndexB === nodeIndexB) {
                         toRemoveAt = i
                         break
                     }
@@ -441,7 +450,7 @@ class NodeManager {
                     this._connections.length = this._connections.length - 1
                 }
             } else { // we have to add connection
-                this._connections.push(new Connection(nodeIdA, nodeIdB))
+                this._connections.push(new Connection(nodeIndexA, nodeIndexB))
             }
 
             this._connectionMatrix[index] = connected
@@ -457,15 +466,15 @@ class NodeManager {
     }
 
     _getConMatIndexImpl(
-        nodeIdA: number, nodeIdB: number,
+        nodeIndexA: number, nodeIndexB: number,
         capacity: number
     ): number {
-        if (nodeIdA === nodeIdB) {
+        if (nodeIndexA === nodeIndexB) {
             return -1
         }
 
-        const minId = Math.min(nodeIdA, nodeIdB)
-        const maxId = Math.max(nodeIdA, nodeIdB)
+        const minId = Math.min(nodeIndexA, nodeIndexB)
+        const maxId = Math.max(nodeIndexA, nodeIndexB)
 
         let index = 0
 
@@ -477,8 +486,8 @@ class NodeManager {
         return index
     }
 
-    getConMatIndex(nodeIdA: number, nodeIdB: number): number {
-        return this._getConMatIndexImpl(nodeIdA, nodeIdB, this._capacity)
+    getConMatIndex(nodeIndexA: number, nodeIndexB: number): number {
+        return this._getConMatIndexImpl(nodeIndexA, nodeIndexB, this._capacity)
     }
 
     pushNode(node: DocNode) {
@@ -509,6 +518,7 @@ class NodeManager {
             }
             // grow nodes
             {
+                /*
                 const oldNodes = this._nodes
                 const newNodes = Array(newCap)
 
@@ -516,6 +526,8 @@ class NodeManager {
                     newNodes[i] = oldNodes[i]
                 }
                 this._nodes = newNodes
+                */
+                this._nodes.length = newCap
             }
 
             this._capacity = newCap
@@ -531,37 +543,6 @@ class NodeManager {
             return this._titleToNodes[title]
         }
         return -1
-    }
-
-    buildQuadTree(): QuadTree {
-        if (this.length() <= 0) {
-            return new QuadTree(0, 0, 0, 0)
-        }
-
-        let minX: number = Number.MAX_VALUE
-        let minY: number = Number.MAX_VALUE
-
-        let maxX: number = -Number.MAX_VALUE
-        let maxY: number = -Number.MAX_VALUE
-
-        for (let i = 0; i < this.length(); i++) {
-            const node = this._nodes[i]
-
-            minX = Math.min(node.posX, minX)
-            minY = Math.min(node.posY, minY)
-
-            maxX = Math.max(node.posX, maxX)
-            maxY = Math.max(node.posY, maxY)
-        }
-
-        const root = new QuadTree(minX, minY, maxX, maxY)
-
-        for (let i = 0; i < this.length(); i++) {
-            const node = this._nodes[i]
-            root.pushNode(node)
-        }
-
-        return root
     }
 
     length(): number {
@@ -588,6 +569,7 @@ class App {
     isRequesting: boolean = false
 
     nodeManager: NodeManager
+    treeBuilder: QuadTreeBuilder = new QuadTreeBuilder()
 
     mouseX: number = 0
     mouseY: number = 0
@@ -756,7 +738,7 @@ class App {
                         const newNodeId = this.nodeManager.length()
                         newNode.title = link
 
-                        const v = vector2Rotate(offsetV, angle * index)
+                        const v = math.vector2Rotate(offsetV, angle * index)
                         newNode.posX = node.posX + v.x + (Math.random() - 0.5) * 20
                         newNode.posY = node.posY + v.y + (Math.random() - 0.5) * 20
 
@@ -791,17 +773,8 @@ class App {
         this.updateWidthAndHeight()
 
         // apply repulsion
-        // for (let a = 0; a < this.nodeManager.length(); a++) {
-        //     for (let b = a + 1; b < this.nodeManager.length(); b++) {
-        //         const nodeA = this.nodeManager.getNodeAt(a)
-        //         const nodeB = this.nodeManager.getNodeAt(b)
-        //
-        //         applyRepulsion(nodeA, nodeB, this.repulsion, this.nodeRadius)
-        //     }
-        // }
         {
-            const root = this.nodeManager.buildQuadTree()
-            root.cacheCenterOfMass()
+            const root = this.treeBuilder.buildTree(this.nodeManager)
 
             const applyRepulsionFromTree = (node: DocNode, tree: QuadTree) => {
                 if (tree.node !== null) {
@@ -847,8 +820,8 @@ class App {
 
         // apply spring
         this.nodeManager.getConnections().forEach((con) => {
-            const nodeA = this.nodeManager.getNodeAt(con.nodeIdA)
-            const nodeB = this.nodeManager.getNodeAt(con.nodeIdB)
+            const nodeA = this.nodeManager.getNodeAt(con.nodeIndexA)
+            const nodeB = this.nodeManager.getNodeAt(con.nodeIndexB)
 
             applySpring(
                 nodeA, nodeB,
@@ -863,8 +836,8 @@ class App {
     draw(deltaTime: DOMHighResTimeStamp) {
         // draw connections
         this.nodeManager.getConnections().forEach((con) => {
-            const nodeA = this.nodeManager.getNodeAt(con.nodeIdA)
-            const nodeB = this.nodeManager.getNodeAt(con.nodeIdB)
+            const nodeA = this.nodeManager.getNodeAt(con.nodeIndexA)
+            const nodeB = this.nodeManager.getNodeAt(con.nodeIndexB)
 
             const posA = this.worldToViewport(nodeA.posX, nodeA.posY)
             const posB = this.worldToViewport(nodeB.posX, nodeB.posY)
@@ -974,17 +947,17 @@ class App {
         this.canvasElement.height = rect.height
     }
 
-    worldToViewport(x: number, y: number): Vector2 {
+    worldToViewport(x: number, y: number): math.Vector2 {
         x += this.offsetX
         y += this.offsetY
 
         x *= this.zoom
         y *= this.zoom
 
-        return { x: x, y: y }
+        return new math.Vector2(x, y)
     }
 
-    viewportToWorld(x: number, y: number): Vector2 {
+    viewportToWorld(x: number, y: number): math.Vector2 {
         x /= this.zoom
         y /= this.zoom
 
@@ -992,7 +965,7 @@ class App {
         y -= this.offsetY
 
 
-        return { x: x, y: y }
+        return new math.Vector2(x, y)
     }
 
     serialize(): string {
@@ -1037,7 +1010,7 @@ class App {
 
             for (const con of container.connections) {
                 this.nodeManager.setConnected(
-                    con.nodeIdA, con.nodeIdB, true,
+                    con.nodeIndexA, con.nodeIndexB, true,
                 )
             }
 
@@ -1049,6 +1022,76 @@ class App {
             console.error(err)
         }
     }
+}
+
+class SerializationContainer {
+    nodes: Array<DocNode> = []
+    connections: Array<Connection> = []
+
+    offsetX: number = 0
+    offsetY: number = 0
+
+    zoom: number = 0
+}
+
+
+function isSerializationContainer(obj: any): boolean {
+    if (typeof obj !== 'object') {
+        return false
+    }
+
+    function objHasMatchingKeys(obj: any, instance: any): boolean {
+        const keys = Reflect.ownKeys(instance)
+
+        for (const key of keys) {
+            const instanceType = typeof instance[key]
+            const objType = typeof obj[key]
+
+            if (instanceType !== objType) {
+                return false
+            }
+
+            if (instanceType == "object") {
+                if (Array.isArray(instance[key])) {
+                    if (!Array.isArray(obj[key])) {
+                        return false
+                    }
+                } else {
+                    if (!objHasMatchingKeys(instance[key], obj[key])) {
+                        return false
+                    }
+                }
+            }
+        }
+
+        return true
+    }
+
+    if (!objHasMatchingKeys(obj, new SerializationContainer())) {
+        return false
+    }
+
+    if (obj.nodes.length > 0) {
+        const dummyNode = new DocNode()
+
+        for (const objNode of obj.nodes) {
+            if (!objHasMatchingKeys(objNode, dummyNode)) {
+                return false
+            }
+        }
+    }
+
+    if (obj.connections.length > 0) {
+        const dummyCon = new Connection(0, 0)
+
+        for (const objCon of obj.connections) {
+            if (!objHasMatchingKeys(objCon, dummyCon)) {
+                return false
+            }
+        }
+    }
+
+    return true
 }
 
 function main() {
