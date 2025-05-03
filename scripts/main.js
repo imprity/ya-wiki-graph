@@ -431,6 +431,7 @@ class App {
         this.treeBuilder = new QuadTreeBuilder();
         this.mouseX = 0;
         this.mouseY = 0;
+        this.debugMsgs = new Map();
         // constants
         this.nodeRadius = 8;
         this.repulsion = 3000;
@@ -595,8 +596,19 @@ class App {
                 break;
         }
     }
+    debugPrint(key, value) {
+        this.debugMsgs.set(key, value);
+    }
     update(deltaTime) {
         this.updateWidthAndHeight();
+        this.debugMsgs.clear(); // clear debug messages
+        // debug print fps
+        {
+            let estimate = 1000.0 / deltaTime;
+            this.debugPrint('FPS', Math.round(estimate).toString());
+        }
+        // debug print nodecount
+        this.debugPrint('node count', this.nodeManager.length().toString());
         const barnesHutLimit = 1.1;
         // apply repulsion
         {
@@ -710,24 +722,18 @@ class App {
         }
         // TEST TEST TEST TEST TEST
         */
-        // draw fps estimate
-        {
-            let estimate = 1000.0 / deltaTime;
-            this.ctx.font = `16px sans-serif`;
-            this.ctx.fillStyle = "red";
-            this.ctx.textAlign = "start";
-            this.ctx.textRendering = "optimizeSpeed";
-            this.ctx.textBaseline = "top";
-            this.ctx.fillText(`FPS: ${Math.round(estimate).toString()}`, 0, 0);
-        }
-        // draw node count
+        // debug print stuff
         {
             this.ctx.font = `16px sans-serif`;
             this.ctx.fillStyle = "red";
             this.ctx.textAlign = "start";
             this.ctx.textRendering = "optimizeSpeed";
             this.ctx.textBaseline = "top";
-            this.ctx.fillText(`node cout: ${this.nodeManager.length()}`, 0, 20);
+            let offsetY = 0;
+            this.debugMsgs.forEach((value, key, map) => {
+                this.ctx.fillText(`${key}: ${value}`, 0, offsetY);
+                offsetY += 20;
+            });
         }
     }
     updateWidthAndHeight() {

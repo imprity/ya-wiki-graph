@@ -576,6 +576,8 @@ class App {
     mouseX: number = 0
     mouseY: number = 0
 
+    debugMsgs: Map<string, string> = new Map()
+
     // constants
     nodeRadius: number = 8
 
@@ -698,6 +700,10 @@ class App {
         }
     }
 
+    debugPrint(key: string, value: string) {
+        this.debugMsgs.set(key, value)
+    }
+
     expandNode = async (nodeId: number) => {
         if (this.isRequesting) {
             console.log("busy")
@@ -773,6 +779,15 @@ class App {
 
     update(deltaTime: DOMHighResTimeStamp) {
         this.updateWidthAndHeight()
+        this.debugMsgs.clear() // clear debug messages
+
+        // debug print fps
+        {
+            let estimate = 1000.0 / deltaTime
+            this.debugPrint('FPS', Math.round(estimate).toString())
+        }
+        // debug print nodecount
+        this.debugPrint('node count', this.nodeManager.length().toString())
 
         const barnesHutLimit = 1.1
 
@@ -927,26 +942,23 @@ class App {
         // TEST TEST TEST TEST TEST
         */
 
-        // draw fps estimate
-        {
-            let estimate = 1000.0 / deltaTime
-
-            this.ctx.font = `16px sans-serif`
-            this.ctx.fillStyle = "red"
-            this.ctx.textAlign = "start"
-            this.ctx.textRendering = "optimizeSpeed"
-            this.ctx.textBaseline = "top"
-            this.ctx.fillText(`FPS: ${Math.round(estimate).toString()}`, 0, 0)
-        }
-
-        // draw node count
+        // debug print stuff
         {
             this.ctx.font = `16px sans-serif`
             this.ctx.fillStyle = "red"
             this.ctx.textAlign = "start"
             this.ctx.textRendering = "optimizeSpeed"
             this.ctx.textBaseline = "top"
-            this.ctx.fillText(`node cout: ${this.nodeManager.length()}`, 0, 20)
+
+            let offsetY = 0
+
+            this.debugMsgs.forEach((
+                value: string, key: string,
+                map: Map<string, string>
+            ) => {
+                this.ctx.fillText(`${key}: ${value}`, 0, offsetY)
+                offsetY += 20
+            })
         }
     }
 
