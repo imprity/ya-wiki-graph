@@ -38,3 +38,15 @@ export function vector2Dist(v: Vector2): number {
     return Math.sqrt(vector2DistSquared(v))
 }
 
+export function boxIntersects(
+    minX1: number, minY1: number, maxX1: number, maxY1: number,
+    minX2: number, minY2: number, maxX2: number, maxY2: number,
+): boolean {
+    if (
+        maxX1 >= minX2 && maxX2 >= minX1 &&
+        maxY1 >= minY2 && maxY2 >= minY1
+    ) {
+        return true
+    }
+    return false
+}

@@ -22,6 +22,7 @@ class DocNode {
         this.posY = 0;
         this.id = 0;
         this.title = "";
+        this.doDraw = true;
         this.id = DocNode.getNewNodeId();
     }
 }
@@ -44,10 +45,8 @@ function applyRepulsion(node, otherX, otherY, force, minDist) {
     }
     distSquared = Math.max(distSquared, minDist * minDist);
     const dist = Math.sqrt(distSquared);
-    //const normalizedX = math.vector2Scale(nodeToOther, 1 / dist)
     const normalizedX = nodeToOtherX / dist;
     const normalizedY = nodeToOtherY / dist;
-    //const forceV = math.vector2Scale(normalized, force / distSquared)
     const forceX = normalizedX * force / distSquared;
     const forceY = normalizedY * force / distSquared;
     node.posX -= forceX;
@@ -377,26 +376,6 @@ class NodeManager {
             const newCap = this._capacity * 2;
             const minCap = Math.min(oldCap, newCap);
             // grow connection matrix
-            /*
-            {
-                const newMatrixSize = calculateSum(1, newCap - 1)
-
-                const oldMatrix = this._connectionMatrix
-                const newMatrix = Array(newMatrixSize).fill(false)
-
-
-                for (let a = 0; a < minCap; a++) {
-                    for (let b = a + 1; b < minCap; b++) {
-                        const oldIndex = this._getConMatIndexImpl(a, b, oldCap)
-                        const newIndex = this._getConMatIndexImpl(a, b, newCap)
-
-                        newMatrix[newIndex] = oldMatrix[oldIndex]
-                    }
-                }
-
-                this._connectionMatrix = newMatrix
-            }
-            */
             {
                 this._connectionMatrix.clear();
                 for (const con of this._connections) {
@@ -609,6 +588,29 @@ class App {
     debugPrint(key, value) {
         this.debugMsgs.set(key, value);
     }
+    cacheNodeVisibility() {
+        for (let i = 0; i < this.nodeManager.length(); i++) {
+            const node = this.nodeManager.getNodeAt(i);
+            node.doDraw = false;
+        }
+        const viewMin = this.viewportToWorld(0, 0);
+        const viewMax = this.viewportToWorld(this.width, this.height);
+        const toRecurse = (tree) => {
+            if (math.boxIntersects(viewMin.x, viewMin.y, viewMax.x, viewMax.y, tree.minX, tree.minY, tree.maxX, tree.maxY)) {
+                if (tree.node !== null) {
+                    tree.node.doDraw = true;
+                }
+                else {
+                    for (const childTree of tree.childrenTrees) {
+                        if (childTree !== null) {
+                            toRecurse(childTree);
+                        }
+                    }
+                }
+            }
+        };
+        toRecurse(this.quadTreeRoot);
+    }
     update(deltaTime) {
         this.updateWidthAndHeight();
         this.debugMsgs.clear(); // clear debug messages
@@ -622,6 +624,7 @@ class App {
         // debug print barnesHutLimit
         this.debugPrint('Barnes Hut Limit', this.barnesHutLimit.toString());
         this.quadTreeRoot = this.treeBuilder.buildTree(this.nodeManager);
+        this.cacheNodeVisibility();
         let repulsionCalculatioCount = 0;
         // apply repulsion
         {
@@ -686,9 +689,11 @@ class App {
         // draw circles
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i);
-            const pos = this.worldToViewport(node.posX, node.posY);
-            const radius = this.nodeRadius * this.zoom;
-            cd.fillCircle(this.ctx, pos.x, pos.y, radius, "PaleTurquoise");
+            if (node.doDraw) {
+                const pos = this.worldToViewport(node.posX, node.posY);
+                const radius = this.nodeRadius * this.zoom;
+                cd.fillCircle(this.ctx, pos.x, pos.y, radius, "PaleTurquoise");
+            }
         }
         // draw texts
         this.ctx.font = `${this.zoom * 12}px sans-serif`;
@@ -698,10 +703,12 @@ class App {
         this.ctx.textBaseline = "bottom";
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i);
-            const pos = this.worldToViewport(node.posX, node.posY);
-            this.ctx.fillText(node.title, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom);
+            if (node.doDraw) {
+                const pos = this.worldToViewport(node.posX, node.posY);
+                this.ctx.fillText(node.title, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom);
+            }
         }
-        // draw circles
+        // draw mouse pointer
         {
             let pos = this.viewportToWorld(this.mouseX, this.mouseY);
             pos = this.worldToViewport(pos.x, pos.y);

@@ -26,3 +26,10 @@ export function vector2DistSquared(v) {
 export function vector2Dist(v) {
     return Math.sqrt(vector2DistSquared(v));
 }
+export function boxIntersects(minX1, minY1, maxX1, maxY1, minX2, minY2, maxX2, maxY2) {
+    if (maxX1 >= minX2 && maxX2 >= minX1 &&
+        maxY1 >= minY2 && maxY2 >= minY1) {
+        return true;
+    }
+    return false;
+}

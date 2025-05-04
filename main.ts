@@ -19,6 +19,8 @@ class DocNode {
 
     title: string = ""
 
+    doDraw: boolean = true
+
     constructor() {
         this.id = DocNode.getNewNodeId()
     }
@@ -509,26 +511,6 @@ class NodeManager {
             const minCap = Math.min(oldCap, newCap)
 
             // grow connection matrix
-            /*
-            {
-                const newMatrixSize = calculateSum(1, newCap - 1)
-
-                const oldMatrix = this._connectionMatrix
-                const newMatrix = Array(newMatrixSize).fill(false)
-
-
-                for (let a = 0; a < minCap; a++) {
-                    for (let b = a + 1; b < minCap; b++) {
-                        const oldIndex = this._getConMatIndexImpl(a, b, oldCap)
-                        const newIndex = this._getConMatIndexImpl(a, b, newCap)
-
-                        newMatrix[newIndex] = oldMatrix[oldIndex]
-                    }
-                }
-
-                this._connectionMatrix = newMatrix
-            }
-            */
             {
                 this._connectionMatrix.clear()
 
@@ -793,6 +775,35 @@ class App {
         }
     }
 
+    cacheNodeVisibility() {
+        for (let i = 0; i < this.nodeManager.length(); i++) {
+            const node = this.nodeManager.getNodeAt(i)
+            node.doDraw = false
+        }
+
+        const viewMin = this.viewportToWorld(0, 0)
+        const viewMax = this.viewportToWorld(this.width, this.height)
+
+        const toRecurse = (tree: QuadTree) => {
+            if (math.boxIntersects(
+                viewMin.x, viewMin.y, viewMax.x, viewMax.y,
+                tree.minX, tree.minY, tree.maxX, tree.maxY
+            )) {
+                if (tree.node !== null) {
+                    tree.node.doDraw = true
+                } else {
+                    for (const childTree of tree.childrenTrees) {
+                        if (childTree !== null) {
+                            toRecurse(childTree)
+                        }
+                    }
+                }
+            }
+        }
+
+        toRecurse(this.quadTreeRoot)
+    }
+
     update(deltaTime: DOMHighResTimeStamp) {
         this.updateWidthAndHeight()
         this.debugMsgs.clear() // clear debug messages
@@ -808,6 +819,7 @@ class App {
         this.debugPrint('Barnes Hut Limit', this.barnesHutLimit.toString())
 
         this.quadTreeRoot = this.treeBuilder.buildTree(this.nodeManager)
+        this.cacheNodeVisibility()
 
         let repulsionCalculatioCount = 0
 
@@ -908,11 +920,13 @@ class App {
         // draw circles
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i)
-            const pos = this.worldToViewport(node.posX, node.posY)
+            if (node.doDraw) {
+                const pos = this.worldToViewport(node.posX, node.posY)
 
-            const radius = this.nodeRadius * this.zoom
+                const radius = this.nodeRadius * this.zoom
 
-            cd.fillCircle(this.ctx, pos.x, pos.y, radius, "PaleTurquoise")
+                cd.fillCircle(this.ctx, pos.x, pos.y, radius, "PaleTurquoise")
+            }
         }
 
         // draw texts
@@ -923,12 +937,14 @@ class App {
         this.ctx.textBaseline = "bottom"
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i)
-            const pos = this.worldToViewport(node.posX, node.posY)
+            if (node.doDraw) {
+                const pos = this.worldToViewport(node.posX, node.posY)
 
-            this.ctx.fillText(node.title, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom)
+                this.ctx.fillText(node.title, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom)
+            }
         }
 
-        // draw circles
+        // draw mouse pointer
         {
             let pos = this.viewportToWorld(this.mouseX, this.mouseY)
             pos = this.worldToViewport(pos.x, pos.y)
