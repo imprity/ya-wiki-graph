@@ -369,7 +369,18 @@ class QuadTreeBuilder {
                 maxY = Math.max(node.posY, maxY)
             }
 
-            root.setRect(minX, minY, maxX, maxY)
+            const width = maxX - minX
+            const height = maxY - minY
+
+            const maxD = Math.max(width, height)
+
+            const centerX = minX + width * 0.5
+            const centerY = minY + height * 0.5
+
+            root.setRect(
+                centerX - maxD * 0.5, centerY - maxD * 0.5,
+                centerX + maxD * 0.5, centerY + maxD * 0.5,
+            )
         }
 
         for (let i = 0; i < nodeManager.length(); i++) {
@@ -573,18 +584,23 @@ class App {
     nodeManager: NodeManager
     treeBuilder: QuadTreeBuilder = new QuadTreeBuilder()
 
+    quadTreeRoot: QuadTree = new QuadTree()
+
     mouseX: number = 0
     mouseY: number = 0
 
+    drawTree: boolean = false
     debugMsgs: Map<string, string> = new Map()
 
     // constants
     nodeRadius: number = 8
 
-    repulsion = 3000
-    springDist = 200
-    springDistDiffMax = 5000
-    spring = 0.002
+    repulsion: number = 16500
+    barnesHutLimit: number = 1.1
+
+    spring: number = 0.002
+    springDist: number = 350
+    springDistDiffMax: number = 10000
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvasElement = canvas
@@ -622,9 +638,9 @@ class App {
 
         // TEST TEST TEST TEST
         const testNode = new DocNode()
-        testNode.posX = 150
-        testNode.posY = 150
-        testNode.title = "English language"
+        testNode.posX = this.width / 2
+        testNode.posY = this.height / 2
+        testNode.title = "Miss Meyers"
         //testNode.title = "Miss Meyers"
         this.nodeManager.pushNode(testNode)
         // TEST TEST TEST TEST
@@ -788,13 +804,15 @@ class App {
         }
         // debug print nodecount
         this.debugPrint('node count', this.nodeManager.length().toString())
+        // debug print barnesHutLimit
+        this.debugPrint('Barnes Hut Limit', this.barnesHutLimit.toString())
 
-        const barnesHutLimit = 1.1
+        this.quadTreeRoot = this.treeBuilder.buildTree(this.nodeManager)
+
+        let repulsionCalculatioCount = 0
 
         // apply repulsion
         {
-            const root = this.treeBuilder.buildTree(this.nodeManager)
-
             const applyRepulsionFromTree = (node: DocNode, tree: QuadTree) => {
                 if (tree.node !== null) {
                     if (tree.node.id != node.id) {
@@ -804,6 +822,7 @@ class App {
                             this.repulsion,
                             this.nodeRadius,
                         )
+                        repulsionCalculatioCount++
                     }
                     return
                 }
@@ -813,24 +832,25 @@ class App {
 
                 let distSquared = toCenterX * toCenterX + toCenterY * toCenterY
 
-                let doBarnesHutOpt = false
+                let accurateEnough = false
 
                 if (distSquared < 0.0001) {
-                    doBarnesHutOpt = true
+                    accurateEnough = true
                 } else {
                     const dist = Math.sqrt(distSquared)
-                    if ((tree.maxX - tree.minX) / dist < barnesHutLimit) {
-                        doBarnesHutOpt = true
+                    if ((tree.maxX - tree.minX) / dist < this.barnesHutLimit) {
+                        accurateEnough = true
                     }
                 }
 
-                if (doBarnesHutOpt) {
+                if (accurateEnough) {
                     applyRepulsion(
                         node,
                         tree.centerOfMassX, tree.centerOfMassY,
                         this.repulsion * tree.nodeCount,
                         this.nodeRadius,
                     )
+                    repulsionCalculatioCount++
                 } else {
                     for (const child of tree.childrenTrees) {
                         if (child !== null) {
@@ -838,12 +858,19 @@ class App {
                         }
                     }
                 }
+
             }
 
             for (let i = 0; i < this.nodeManager.length(); i++) {
                 const node = this.nodeManager.getNodeAt(i)
-                applyRepulsionFromTree(node, root)
+                applyRepulsionFromTree(node, this.quadTreeRoot)
             }
+
+
+            const nc = this.nodeManager.length()
+            this.debugPrint("repulse calc estimate", Math.round(nc * Math.log(nc)).toString())
+            this.debugPrint("repulse calc real    ", repulsionCalculatioCount.toString())
+            this.debugPrint("repulse calc no opt  ", (nc * nc).toString())
         }
 
         // apply spring
@@ -908,10 +935,8 @@ class App {
             cd.fillCircle(this.ctx, pos.x, pos.y, 10 * this.zoom, "red")
         }
 
-        /*
-        // TEST TEST TEST TEST TEST
         // draw quad tree
-        {
+        if (this.drawTree) {
             const drawTree = (tree: QuadTree) => {
                 const min = this.worldToViewport(tree.minX, tree.minY)
                 const max = this.worldToViewport(tree.maxX, tree.maxY)
@@ -919,14 +944,9 @@ class App {
                 cd.strokeRect(
                     this.ctx,
                     min.x, min.y,
-                    (max.x - min.x) * 0.95, (max.y - min.y) * 0.95,
-                    1, "green"
+                    (max.x - min.x), (max.y - min.y),
+                    Math.max(0.1 * this.zoom, 1), "green"
                 )
-
-                if (tree.hasChildren) {
-                    const mass = this.worldToViewport(tree.centerOfMassX, tree.centerOfMassY)
-                    cd.fillCircle(this.ctx, mass.x, mass.y, 4, "blue")
-                }
 
                 for (const child of tree.childrenTrees) {
                     if (child != null) {
@@ -935,16 +955,12 @@ class App {
                 }
             }
 
-            const root = this.nodeManager.buildQuadTree()
-            root.cacheCenterOfMass()
-            drawTree(root)
+            drawTree(this.quadTreeRoot)
         }
-        // TEST TEST TEST TEST TEST
-        */
 
         // debug print stuff
         {
-            this.ctx.font = `16px sans-serif`
+            this.ctx.font = `16px 'Courier New', monospace`
             this.ctx.fillStyle = "red"
             this.ctx.textAlign = "start"
             this.ctx.textRendering = "optimizeSpeed"
@@ -1127,7 +1143,7 @@ function main() {
 
     const app = new App(canvas)
 
-    // set up UI elements
+    // set up debug UI elements
     {
         const downloadButton = document.getElementById('download-button') as HTMLButtonElement
         downloadButton.onclick = () => {
@@ -1150,6 +1166,86 @@ function main() {
                 }
             }
         })
+
+        const drawTreeInput = document.getElementById('draw-tree-checkbox') as HTMLInputElement
+        drawTreeInput.checked = app.drawTree
+        drawTreeInput.addEventListener('input', async (ev: Event) => {
+            app.drawTree = drawTreeInput.checked
+        })
+
+        const addSlider = (
+            startingValue: number,
+            min: number, max: number,
+            step: number,
+            labelText: string,
+            onValueChange: (input: number) => void
+        ) => {
+            let debugUIdiv = document.getElementById('debug-ui-div')
+            if (debugUIdiv === null) {
+                return
+            }
+
+            let div = document.createElement('div')
+            div.classList.add('debug-ui-container')
+
+            const uuid = self.crypto.randomUUID();
+
+            let label = document.createElement('label')
+            label.innerText = `${labelText}: ${startingValue}`
+            label.htmlFor = uuid.toString()
+
+            let input = document.createElement('input')
+            input.type = 'range'
+            input.min = min.toString()
+            input.max = max.toString()
+            input.step = step.toString()
+            input.value = startingValue.toString()
+            input.id = uuid.toString()
+            input.addEventListener('input', async (ev: Event) => {
+                label.innerText = `${labelText}: ${input.value}`
+                onValueChange(parseFloat(input.value))
+            })
+
+            div.appendChild(input)
+            div.appendChild(label)
+            debugUIdiv.appendChild(div)
+        }
+
+        addSlider(
+            app.barnesHutLimit,
+            0, 5,
+            0.05,
+            "Barnes Hut Limit",
+            (value) => { console.log(app.barnesHutLimit = value) }
+        )
+        addSlider(
+            app.repulsion,
+            0, 50000,
+            100,
+            "repulsion",
+            (value) => { console.log(app.repulsion = value) }
+        )
+        addSlider(
+            app.spring,
+            0, 0.01,
+            0.0001,
+            "spring",
+            (value) => { console.log(app.spring = value) }
+        )
+        addSlider(
+            app.springDist,
+            0, 10000,
+            10,
+            "spring dist",
+            (value) => { console.log(app.springDist = value) }
+        )
+        addSlider(
+            app.springDistDiffMax,
+            0, 50000,
+            100,
+            "spring dist diff max",
+            (value) => { console.log(app.springDistDiffMax = value) }
+        )
     }
 
     let prevTime: DOMHighResTimeStamp | undefined

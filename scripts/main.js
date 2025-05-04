@@ -276,7 +276,12 @@ class QuadTreeBuilder {
                 maxX = Math.max(node.posX, maxX);
                 maxY = Math.max(node.posY, maxY);
             }
-            root.setRect(minX, minY, maxX, maxY);
+            const width = maxX - minX;
+            const height = maxY - minY;
+            const maxD = Math.max(width, height);
+            const centerX = minX + width * 0.5;
+            const centerY = minY + height * 0.5;
+            root.setRect(centerX - maxD * 0.5, centerY - maxD * 0.5, centerX + maxD * 0.5, centerY + maxD * 0.5);
         }
         for (let i = 0; i < nodeManager.length(); i++) {
             const node = nodeManager._nodes[i];
@@ -429,15 +434,18 @@ class App {
         this.zoom = 1;
         this.isRequesting = false;
         this.treeBuilder = new QuadTreeBuilder();
+        this.quadTreeRoot = new QuadTree();
         this.mouseX = 0;
         this.mouseY = 0;
+        this.drawTree = false;
         this.debugMsgs = new Map();
         // constants
         this.nodeRadius = 8;
-        this.repulsion = 3000;
-        this.springDist = 200;
-        this.springDistDiffMax = 5000;
+        this.repulsion = 16500;
+        this.barnesHutLimit = 1.1;
         this.spring = 0.002;
+        this.springDist = 350;
+        this.springDistDiffMax = 10000;
         this.expandNode = (nodeId) => __awaiter(this, void 0, void 0, function* () {
             if (this.isRequesting) {
                 console.log("busy");
@@ -526,9 +534,9 @@ class App {
         });
         // TEST TEST TEST TEST
         const testNode = new DocNode();
-        testNode.posX = 150;
-        testNode.posY = 150;
-        testNode.title = "English language";
+        testNode.posX = this.width / 2;
+        testNode.posY = this.height / 2;
+        testNode.title = "Miss Meyers";
         //testNode.title = "Miss Meyers"
         this.nodeManager.pushNode(testNode);
         // TEST TEST TEST TEST
@@ -609,32 +617,36 @@ class App {
         }
         // debug print nodecount
         this.debugPrint('node count', this.nodeManager.length().toString());
-        const barnesHutLimit = 1.1;
+        // debug print barnesHutLimit
+        this.debugPrint('Barnes Hut Limit', this.barnesHutLimit.toString());
+        this.quadTreeRoot = this.treeBuilder.buildTree(this.nodeManager);
+        let repulsionCalculatioCount = 0;
         // apply repulsion
         {
-            const root = this.treeBuilder.buildTree(this.nodeManager);
             const applyRepulsionFromTree = (node, tree) => {
                 if (tree.node !== null) {
                     if (tree.node.id != node.id) {
                         applyRepulsion(node, tree.node.posX, tree.node.posY, this.repulsion, this.nodeRadius);
+                        repulsionCalculatioCount++;
                     }
                     return;
                 }
                 const toCenterX = tree.centerOfMassX - node.posX;
                 const toCenterY = tree.centerOfMassY - node.posY;
                 let distSquared = toCenterX * toCenterX + toCenterY * toCenterY;
-                let doBarnesHutOpt = false;
+                let accurateEnough = false;
                 if (distSquared < 0.0001) {
-                    doBarnesHutOpt = true;
+                    accurateEnough = true;
                 }
                 else {
                     const dist = Math.sqrt(distSquared);
-                    if ((tree.maxX - tree.minX) / dist < barnesHutLimit) {
-                        doBarnesHutOpt = true;
+                    if ((tree.maxX - tree.minX) / dist < this.barnesHutLimit) {
+                        accurateEnough = true;
                     }
                 }
-                if (doBarnesHutOpt) {
+                if (accurateEnough) {
                     applyRepulsion(node, tree.centerOfMassX, tree.centerOfMassY, this.repulsion * tree.nodeCount, this.nodeRadius);
+                    repulsionCalculatioCount++;
                 }
                 else {
                     for (const child of tree.childrenTrees) {
@@ -646,8 +658,12 @@ class App {
             };
             for (let i = 0; i < this.nodeManager.length(); i++) {
                 const node = this.nodeManager.getNodeAt(i);
-                applyRepulsionFromTree(node, root);
+                applyRepulsionFromTree(node, this.quadTreeRoot);
             }
+            const nc = this.nodeManager.length();
+            this.debugPrint("repulse calc estimate", Math.round(nc * Math.log(nc)).toString());
+            this.debugPrint("repulse calc real    ", repulsionCalculatioCount.toString());
+            this.debugPrint("repulse calc no opt  ", (nc * nc).toString());
         }
         // apply spring
         this.nodeManager.getConnections().forEach((con) => {
@@ -689,42 +705,23 @@ class App {
             pos = this.worldToViewport(pos.x, pos.y);
             cd.fillCircle(this.ctx, pos.x, pos.y, 10 * this.zoom, "red");
         }
-        /*
-        // TEST TEST TEST TEST TEST
         // draw quad tree
-        {
-            const drawTree = (tree: QuadTree) => {
-                const min = this.worldToViewport(tree.minX, tree.minY)
-                const max = this.worldToViewport(tree.maxX, tree.maxY)
-
-                cd.strokeRect(
-                    this.ctx,
-                    min.x, min.y,
-                    (max.x - min.x) * 0.95, (max.y - min.y) * 0.95,
-                    1, "green"
-                )
-
-                if (tree.hasChildren) {
-                    const mass = this.worldToViewport(tree.centerOfMassX, tree.centerOfMassY)
-                    cd.fillCircle(this.ctx, mass.x, mass.y, 4, "blue")
-                }
-
+        if (this.drawTree) {
+            const drawTree = (tree) => {
+                const min = this.worldToViewport(tree.minX, tree.minY);
+                const max = this.worldToViewport(tree.maxX, tree.maxY);
+                cd.strokeRect(this.ctx, min.x, min.y, (max.x - min.x), (max.y - min.y), Math.max(0.1 * this.zoom, 1), "green");
                 for (const child of tree.childrenTrees) {
                     if (child != null) {
-                        drawTree(child)
+                        drawTree(child);
                     }
                 }
-            }
-
-            const root = this.nodeManager.buildQuadTree()
-            root.cacheCenterOfMass()
-            drawTree(root)
+            };
+            drawTree(this.quadTreeRoot);
         }
-        // TEST TEST TEST TEST TEST
-        */
         // debug print stuff
         {
-            this.ctx.font = `16px sans-serif`;
+            this.ctx.font = `16px 'Courier New', monospace`;
             this.ctx.fillStyle = "red";
             this.ctx.textAlign = "start";
             this.ctx.textRendering = "optimizeSpeed";
@@ -860,7 +857,7 @@ function main() {
         throw new Error("failed to get canvas context");
     }
     const app = new App(canvas);
-    // set up UI elements
+    // set up debug UI elements
     {
         const downloadButton = document.getElementById('download-button');
         downloadButton.onclick = () => {
@@ -882,6 +879,42 @@ function main() {
                 }
             }
         }));
+        const drawTreeInput = document.getElementById('draw-tree-checkbox');
+        drawTreeInput.checked = app.drawTree;
+        drawTreeInput.addEventListener('input', (ev) => __awaiter(this, void 0, void 0, function* () {
+            app.drawTree = drawTreeInput.checked;
+        }));
+        const addSlider = (startingValue, min, max, step, labelText, onValueChange) => {
+            let debugUIdiv = document.getElementById('debug-ui-div');
+            if (debugUIdiv === null) {
+                return;
+            }
+            let div = document.createElement('div');
+            div.classList.add('debug-ui-container');
+            const uuid = self.crypto.randomUUID();
+            let label = document.createElement('label');
+            label.innerText = `${labelText}: ${startingValue}`;
+            label.htmlFor = uuid.toString();
+            let input = document.createElement('input');
+            input.type = 'range';
+            input.min = min.toString();
+            input.max = max.toString();
+            input.step = step.toString();
+            input.value = startingValue.toString();
+            input.id = uuid.toString();
+            input.addEventListener('input', (ev) => __awaiter(this, void 0, void 0, function* () {
+                label.innerText = `${labelText}: ${input.value}`;
+                onValueChange(parseFloat(input.value));
+            }));
+            div.appendChild(input);
+            div.appendChild(label);
+            debugUIdiv.appendChild(div);
+        };
+        addSlider(app.barnesHutLimit, 0, 5, 0.05, "Barnes Hut Limit", (value) => { console.log(app.barnesHutLimit = value); });
+        addSlider(app.repulsion, 0, 50000, 100, "repulsion", (value) => { console.log(app.repulsion = value); });
+        addSlider(app.spring, 0, 0.01, 0.0001, "spring", (value) => { console.log(app.spring = value); });
+        addSlider(app.springDist, 0, 10000, 10, "spring dist", (value) => { console.log(app.springDist = value); });
+        addSlider(app.springDistDiffMax, 0, 50000, 100, "spring dist diff max", (value) => { console.log(app.springDistDiffMax = value); });
     }
     let prevTime;
     const onFrame = (timestamp) => {
