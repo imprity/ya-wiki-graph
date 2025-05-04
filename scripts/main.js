@@ -36,19 +36,22 @@ function drawDocNode(ctx, node) {
     ctx.fillText(node.title, node.posX, node.posY - radius - 2.0);
 }
 function applyRepulsion(node, otherX, otherY, force, minDist) {
-    const nodePos = new math.Vector2(node.posX, node.posY);
-    const otherPos = new math.Vector2(otherX, otherY);
-    const nodeToOther = math.vector2Sub(otherPos, nodePos);
-    let distSquared = math.vector2DistSquared(nodeToOther);
+    const nodeToOtherX = otherX - node.posX;
+    const nodeToOtherY = otherY - node.posY;
+    let distSquared = nodeToOtherX * nodeToOtherX + nodeToOtherY * nodeToOtherY;
     if (distSquared < 0.001) {
         return;
     }
     distSquared = Math.max(distSquared, minDist * minDist);
     const dist = Math.sqrt(distSquared);
-    const normalized = math.vector2Scale(nodeToOther, 1 / dist);
-    const forceV = math.vector2Scale(normalized, force / distSquared);
-    node.posX -= forceV.x;
-    node.posY -= forceV.y;
+    //const normalizedX = math.vector2Scale(nodeToOther, 1 / dist)
+    const normalizedX = nodeToOtherX / dist;
+    const normalizedY = nodeToOtherY / dist;
+    //const forceV = math.vector2Scale(normalized, force / distSquared)
+    const forceX = normalizedX * force / distSquared;
+    const forceY = normalizedY * force / distSquared;
+    node.posX -= forceX;
+    node.posY -= forceY;
 }
 function applySpring(nodeA, nodeB, relaxedDist, maxDistDiff, force, minDist) {
     const aPos = new math.Vector2(nodeA.posX, nodeA.posY);
@@ -984,4 +987,5 @@ function main() {
     };
     requestAnimationFrame(onFrame);
 }
+Worker;
 main();
