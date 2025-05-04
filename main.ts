@@ -411,7 +411,8 @@ class NodeManager {
 
     reset() {
         const initCapacity = 512
-        const matrixSize = calculateSum(1, initCapacity - 1)
+
+        this._connectionMatrix = new Map()
 
         this._connections = []
 
@@ -641,7 +642,6 @@ class App {
         testNode.posX = this.width / 2
         testNode.posY = this.height / 2
         testNode.title = "Miss Meyers"
-        //testNode.title = "Miss Meyers"
         this.nodeManager.pushNode(testNode)
         // TEST TEST TEST TEST
     }
@@ -1033,7 +1033,7 @@ class App {
             }
             const container = jsonObj as SerializationContainer
 
-            this.nodeManager.reset()
+            this.reset(false)
 
             for (const node of container.nodes) {
                 const nodeCopy = new DocNode()
@@ -1061,6 +1061,25 @@ class App {
             this.zoom = container.zoom
         } catch (err) {
             console.error(err)
+        }
+    }
+
+    reset(addStartingNode: boolean) {
+        this.offsetX = 0
+        this.offsetY = 0
+
+        this.zoom = 1
+
+        this.nodeManager.reset()
+
+        if (addStartingNode) {
+            // TEST TEST TEST TEST
+            const testNode = new DocNode()
+            testNode.posX = this.width / 2
+            testNode.posY = this.height / 2
+            testNode.title = "Miss Meyers"
+            this.nodeManager.pushNode(testNode)
+            // TEST TEST TEST TEST
         }
     }
 }
@@ -1167,12 +1186,6 @@ function main() {
             }
         })
 
-        const drawTreeInput = document.getElementById('draw-tree-checkbox') as HTMLInputElement
-        drawTreeInput.checked = app.drawTree
-        drawTreeInput.addEventListener('input', async (ev: Event) => {
-            app.drawTree = drawTreeInput.checked
-        })
-
         const addSlider = (
             startingValue: number,
             min: number, max: number,
@@ -1210,6 +1223,72 @@ function main() {
             div.appendChild(label)
             debugUIdiv.appendChild(div)
         }
+
+        const addCheckBox = (
+            startingValue: boolean,
+            labelText: string,
+            onValueChange: (input: boolean) => void
+        ) => {
+            let debugUIdiv = document.getElementById('debug-ui-div')
+            if (debugUIdiv === null) {
+                return
+            }
+
+            let div = document.createElement('div')
+            div.classList.add('debug-ui-container')
+
+            const uuid = self.crypto.randomUUID();
+
+            let label = document.createElement('label')
+            label.innerText = `${labelText}`
+            label.htmlFor = uuid.toString()
+
+            let checkbox = document.createElement('input')
+            checkbox.type = 'checkbox'
+            checkbox.checked = startingValue
+            checkbox.id = uuid.toString()
+            checkbox.addEventListener('input', async (ev: Event) => {
+                label.innerText = `${labelText}`
+                onValueChange(checkbox.checked)
+            })
+
+            div.appendChild(checkbox)
+            div.appendChild(label)
+            debugUIdiv.appendChild(div)
+        }
+
+        const addButton = (
+            text: string,
+            onclick: () => void
+        ) => {
+            let debugUIdiv = document.getElementById('debug-ui-div')
+            if (debugUIdiv === null) {
+                return
+            }
+
+            let div = document.createElement('div')
+            div.classList.add('debug-ui-container')
+
+            let button = document.createElement('button')
+            button.innerText = text
+
+            button.onclick = onclick
+
+            div.appendChild(button)
+            debugUIdiv.appendChild(div)
+        }
+
+        addButton(
+            'reset', () => { app.reset(true) }
+        )
+
+        addCheckBox(
+            app.drawTree,
+            "draw tree",
+            (value) => {
+                app.drawTree = value
+            }
+        )
 
         addSlider(
             app.barnesHutLimit,
