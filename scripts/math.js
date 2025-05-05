@@ -33,3 +33,14 @@ export function boxIntersects(minX1, minY1, maxX1, maxY1, minX2, minY2, maxX2, m
     }
     return false;
 }
+export function distSquared(x, y) {
+    return x * x + y * y;
+}
+export function dist(x, y) {
+    return Math.sqrt(distSquared(x, y));
+}
+export function clamp(n, min, max) {
+    n = Math.min(n, max);
+    n = Math.max(n, min);
+    return n;
+}

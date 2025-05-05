@@ -3,6 +3,9 @@ import * as wiki from "./wiki.js"
 import * as util from "./util.js"
 import * as math from "./math.js"
 
+//const FirstTitle = "English language"
+const FirstTitle = "Miss Meyers"
+
 class DocNode {
     static nodeIdMax: number = 0
 
@@ -14,6 +17,16 @@ class DocNode {
 
     posX: number = 0
     posY: number = 0
+
+    velocityX: number = 0
+    velocityY: number = 0
+
+    forceX: number = 0
+    forceY: number = 0
+
+    temp : number = 1
+
+    mass : number = 0
 
     id: number = 0
 
@@ -64,8 +77,8 @@ function applyRepulsion(
     const forceX = normalizedX * force / distSquared
     const forceY = normalizedY * force / distSquared
 
-    node.posX -= forceX
-    node.posY -= forceY
+    node.forceX -= forceX
+    node.forceY -= forceY
 }
 
 function applySpring(
@@ -93,19 +106,21 @@ function applySpring(
 
     let delta = relaxedDist - dist
 
+    /*
     if (delta < -maxDistDiff) {
         delta = -maxDistDiff
     } else if (delta > maxDistDiff) {
         delta = maxDistDiff
     }
+    */
 
-    let atobF = math.vector2Scale(atobN, delta * force)
+    let atobF = math.vector2Scale(atobN, Math.log(dist / relaxedDist) * force)
 
-    nodeA.posX -= atobF.x
-    nodeA.posY -= atobF.y
+    nodeA.forceX += atobF.x
+    nodeA.forceY += atobF.y
 
-    nodeB.posX += atobF.x
-    nodeB.posY += atobF.y
+    nodeB.forceX -= atobF.x
+    nodeB.forceY -= atobF.y
 }
 
 function calculateSum(a: number, b: number): number {
@@ -283,7 +298,7 @@ class QuadTreeBuilder {
     }
 
     _pushNodeToTree(tree: QuadTree, node: DocNode) {
-        tree.nodeCount++
+        tree.nodeCount += node.mass
 
         if (tree.node === null && !tree.hasChildren) {
             tree.node = node
@@ -320,8 +335,8 @@ class QuadTreeBuilder {
         if (tree.node !== null) {
             tree.centerOfMassX = tree.node.posX
             tree.centerOfMassY = tree.node.posY
-            tree.centerOfMassXSum = tree.node.posX
-            tree.centerOfMassYSum = tree.node.posY
+            tree.centerOfMassXSum = tree.node.posX * tree.node.mass
+            tree.centerOfMassYSum = tree.node.posY * tree.node.mass
 
             return
         }
@@ -406,6 +421,7 @@ class NodeManager {
 
     _nodes: Array<DocNode> = []
     _titleToNodes: Map<string, number> = new Map()
+    _idToNodeIndex: Map<number, number> = new Map()
 
     constructor() {
         this.reset()
@@ -423,6 +439,17 @@ class NodeManager {
 
         this._nodes = Array(initCapacity)
         this._titleToNodes = new Map()
+
+        this._idToNodeIndex = new Map()
+    }
+
+    getIndexFromId(id : number) : number {
+        const index = this._idToNodeIndex.get(id)
+        if (index === undefined) {
+            return -1
+        }
+
+        return index
     }
 
     isConnected(nodeIndexA: number, nodeIndexB: number): boolean {
@@ -530,6 +557,7 @@ class NodeManager {
 
         this._nodes[this._length] = node
         this._titleToNodes.set(node.title, this._length)
+        this._idToNodeIndex.set(node.id, this._length)
         this._length++
     }
 
@@ -623,7 +651,7 @@ class App {
         const testNode = new DocNode()
         testNode.posX = this.width / 2
         testNode.posY = this.height / 2
-        testNode.title = "Miss Meyers"
+        testNode.title = FirstTitle
         this.nodeManager.pushNode(testNode)
         // TEST TEST TEST TEST
     }
@@ -745,13 +773,21 @@ class App {
                         newNode.title = link
 
                         const v = math.vector2Rotate(offsetV, angle * index)
-                        newNode.posX = node.posX + v.x + (Math.random() - 0.5) * 20
-                        newNode.posY = node.posY + v.y + (Math.random() - 0.5) * 20
+                        newNode.posX = node.posX + v.x // + (Math.random() - 0.5) * 20
+                        newNode.posY = node.posY + v.y // + (Math.random() - 0.5) * 20
 
                         this.nodeManager.pushNode(newNode)
                         this.nodeManager.setConnected(nodeId, newNodeId, true)
+
+                        node.mass += 1
+                        newNode.mass += 1
                     } else {
-                        this.nodeManager.setConnected(nodeId, existingNodeId, true)
+                        if (!this.nodeManager.isConnected(nodeId, existingNodeId)) {
+                            const existingNode = this.nodeManager.getNodeAt(existingNodeId)
+                            this.nodeManager.setConnected(nodeId, existingNodeId, true)
+                            node.mass += 1
+                            existingNode.mass += 1
+                        }
                     }
 
                     index += 1
@@ -828,13 +864,17 @@ class App {
             const applyRepulsionFromTree = (node: DocNode, tree: QuadTree) => {
                 if (tree.node !== null) {
                     if (tree.node.id != node.id) {
-                        applyRepulsion(
-                            node,
-                            tree.node.posX, tree.node.posY,
-                            this.repulsion,
-                            this.nodeRadius,
-                        )
-                        repulsionCalculatioCount++
+                        const nodeIndex = this.nodeManager.getIndexFromId(node.id)
+                        const treeNodeIndex = this.nodeManager.getIndexFromId(tree.node.id)
+                        if (!this.nodeManager.isConnected(nodeIndex, treeNodeIndex)) {
+                            applyRepulsion(
+                                node,
+                                tree.node.posX, tree.node.posY,
+                                this.repulsion * tree.node.mass * node.mass,
+                                this.nodeRadius,
+                            )
+                            repulsionCalculatioCount++
+                        }
                     }
                     return
                 }
@@ -859,7 +899,7 @@ class App {
                     applyRepulsion(
                         node,
                         tree.centerOfMassX, tree.centerOfMassY,
-                        this.repulsion * tree.nodeCount,
+                        this.repulsion * tree.nodeCount * node.mass,
                         this.nodeRadius,
                     )
                     repulsionCalculatioCount++
@@ -898,6 +938,38 @@ class App {
                 this.nodeRadius,
             )
         })
+
+        for (let i = 0; i < this.nodeManager.length(); i++) {
+            const node = this.nodeManager.getNodeAt(i)
+
+            // node.velocityX += node.forceX
+            // node.velocityY += node.forceY
+            //
+            // node.posX += node.velocityX
+            // node.posY += node.velocityY
+            if (node.mass <= 0) {
+                continue
+            }
+
+            node.forceX /= node.mass
+            node.forceY /= node.mass
+
+            if (math.distSquared(node.forceX, node.forceY) > 1 * 1) {
+                node.temp += 0.01
+            }else {
+                node.temp -= 0.01
+            }
+            node.temp = math.clamp(node.temp, 0, 1)
+
+            node.posX += node.forceX * node.temp
+            node.posY += node.forceY * node.temp
+            //
+            // node.velocityX *= 0.5
+            // node.velocityY *= 0.5
+
+            node.forceX = 0
+            node.forceY = 0
+        }
     }
 
     draw(deltaTime: DOMHighResTimeStamp) {
@@ -917,15 +989,17 @@ class App {
             )
         })
 
+        const getNodeRadius = (node : DocNode) : number => {
+            return this.nodeRadius * (1 + node.mass * 0.1)
+        }
+
         // draw circles
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i)
             if (node.doDraw) {
                 const pos = this.worldToViewport(node.posX, node.posY)
 
-                const radius = this.nodeRadius * this.zoom
-
-                cd.fillCircle(this.ctx, pos.x, pos.y, radius, "PaleTurquoise")
+                cd.fillCircle(this.ctx, pos.x, pos.y, getNodeRadius(node) * this.zoom, "PaleTurquoise")
             }
         }
 
@@ -940,7 +1014,10 @@ class App {
             if (node.doDraw) {
                 const pos = this.worldToViewport(node.posX, node.posY)
 
-                this.ctx.fillText(node.title, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom)
+                // TEST TEST TEST TEST
+                //this.ctx.fillText(node.title, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom)
+                // TEST TEST TEST TEST
+                this.ctx.fillText(node.mass.toString(), pos.x, pos.y - (getNodeRadius(node) + 5.0) * this.zoom)
             }
         }
 
@@ -1093,7 +1170,7 @@ class App {
             const testNode = new DocNode()
             testNode.posX = this.width / 2
             testNode.posY = this.height / 2
-            testNode.title = "Miss Meyers"
+            testNode.title = FirstTitle
             this.nodeManager.pushNode(testNode)
             // TEST TEST TEST TEST
         }
@@ -1311,35 +1388,35 @@ function main() {
             0, 5,
             0.05,
             "Barnes Hut Limit",
-            (value) => { console.log(app.barnesHutLimit = value) }
+            (value) => { app.barnesHutLimit = value }
         )
         addSlider(
             app.repulsion,
-            0, 50000,
-            100,
+            0, 10000,
+            1,
             "repulsion",
-            (value) => { console.log(app.repulsion = value) }
+            (value) => { app.repulsion = value }
         )
         addSlider(
             app.spring,
-            0, 0.01,
+            0, 5,
             0.0001,
             "spring",
-            (value) => { console.log(app.spring = value) }
+            (value) => { app.spring = value }
         )
         addSlider(
             app.springDist,
-            0, 10000,
-            10,
+            1, 1000,
+            1,
             "spring dist",
-            (value) => { console.log(app.springDist = value) }
+            (value) => { app.springDist = value }
         )
         addSlider(
             app.springDistDiffMax,
             0, 50000,
             100,
             "spring dist diff max",
-            (value) => { console.log(app.springDistDiffMax = value) }
+            (value) => { app.springDistDiffMax = value }
         )
     }
 
@@ -1366,8 +1443,6 @@ function main() {
 
     requestAnimationFrame(onFrame)
 }
-
-Worker
 
 main()
 

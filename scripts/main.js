@@ -11,6 +11,8 @@ import * as cd from "./canvas.js";
 import * as wiki from "./wiki.js";
 import * as util from "./util.js";
 import * as math from "./math.js";
+//const FirstTitle = "English language"
+const FirstTitle = "Miss Meyers";
 class DocNode {
     static getNewNodeId() {
         const id = DocNode.nodeIdMax + 1;
@@ -20,6 +22,12 @@ class DocNode {
     constructor() {
         this.posX = 0;
         this.posY = 0;
+        this.velocityX = 0;
+        this.velocityY = 0;
+        this.forceX = 0;
+        this.forceY = 0;
+        this.temp = 1;
+        this.mass = 0;
         this.id = 0;
         this.title = "";
         this.doDraw = true;
@@ -49,8 +57,8 @@ function applyRepulsion(node, otherX, otherY, force, minDist) {
     const normalizedY = nodeToOtherY / dist;
     const forceX = normalizedX * force / distSquared;
     const forceY = normalizedY * force / distSquared;
-    node.posX -= forceX;
-    node.posY -= forceY;
+    node.forceX -= forceX;
+    node.forceY -= forceY;
 }
 function applySpring(nodeA, nodeB, relaxedDist, maxDistDiff, force, minDist) {
     const aPos = new math.Vector2(nodeA.posX, nodeA.posY);
@@ -64,17 +72,18 @@ function applySpring(nodeA, nodeB, relaxedDist, maxDistDiff, force, minDist) {
     const dist = Math.sqrt(distSquared);
     const atobN = math.vector2Scale(atob, 1 / dist);
     let delta = relaxedDist - dist;
+    /*
     if (delta < -maxDistDiff) {
-        delta = -maxDistDiff;
+        delta = -maxDistDiff
+    } else if (delta > maxDistDiff) {
+        delta = maxDistDiff
     }
-    else if (delta > maxDistDiff) {
-        delta = maxDistDiff;
-    }
-    let atobF = math.vector2Scale(atobN, delta * force);
-    nodeA.posX -= atobF.x;
-    nodeA.posY -= atobF.y;
-    nodeB.posX += atobF.x;
-    nodeB.posY += atobF.y;
+    */
+    let atobF = math.vector2Scale(atobN, Math.log(dist / relaxedDist) * force);
+    nodeA.forceX += atobF.x;
+    nodeA.forceY += atobF.y;
+    nodeB.forceX -= atobF.x;
+    nodeB.forceY -= atobF.y;
 }
 function calculateSum(a, b) {
     return (b - a + 1) * (a + b) / 2;
@@ -212,7 +221,7 @@ class QuadTreeBuilder {
         return child;
     }
     _pushNodeToTree(tree, node) {
-        tree.nodeCount++;
+        tree.nodeCount += node.mass;
         if (tree.node === null && !tree.hasChildren) {
             tree.node = node;
             return;
@@ -241,8 +250,8 @@ class QuadTreeBuilder {
         if (tree.node !== null) {
             tree.centerOfMassX = tree.node.posX;
             tree.centerOfMassY = tree.node.posY;
-            tree.centerOfMassXSum = tree.node.posX;
-            tree.centerOfMassYSum = tree.node.posY;
+            tree.centerOfMassXSum = tree.node.posX * tree.node.mass;
+            tree.centerOfMassYSum = tree.node.posY * tree.node.mass;
             return;
         }
         tree.centerOfMassXSum = 0;
@@ -301,6 +310,7 @@ class NodeManager {
         this._capacity = 0;
         this._nodes = [];
         this._titleToNodes = new Map();
+        this._idToNodeIndex = new Map();
         this.reset();
     }
     reset() {
@@ -311,6 +321,14 @@ class NodeManager {
         this._capacity = initCapacity;
         this._nodes = Array(initCapacity);
         this._titleToNodes = new Map();
+        this._idToNodeIndex = new Map();
+    }
+    getIndexFromId(id) {
+        const index = this._idToNodeIndex.get(id);
+        if (index === undefined) {
+            return -1;
+        }
+        return index;
     }
     isConnected(nodeIndexA, nodeIndexB) {
         if (nodeIndexA === nodeIndexB) {
@@ -391,6 +409,7 @@ class NodeManager {
         }
         this._nodes[this._length] = node;
         this._titleToNodes.set(node.title, this._length);
+        this._idToNodeIndex.set(node.id, this._length);
         this._length++;
     }
     findNodeFromTitle(title) {
@@ -459,13 +478,20 @@ class App {
                             const newNodeId = this.nodeManager.length();
                             newNode.title = link;
                             const v = math.vector2Rotate(offsetV, angle * index);
-                            newNode.posX = node.posX + v.x + (Math.random() - 0.5) * 20;
-                            newNode.posY = node.posY + v.y + (Math.random() - 0.5) * 20;
+                            newNode.posX = node.posX + v.x; // + (Math.random() - 0.5) * 20
+                            newNode.posY = node.posY + v.y; // + (Math.random() - 0.5) * 20
                             this.nodeManager.pushNode(newNode);
                             this.nodeManager.setConnected(nodeId, newNodeId, true);
+                            node.mass += 1;
+                            newNode.mass += 1;
                         }
                         else {
-                            this.nodeManager.setConnected(nodeId, existingNodeId, true);
+                            if (!this.nodeManager.isConnected(nodeId, existingNodeId)) {
+                                const existingNode = this.nodeManager.getNodeAt(existingNodeId);
+                                this.nodeManager.setConnected(nodeId, existingNodeId, true);
+                                node.mass += 1;
+                                existingNode.mass += 1;
+                            }
                         }
                         index += 1;
                         if (addNodeOneByOne) {
@@ -518,7 +544,7 @@ class App {
         const testNode = new DocNode();
         testNode.posX = this.width / 2;
         testNode.posY = this.height / 2;
-        testNode.title = "Miss Meyers";
+        testNode.title = FirstTitle;
         this.nodeManager.pushNode(testNode);
         // TEST TEST TEST TEST
     }
@@ -631,8 +657,12 @@ class App {
             const applyRepulsionFromTree = (node, tree) => {
                 if (tree.node !== null) {
                     if (tree.node.id != node.id) {
-                        applyRepulsion(node, tree.node.posX, tree.node.posY, this.repulsion, this.nodeRadius);
-                        repulsionCalculatioCount++;
+                        const nodeIndex = this.nodeManager.getIndexFromId(node.id);
+                        const treeNodeIndex = this.nodeManager.getIndexFromId(tree.node.id);
+                        if (!this.nodeManager.isConnected(nodeIndex, treeNodeIndex)) {
+                            applyRepulsion(node, tree.node.posX, tree.node.posY, this.repulsion * tree.node.mass * node.mass, this.nodeRadius);
+                            repulsionCalculatioCount++;
+                        }
                     }
                     return;
                 }
@@ -650,7 +680,7 @@ class App {
                     }
                 }
                 if (accurateEnough) {
-                    applyRepulsion(node, tree.centerOfMassX, tree.centerOfMassY, this.repulsion * tree.nodeCount, this.nodeRadius);
+                    applyRepulsion(node, tree.centerOfMassX, tree.centerOfMassY, this.repulsion * tree.nodeCount * node.mass, this.nodeRadius);
                     repulsionCalculatioCount++;
                 }
                 else {
@@ -676,6 +706,33 @@ class App {
             const nodeB = this.nodeManager.getNodeAt(con.nodeIndexB);
             applySpring(nodeA, nodeB, this.springDist, this.springDistDiffMax, this.spring, this.nodeRadius);
         });
+        for (let i = 0; i < this.nodeManager.length(); i++) {
+            const node = this.nodeManager.getNodeAt(i);
+            // node.velocityX += node.forceX
+            // node.velocityY += node.forceY
+            //
+            // node.posX += node.velocityX
+            // node.posY += node.velocityY
+            if (node.mass <= 0) {
+                continue;
+            }
+            node.forceX /= node.mass;
+            node.forceY /= node.mass;
+            if (math.distSquared(node.forceX, node.forceY) > 1 * 1) {
+                node.temp += 0.01;
+            }
+            else {
+                node.temp -= 0.01;
+            }
+            node.temp = math.clamp(node.temp, 0, 1);
+            node.posX += node.forceX * node.temp;
+            node.posY += node.forceY * node.temp;
+            //
+            // node.velocityX *= 0.5
+            // node.velocityY *= 0.5
+            node.forceX = 0;
+            node.forceY = 0;
+        }
     }
     draw(deltaTime) {
         // draw connections
@@ -686,13 +743,15 @@ class App {
             const posB = this.worldToViewport(nodeB.posX, nodeB.posY);
             cd.strokeLine(this.ctx, posA.x, posA.y, posB.x, posB.y, 2 * this.zoom, "grey");
         });
+        const getNodeRadius = (node) => {
+            return this.nodeRadius * (1 + node.mass * 0.1);
+        };
         // draw circles
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i);
             if (node.doDraw) {
                 const pos = this.worldToViewport(node.posX, node.posY);
-                const radius = this.nodeRadius * this.zoom;
-                cd.fillCircle(this.ctx, pos.x, pos.y, radius, "PaleTurquoise");
+                cd.fillCircle(this.ctx, pos.x, pos.y, getNodeRadius(node) * this.zoom, "PaleTurquoise");
             }
         }
         // draw texts
@@ -705,7 +764,10 @@ class App {
             const node = this.nodeManager.getNodeAt(i);
             if (node.doDraw) {
                 const pos = this.worldToViewport(node.posX, node.posY);
-                this.ctx.fillText(node.title, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom);
+                // TEST TEST TEST TEST
+                //this.ctx.fillText(node.title, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom)
+                // TEST TEST TEST TEST
+                this.ctx.fillText(node.mass.toString(), pos.x, pos.y - (getNodeRadius(node) + 5.0) * this.zoom);
             }
         }
         // draw mouse pointer
@@ -812,7 +874,7 @@ class App {
             const testNode = new DocNode();
             testNode.posX = this.width / 2;
             testNode.posY = this.height / 2;
-            testNode.title = "Miss Meyers";
+            testNode.title = FirstTitle;
             this.nodeManager.pushNode(testNode);
             // TEST TEST TEST TEST
         }
@@ -969,11 +1031,11 @@ function main() {
         addCheckBox(app.drawTree, "draw tree", (value) => {
             app.drawTree = value;
         });
-        addSlider(app.barnesHutLimit, 0, 5, 0.05, "Barnes Hut Limit", (value) => { console.log(app.barnesHutLimit = value); });
-        addSlider(app.repulsion, 0, 50000, 100, "repulsion", (value) => { console.log(app.repulsion = value); });
-        addSlider(app.spring, 0, 0.01, 0.0001, "spring", (value) => { console.log(app.spring = value); });
-        addSlider(app.springDist, 0, 10000, 10, "spring dist", (value) => { console.log(app.springDist = value); });
-        addSlider(app.springDistDiffMax, 0, 50000, 100, "spring dist diff max", (value) => { console.log(app.springDistDiffMax = value); });
+        addSlider(app.barnesHutLimit, 0, 5, 0.05, "Barnes Hut Limit", (value) => { app.barnesHutLimit = value; });
+        addSlider(app.repulsion, 0, 10000, 1, "repulsion", (value) => { app.repulsion = value; });
+        addSlider(app.spring, 0, 5, 0.0001, "spring", (value) => { app.spring = value; });
+        addSlider(app.springDist, 1, 1000, 1, "spring dist", (value) => { app.springDist = value; });
+        addSlider(app.springDistDiffMax, 0, 50000, 100, "spring dist diff max", (value) => { app.springDistDiffMax = value; });
     }
     let prevTime;
     const onFrame = (timestamp) => {
@@ -994,5 +1056,4 @@ function main() {
     };
     requestAnimationFrame(onFrame);
 }
-Worker;
 main();
