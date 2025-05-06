@@ -51,16 +51,29 @@ export function boxIntersects(
     return false
 }
 
-export function distSquared(x : number, y : number) : number {
-    return x*x + y*y
+export function distSquared(x: number, y: number): number {
+    return x * x + y * y
 }
 
-export function dist(x : number, y : number) : number {
+export function dist(x: number, y: number): number {
     return Math.sqrt(distSquared(x, y))
 }
 
-export function clamp(n : number, min : number, max : number) : number {
+export function clamp(n: number, min: number, max: number): number {
     n = Math.min(n, max)
     n = Math.max(n, min)
     return n
+}
+
+export function clampAbs(n: number, abs: number): number {
+    if (n < -abs) {
+        n = -abs
+    } else if (n > abs) {
+        n = abs
+    }
+    return n
+}
+
+export function closeToZero(n: number): boolean {
+    return Math.abs(n) < 0.00001
 }

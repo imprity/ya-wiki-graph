@@ -13,3 +13,7 @@ export function saveBlob(blob: Blob, fileName: string) {
     URL.revokeObjectURL(url)
 }
 
+export function calculateSum(a: number, b: number): number {
+    return (b - a + 1) * (a + b) / 2
+}
+

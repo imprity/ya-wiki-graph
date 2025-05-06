@@ -3,8 +3,8 @@ import * as wiki from "./wiki.js"
 import * as util from "./util.js"
 import * as math from "./math.js"
 
-//const FirstTitle = "English language"
-const FirstTitle = "Miss Meyers"
+const FirstTitle = "English language"
+//const FirstTitle = "Miss Meyers"
 
 class DocNode {
     static nodeIdMax: number = 0
@@ -15,18 +15,19 @@ class DocNode {
         return id
     }
 
+    static nodeMassToRadius(mass: number): number {
+        return 8 + mass * 0.1
+    }
+
     posX: number = 0
     posY: number = 0
-
-    velocityX: number = 0
-    velocityY: number = 0
 
     forceX: number = 0
     forceY: number = 0
 
-    temp : number = 1
+    temp: number = 1
 
-    mass : number = 0
+    mass: number = 0
 
     id: number = 0
 
@@ -37,94 +38,10 @@ class DocNode {
     constructor() {
         this.id = DocNode.getNewNodeId()
     }
-}
 
-function drawDocNode(
-    ctx: CanvasRenderingContext2D,
-    node: DocNode,
-) {
-    const radius = 8
-    cd.fillCircle(ctx, node.posX, node.posY, radius, "rgb(100, 100, 100)")
-
-    ctx.font = "12px sans-serif"
-    ctx.textAlign = "center"
-    ctx.textRendering = "optimizeSpeed"
-    ctx.textBaseline = "bottom"
-    ctx.fillText(node.title, node.posX, node.posY - radius - 2.0)
-}
-
-function applyRepulsion(
-    node: DocNode,
-    otherX: number, otherY: number,
-    force: number,
-    minDist: number
-) {
-    const nodeToOtherX = otherX - node.posX
-    const nodeToOtherY = otherY - node.posY
-
-    let distSquared = nodeToOtherX * nodeToOtherX + nodeToOtherY * nodeToOtherY
-    if (distSquared < 0.001) {
-        return
+    getRadius(): number {
+        return DocNode.nodeMassToRadius(this.mass)
     }
-
-    distSquared = Math.max(distSquared, minDist * minDist)
-
-    const dist = Math.sqrt(distSquared)
-
-    const normalizedX = nodeToOtherX / dist
-    const normalizedY = nodeToOtherY / dist
-
-    const forceX = normalizedX * force / distSquared
-    const forceY = normalizedY * force / distSquared
-
-    node.forceX -= forceX
-    node.forceY -= forceY
-}
-
-function applySpring(
-    nodeA: DocNode, nodeB: DocNode,
-    relaxedDist: number,
-    maxDistDiff: number,
-    force: number,
-    minDist: number
-) {
-    const aPos = new math.Vector2(nodeA.posX, nodeA.posY)
-    const bPos = new math.Vector2(nodeB.posX, nodeB.posY)
-
-    const atob = math.vector2Sub(bPos, aPos)
-
-    let distSquared = math.vector2DistSquared(atob)
-    if (distSquared < 0.001) {
-        return
-    }
-
-    distSquared = Math.max(distSquared, minDist * minDist)
-
-    const dist = Math.sqrt(distSquared)
-
-    const atobN = math.vector2Scale(atob, 1 / dist)
-
-    let delta = relaxedDist - dist
-
-    /*
-    if (delta < -maxDistDiff) {
-        delta = -maxDistDiff
-    } else if (delta > maxDistDiff) {
-        delta = maxDistDiff
-    }
-    */
-
-    let atobF = math.vector2Scale(atobN, Math.log(dist / relaxedDist) * force)
-
-    nodeA.forceX += atobF.x
-    nodeA.forceY += atobF.y
-
-    nodeB.forceX -= atobF.x
-    nodeB.forceY -= atobF.y
-}
-
-function calculateSum(a: number, b: number): number {
-    return (b - a + 1) * (a + b) / 2
 }
 
 class Connection {
@@ -134,280 +51,6 @@ class Connection {
     constructor(nodeIndexA: number, nodeIndexB: number) {
         this.nodeIndexA = nodeIndexA
         this.nodeIndexB = nodeIndexB
-    }
-}
-
-enum Direction {
-    TopLeft = 0,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-}
-
-class QuadTree {
-    minX: number = 0
-    minY: number = 0
-
-    maxX: number = 0
-    maxY: number = 0
-
-    centerX: number = 0
-    centerY: number = 0
-
-    hasChildren: boolean = false
-    childrenTrees: Array<QuadTree | null> = new Array(4).fill(null)
-
-    node: DocNode | null = null
-
-    centerOfMassX: number = 0
-    centerOfMassY: number = 0
-
-    centerOfMassXSum: number = 0
-    centerOfMassYSum: number = 0
-
-    centerOfMassCached: boolean = false
-
-    nodeCount: number = 0
-
-    reset() {
-        this.minX = 0
-        this.minY = 0
-
-        this.maxX = 0
-        this.maxY = 0
-
-        this.centerX = 0
-        this.centerY = 0
-
-        this.hasChildren = false
-        this.childrenTrees.fill(null)
-
-        this.node = null
-
-        this.centerOfMassX = 0
-        this.centerOfMassY = 0
-
-        this.centerOfMassXSum = 0
-        this.centerOfMassYSum = 0
-
-        this.centerOfMassCached = false
-
-        this.nodeCount = 0
-    }
-
-    setRect(minX: number, minY: number, maxX: number, maxY: number) {
-        this.minX = minX
-        this.minY = minY
-
-        this.maxX = maxX
-        this.maxY = maxY
-
-        this.centerX = (this.minX + this.maxX) * 0.5
-        this.centerY = (this.minY + this.maxY) * 0.5
-    }
-
-    getPosDirection(posX: number, posY: number): Direction {
-        let onLeft = false
-        let onTop = false
-
-        if (posX < this.centerX) {
-            onLeft = true
-        }
-        if (posY < this.centerY) {
-            onTop = true
-        }
-
-        if (onLeft) { // left
-            if (onTop) { // top
-                return Direction.TopLeft
-            } else { // bottom
-                return Direction.BottomLeft
-            }
-        } else { // right
-            if (onTop) { // top
-                return Direction.TopRight
-            } else { // bottom
-                return Direction.BottomRight
-            }
-        }
-    }
-}
-
-class QuadTreeBuilder {
-    _treePool: Array<QuadTree>
-    _treePoolCursor: number = 0
-
-    constructor() {
-        const initCapacity = 512
-
-        this._treePool = new Array(initCapacity)
-
-        for (let i = 0; i < initCapacity; i++) {
-            this._treePool[i] = new QuadTree()
-        }
-    }
-
-    getNewTree(): QuadTree {
-        if (this._treePoolCursor >= this._treePool.length) {
-            const oldLen = this._treePool.length
-            const newLen = oldLen * 2
-
-            this._treePool.length = newLen
-
-            for (let i = oldLen; i < newLen; i++) {
-                this._treePool[i] = new QuadTree()
-            }
-        }
-        const tree = this._treePool[this._treePoolCursor]
-        tree.reset()
-        this._treePoolCursor++
-        return tree
-    }
-
-    _createTreeChild(tree: QuadTree, dir: Direction): QuadTree {
-        const child = this.getNewTree()
-
-        switch (dir) {
-            case Direction.TopLeft: {
-                child.setRect(
-                    tree.minX, tree.minY,
-                    tree.centerX, tree.centerY
-                )
-            } break
-            case Direction.TopRight: {
-                child.setRect(
-                    tree.centerX, tree.minY,
-                    tree.maxX, tree.centerY
-                )
-            } break
-            case Direction.BottomLeft: {
-                child.setRect(
-                    tree.minX, tree.centerY,
-                    tree.centerX, tree.maxY
-                )
-            } break
-            case Direction.BottomRight: {
-                child.setRect(
-                    tree.centerX, tree.centerY,
-                    tree.maxX, tree.maxY
-                )
-            } break
-        }
-
-        return child
-    }
-
-    _pushNodeToTree(tree: QuadTree, node: DocNode) {
-        tree.nodeCount += node.mass
-
-        if (tree.node === null && !tree.hasChildren) {
-            tree.node = node
-            return
-        }
-
-        tree.hasChildren = true
-
-        if (tree.node !== null) {
-            const ogNode = tree.node
-            tree.node = null
-
-            const ogNodeDirection = tree.getPosDirection(ogNode.posX, ogNode.posY)
-            if (tree.childrenTrees[ogNodeDirection] === null) {
-                tree.childrenTrees[ogNodeDirection] = this._createTreeChild(tree, ogNodeDirection)
-            }
-            this._pushNodeToTree(tree.childrenTrees[ogNodeDirection], ogNode)
-        }
-
-        const nodeDirection = tree.getPosDirection(node.posX, node.posY)
-        if (tree.childrenTrees[nodeDirection] === null) {
-            tree.childrenTrees[nodeDirection] = this._createTreeChild(tree, nodeDirection)
-        }
-        this._pushNodeToTree(tree.childrenTrees[nodeDirection], node)
-    }
-
-    _cacheCenterOfMass(tree: QuadTree) {
-        if (tree.centerOfMassCached) {
-            return
-        }
-
-        tree.centerOfMassCached = true
-
-        if (tree.node !== null) {
-            tree.centerOfMassX = tree.node.posX
-            tree.centerOfMassY = tree.node.posY
-            tree.centerOfMassXSum = tree.node.posX * tree.node.mass
-            tree.centerOfMassYSum = tree.node.posY * tree.node.mass
-
-            return
-        }
-
-        tree.centerOfMassXSum = 0
-        tree.centerOfMassYSum = 0
-
-        for (const child of tree.childrenTrees) {
-            if (child !== null) {
-                this._cacheCenterOfMass(child)
-
-                tree.centerOfMassXSum += child.centerOfMassXSum
-                tree.centerOfMassYSum += child.centerOfMassYSum
-            }
-        }
-
-        tree.centerOfMassX = tree.centerOfMassXSum / tree.nodeCount
-        tree.centerOfMassY = tree.centerOfMassYSum / tree.nodeCount
-    }
-
-    buildTree(nodeManager: NodeManager) {
-        this._treePoolCursor = 0
-
-        if (nodeManager.length() <= 0) {
-            const tree = this.getNewTree()
-            tree.setRect(0, 0, 0, 0)
-            return tree
-        }
-
-        const root = this.getNewTree()
-
-        // calculate root rect
-        {
-            let minX: number = Number.MAX_VALUE
-            let minY: number = Number.MAX_VALUE
-
-            let maxX: number = -Number.MAX_VALUE
-            let maxY: number = -Number.MAX_VALUE
-
-            for (let i = 0; i < nodeManager.length(); i++) {
-                const node = nodeManager.getNodeAt(i)
-
-                minX = Math.min(node.posX, minX)
-                minY = Math.min(node.posY, minY)
-
-                maxX = Math.max(node.posX, maxX)
-                maxY = Math.max(node.posY, maxY)
-            }
-
-            const width = maxX - minX
-            const height = maxY - minY
-
-            const maxD = Math.max(width, height)
-
-            const centerX = minX + width * 0.5
-            const centerY = minY + height * 0.5
-
-            root.setRect(
-                centerX - maxD * 0.5, centerY - maxD * 0.5,
-                centerX + maxD * 0.5, centerY + maxD * 0.5,
-            )
-        }
-
-        for (let i = 0; i < nodeManager.length(); i++) {
-            const node = nodeManager._nodes[i]
-            this._pushNodeToTree(root, node)
-        }
-
-        this._cacheCenterOfMass(root)
-
-        return root
     }
 }
 
@@ -443,7 +86,7 @@ class NodeManager {
         this._idToNodeIndex = new Map()
     }
 
-    getIndexFromId(id : number) : number {
+    getIndexFromId(id: number): number {
         const index = this._idToNodeIndex.get(id)
         if (index === undefined) {
             return -1
@@ -519,7 +162,7 @@ class NodeManager {
         let index = 0
 
         if (minId > 0) {
-            index = calculateSum(capacity - minId, capacity - 1)
+            index = util.calculateSum(capacity - minId, capacity - 1)
         }
         index += maxId - (minId + 1)
 
@@ -578,6 +221,95 @@ class NodeManager {
     }
 }
 
+function calculateNodeForces(
+    manager: NodeManager,
+
+    // forces get significantly large
+    // when nodes get too close
+    // clamp dist
+    nodeMinDist: number,
+
+    repulsion: number,
+    repulsionMax: number,
+
+    spring: number,
+    springDist: number,
+    springMax: number
+) {
+    // apply repulsion
+    for (let a = 0; a < manager.length(); a++) {
+        for (let b = 0; b < manager.length(); b++) {
+            if (a == b) {
+                continue
+            }
+
+            const nodeA = manager.getNodeAt(a)
+            const nodeB = manager.getNodeAt(b)
+
+            const atobX = nodeB.posX - nodeA.posX
+            const atobY = nodeB.posY - nodeA.posY
+
+            const distSquared = math.distSquared(atobX, atobY)
+            if (math.closeToZero(distSquared)) {
+                continue
+            }
+
+            let dist = Math.sqrt(distSquared)
+
+            const atobNX = atobX / dist
+            const atobNY = atobY / dist
+
+            dist -= nodeA.getRadius()
+            dist -= nodeB.getRadius()
+
+            dist = Math.max(dist, nodeMinDist)
+
+            let force = repulsion * nodeA.mass * nodeB.mass / (dist * dist)
+            force = math.clampAbs(force, repulsionMax)
+
+            nodeA.forceX -= force * atobNX
+            nodeA.forceY -= force * atobNY
+
+            nodeB.forceX += force * atobNX
+            nodeB.forceY += force * atobNY
+        }
+    }
+
+    // apply spring
+    for (const con of manager.getConnections()) {
+        const nodeA = manager.getNodeAt(con.nodeIndexA)
+        const nodeB = manager.getNodeAt(con.nodeIndexB)
+
+        const aPos = new math.Vector2(nodeA.posX, nodeA.posY)
+        const bPos = new math.Vector2(nodeB.posX, nodeB.posY)
+
+        const atob = math.vector2Sub(bPos, aPos)
+
+        let distSquared = math.vector2DistSquared(atob)
+        if (math.closeToZero(distSquared)) {
+            continue
+        }
+
+        let dist = Math.sqrt(distSquared)
+
+        const atobN = math.vector2Scale(atob, 1 / dist)
+
+        dist = dist - (nodeA.getRadius() + nodeB.getRadius())
+        dist = Math.max(dist, nodeMinDist)
+
+        let force = Math.log(dist / springDist) * spring
+        force = math.clampAbs(force, springMax)
+
+        let atobF = math.vector2Scale(atobN, force)
+
+        nodeA.forceX += atobF.x
+        nodeA.forceY += atobF.y
+
+        nodeB.forceX -= atobF.x
+        nodeB.forceY -= atobF.y
+    }
+}
+
 class App {
     canvasElement: HTMLCanvasElement
     ctx: CanvasRenderingContext2D
@@ -593,25 +325,20 @@ class App {
     isRequesting: boolean = false
 
     nodeManager: NodeManager
-    treeBuilder: QuadTreeBuilder = new QuadTreeBuilder()
-
-    quadTreeRoot: QuadTree = new QuadTree()
 
     mouseX: number = 0
     mouseY: number = 0
 
-    drawTree: boolean = false
     debugMsgs: Map<string, string> = new Map()
 
-    // constants
-    nodeRadius: number = 8
+    nodeMinDist: number = 0.1
 
     repulsion: number = 16500
-    barnesHutLimit: number = 1.1
+    repulsionMax: number = 1000
 
     spring: number = 0.002
     springDist: number = 350
-    springDistDiffMax: number = 10000
+    springMax: number = 1000
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvasElement = canvas
@@ -717,7 +444,9 @@ class App {
 
                     const distSquared = dx * dx + dy * dy
 
-                    if (distSquared < this.nodeRadius * this.nodeRadius) {
+                    const radius = node.getRadius()
+
+                    if (distSquared < radius * radius) {
                         this.expandNode(i)
                         break
                     }
@@ -730,18 +459,18 @@ class App {
         this.debugMsgs.set(key, value)
     }
 
-    expandNode = async (nodeId: number) => {
+    expandNode = async (nodeIndex: number) => {
         if (this.isRequesting) {
             console.log("busy")
             return
         }
 
-        if (!(0 <= nodeId && nodeId < this.nodeManager.length())) {
-            console.error(`node id ${nodeId} out of bound`)
+        if (!(0 <= nodeIndex && nodeIndex < this.nodeManager.length())) {
+            console.error(`node id ${nodeIndex} out of bound`)
             return
         }
 
-        const node = this.nodeManager.getNodeAt(nodeId)
+        const node = this.nodeManager.getNodeAt(nodeIndex)
 
         console.log(`requesting ${node.title}`)
 
@@ -754,7 +483,9 @@ class App {
             if (links.length > 0) {
                 const angle: number = Math.PI * 2 / links.length
 
-                const offsetV = { x: 0, y: - 100 }
+                // not an accurate mass of node that will expand
+                // but good enough
+                const offsetV = { x: 0, y: - (100 + DocNode.nodeMassToRadius(links.length)) }
                 let index = 0;
 
                 const addNodeOneByOne = false
@@ -765,9 +496,9 @@ class App {
                     }
 
                     const link = links[index]
-                    const existingNodeId = this.nodeManager.findNodeFromTitle(link)
+                    const otherNodeIndex = this.nodeManager.findNodeFromTitle(link)
 
-                    if (existingNodeId < 0) {
+                    if (otherNodeIndex < 0) {
                         const newNode = new DocNode()
                         const newNodeId = this.nodeManager.length()
                         newNode.title = link
@@ -777,16 +508,16 @@ class App {
                         newNode.posY = node.posY + v.y // + (Math.random() - 0.5) * 20
 
                         this.nodeManager.pushNode(newNode)
-                        this.nodeManager.setConnected(nodeId, newNodeId, true)
+                        this.nodeManager.setConnected(nodeIndex, newNodeId, true)
 
                         node.mass += 1
                         newNode.mass += 1
                     } else {
-                        if (!this.nodeManager.isConnected(nodeId, existingNodeId)) {
-                            const existingNode = this.nodeManager.getNodeAt(existingNodeId)
-                            this.nodeManager.setConnected(nodeId, existingNodeId, true)
+                        if (!this.nodeManager.isConnected(nodeIndex, otherNodeIndex)) {
+                            const otherNode = this.nodeManager.getNodeAt(otherNodeIndex)
+                            this.nodeManager.setConnected(nodeIndex, otherNodeIndex, true)
                             node.mass += 1
-                            existingNode.mass += 1
+                            otherNode.mass += 1
                         }
                     }
 
@@ -811,35 +542,6 @@ class App {
         }
     }
 
-    cacheNodeVisibility() {
-        for (let i = 0; i < this.nodeManager.length(); i++) {
-            const node = this.nodeManager.getNodeAt(i)
-            node.doDraw = false
-        }
-
-        const viewMin = this.viewportToWorld(0, 0)
-        const viewMax = this.viewportToWorld(this.width, this.height)
-
-        const toRecurse = (tree: QuadTree) => {
-            if (math.boxIntersects(
-                viewMin.x, viewMin.y, viewMax.x, viewMax.y,
-                tree.minX, tree.minY, tree.maxX, tree.maxY
-            )) {
-                if (tree.node !== null) {
-                    tree.node.doDraw = true
-                } else {
-                    for (const childTree of tree.childrenTrees) {
-                        if (childTree !== null) {
-                            toRecurse(childTree)
-                        }
-                    }
-                }
-            }
-        }
-
-        toRecurse(this.quadTreeRoot)
-    }
-
     update(deltaTime: DOMHighResTimeStamp) {
         this.updateWidthAndHeight()
         this.debugMsgs.clear() // clear debug messages
@@ -851,93 +553,19 @@ class App {
         }
         // debug print nodecount
         this.debugPrint('node count', this.nodeManager.length().toString())
-        // debug print barnesHutLimit
-        this.debugPrint('Barnes Hut Limit', this.barnesHutLimit.toString())
 
-        this.quadTreeRoot = this.treeBuilder.buildTree(this.nodeManager)
-        this.cacheNodeVisibility()
+        calculateNodeForces(
+            this.nodeManager,
 
-        let repulsionCalculatioCount = 0
+            this.nodeMinDist,
 
-        // apply repulsion
-        {
-            const applyRepulsionFromTree = (node: DocNode, tree: QuadTree) => {
-                if (tree.node !== null) {
-                    if (tree.node.id != node.id) {
-                        const nodeIndex = this.nodeManager.getIndexFromId(node.id)
-                        const treeNodeIndex = this.nodeManager.getIndexFromId(tree.node.id)
-                        if (!this.nodeManager.isConnected(nodeIndex, treeNodeIndex)) {
-                            applyRepulsion(
-                                node,
-                                tree.node.posX, tree.node.posY,
-                                this.repulsion * tree.node.mass * node.mass,
-                                this.nodeRadius,
-                            )
-                            repulsionCalculatioCount++
-                        }
-                    }
-                    return
-                }
+            this.repulsion,
+            this.repulsionMax,
 
-                const toCenterX = tree.centerOfMassX - node.posX
-                const toCenterY = tree.centerOfMassY - node.posY
-
-                let distSquared = toCenterX * toCenterX + toCenterY * toCenterY
-
-                let accurateEnough = false
-
-                if (distSquared < 0.0001) {
-                    accurateEnough = true
-                } else {
-                    const dist = Math.sqrt(distSquared)
-                    if ((tree.maxX - tree.minX) / dist < this.barnesHutLimit) {
-                        accurateEnough = true
-                    }
-                }
-
-                if (accurateEnough) {
-                    applyRepulsion(
-                        node,
-                        tree.centerOfMassX, tree.centerOfMassY,
-                        this.repulsion * tree.nodeCount * node.mass,
-                        this.nodeRadius,
-                    )
-                    repulsionCalculatioCount++
-                } else {
-                    for (const child of tree.childrenTrees) {
-                        if (child !== null) {
-                            applyRepulsionFromTree(node, child)
-                        }
-                    }
-                }
-
-            }
-
-            for (let i = 0; i < this.nodeManager.length(); i++) {
-                const node = this.nodeManager.getNodeAt(i)
-                applyRepulsionFromTree(node, this.quadTreeRoot)
-            }
-
-
-            const nc = this.nodeManager.length()
-            this.debugPrint("repulse calc estimate", Math.round(nc * Math.log(nc)).toString())
-            this.debugPrint("repulse calc real    ", repulsionCalculatioCount.toString())
-            this.debugPrint("repulse calc no opt  ", (nc * nc).toString())
-        }
-
-        // apply spring
-        this.nodeManager.getConnections().forEach((con) => {
-            const nodeA = this.nodeManager.getNodeAt(con.nodeIndexA)
-            const nodeB = this.nodeManager.getNodeAt(con.nodeIndexB)
-
-            applySpring(
-                nodeA, nodeB,
-                this.springDist,
-                this.springDistDiffMax,
-                this.spring,
-                this.nodeRadius,
-            )
-        })
+            this.spring,
+            this.springDist,
+            this.springMax,
+        )
 
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i)
@@ -956,7 +584,7 @@ class App {
 
             if (math.distSquared(node.forceX, node.forceY) > 1 * 1) {
                 node.temp += 0.01
-            }else {
+            } else {
                 node.temp -= 0.01
             }
             node.temp = math.clamp(node.temp, 0, 1)
@@ -989,17 +617,13 @@ class App {
             )
         })
 
-        const getNodeRadius = (node : DocNode) : number => {
-            return this.nodeRadius * (1 + node.mass * 0.1)
-        }
-
         // draw circles
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i)
             if (node.doDraw) {
                 const pos = this.worldToViewport(node.posX, node.posY)
 
-                cd.fillCircle(this.ctx, pos.x, pos.y, getNodeRadius(node) * this.zoom, "PaleTurquoise")
+                cd.fillCircle(this.ctx, pos.x, pos.y, node.getRadius() * this.zoom, "PaleTurquoise")
             }
         }
 
@@ -1017,7 +641,7 @@ class App {
                 // TEST TEST TEST TEST
                 //this.ctx.fillText(node.title, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom)
                 // TEST TEST TEST TEST
-                this.ctx.fillText(node.mass.toString(), pos.x, pos.y - (getNodeRadius(node) + 5.0) * this.zoom)
+                this.ctx.fillText(node.mass.toString(), pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom)
             }
         }
 
@@ -1026,29 +650,6 @@ class App {
             let pos = this.viewportToWorld(this.mouseX, this.mouseY)
             pos = this.worldToViewport(pos.x, pos.y)
             cd.fillCircle(this.ctx, pos.x, pos.y, 10 * this.zoom, "red")
-        }
-
-        // draw quad tree
-        if (this.drawTree) {
-            const drawTree = (tree: QuadTree) => {
-                const min = this.worldToViewport(tree.minX, tree.minY)
-                const max = this.worldToViewport(tree.maxX, tree.maxY)
-
-                cd.strokeRect(
-                    this.ctx,
-                    min.x, min.y,
-                    (max.x - min.x), (max.y - min.y),
-                    Math.max(0.1 * this.zoom, 1), "green"
-                )
-
-                for (const child of tree.childrenTrees) {
-                    if (child != null) {
-                        drawTree(child)
-                    }
-                }
-            }
-
-            drawTree(this.quadTreeRoot)
         }
 
         // debug print stuff
@@ -1375,21 +976,14 @@ function main() {
             'reset', () => { app.reset(true) }
         )
 
-        addCheckBox(
-            app.drawTree,
-            "draw tree",
-            (value) => {
-                app.drawTree = value
-            }
+        addSlider(
+            app.nodeMinDist,
+            0, 10,
+            0.01,
+            "nodeMinDist",
+            (value) => { app.nodeMinDist = value }
         )
 
-        addSlider(
-            app.barnesHutLimit,
-            0, 5,
-            0.05,
-            "Barnes Hut Limit",
-            (value) => { app.barnesHutLimit = value }
-        )
         addSlider(
             app.repulsion,
             0, 10000,
@@ -1397,6 +991,14 @@ function main() {
             "repulsion",
             (value) => { app.repulsion = value }
         )
+        addSlider(
+            app.repulsionMax,
+            0, 10000,
+            1,
+            "repulsionMax",
+            (value) => { app.repulsionMax = value }
+        )
+
         addSlider(
             app.spring,
             0, 5,
@@ -1408,15 +1010,15 @@ function main() {
             app.springDist,
             1, 1000,
             1,
-            "spring dist",
+            "springDist",
             (value) => { app.springDist = value }
         )
         addSlider(
-            app.springDistDiffMax,
-            0, 50000,
-            100,
-            "spring dist diff max",
-            (value) => { app.springDistDiffMax = value }
+            app.springMax,
+            1, 1000,
+            1,
+            "springMax",
+            (value) => { app.springMax = value }
         )
     }
 

@@ -8,3 +8,6 @@ export function saveBlob(blob, fileName) {
     link.remove();
     URL.revokeObjectURL(url);
 }
+export function calculateSum(a, b) {
+    return (b - a + 1) * (a + b) / 2;
+}

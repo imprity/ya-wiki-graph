@@ -44,3 +44,15 @@ export function clamp(n, min, max) {
     n = Math.max(n, min);
     return n;
 }
+export function clampAbs(n, abs) {
+    if (n < -abs) {
+        n = -abs;
+    }
+    else if (n > abs) {
+        n = abs;
+    }
+    return n;
+}
+export function closeToZero(n) {
+    return Math.abs(n) < 0.00001;
+}
