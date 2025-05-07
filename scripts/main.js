@@ -11,6 +11,7 @@ import * as cd from "./canvas.js";
 import * as wiki from "./wiki.js";
 import * as util from "./util.js";
 import * as math from "./math.js";
+import { GpuComputer } from "./gpu.js";
 const FirstTitle = "English language";
 //const FirstTitle = "Miss Meyers"
 class DocNode {
@@ -234,6 +235,7 @@ class App {
         this.offsetY = 0;
         this.zoom = 1;
         this.isRequesting = false;
+        this.gpuComputer = new GpuComputer();
         this.mouseX = 0;
         this.mouseY = 0;
         this.debugMsgs = new Map();
@@ -424,6 +426,19 @@ class App {
         // debug print nodecount
         this.debugPrint('node count', this.nodeManager.length().toString());
         calculateNodeForces(this.nodeManager, this.nodeMinDist, this.repulsion, this.repulsionMax, this.spring, this.springDist, this.springMax);
+        // TEST TEST TEST TEST TEST
+        let result = this.gpuComputer.calculateForces([
+            new math.Vector2(this.mouseX, this.mouseY),
+            new math.Vector2(2, 8),
+            new math.Vector2(3, 9),
+            new math.Vector2(4, 10),
+            new math.Vector2(5, 11),
+            new math.Vector2(6, 12),
+        ]);
+        for (let i = 0; i < result.length; i++) {
+            this.debugPrint(`vector${i}`, `(${result[i].x.toFixed(2)}, ${result[i].y.toFixed(2)})`);
+        }
+        // TEST TEST TEST TEST TEST
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i);
             // node.velocityX += node.forceX
