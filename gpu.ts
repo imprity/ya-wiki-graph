@@ -8,25 +8,38 @@ uniform int node_count;
 in int index;
 
 in vec2 position;
+in float mass;
 
 out vec2 force;
 
 void main() {
-    float sumX = 0.0f;
-    float sumY = 0.0f;
+    vec2 repulsion = vec2(0.0f, 0.0f);
 
     for (int i=0; i<node_count; i++) {
         if (i == index) {
             continue;
         }
 
-        vec2 node_pos = texelFetch(node_positions, ivec2(i, 0), 0).rg;
-        sumX += node_pos.x;
-        sumY += node_pos.y;
+        vec2 otherPos = texelFetch(node_positions, ivec2(i, 0), 0).rg;
+        vec2 toOther = otherPos - position;
+
+        float dist = length(toOther);
+        if (dist > 5000.0f) {
+            continue;
+        }else if (dist < 0.1f) {
+            continue;
+        }
+
+        vec2 toOtherN = toOther / dist;
+
+        float f = (5000.0f / (dist * dist));
+
+        vec2 fv = toOtherN * f;
+
+        repulsion -= fv;
     }
 
-    force = vec2(sumX * position.x, sumY * position.y);
-    //force = texelFetch(node_positions, ivec2(index, 0), 0).rg;
+    force = repulsion;
 }
 `
 
@@ -49,14 +62,16 @@ export class GpuComputer {
     nodePositionsLoc: number
     nodeCountLoc: number
     indexLoc: number
+    massLoc: number
     positionLoc: number
 
     indexBuf: WebGLBuffer
     positionBuf: WebGLBuffer
+    massBuf: WebGLBuffer
     forceBuf: WebGLBuffer
 
     constructor() {
-        this.capacity = 512
+        this.capacity = 8192
 
         // =========================
         // create opengl context
@@ -122,6 +137,7 @@ export class GpuComputer {
         this.nodePositionsLoc = this.gl.getUniformLocation(this.program, 'node_positions') as number
         this.nodeCountLoc = this.gl.getUniformLocation(this.program, 'node_count') as number
         this.indexLoc = this.gl.getAttribLocation(this.program, 'index') as number
+        this.massLoc = this.gl.getAttribLocation(this.program, 'mass') as number
         this.positionLoc = this.gl.getAttribLocation(this.program, 'position') as number
 
         // =========================
@@ -133,35 +149,25 @@ export class GpuComputer {
         // =========================
         // create buffer
         // =========================
+        // create indexBuf
         this.indexBuf = this.gl.createBuffer()
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.indexBuf)
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, this.capacity * 4, this.gl.DYNAMIC_DRAW)
         this.gl.enableVertexAttribArray(this.indexLoc)
-        this.gl.vertexAttribIPointer(
-            this.indexLoc,
-            1,
-            this.gl.INT,
-            0,
-            0,
-        )
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
 
-        // create bufPosition
+        // create positionBuf
         this.positionBuf = this.gl.createBuffer()
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuf)
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, this.capacity * 8, this.gl.DYNAMIC_DRAW)
         this.gl.enableVertexAttribArray(this.positionLoc)
-        this.gl.vertexAttribPointer(
-            this.positionLoc,
-            2,
-            this.gl.FLOAT,
-            false,
-            0,
-            0,
-        )
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
 
-        // create bufForce
+        // create massBuf
+        this.massBuf = this.gl.createBuffer()
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.massBuf)
+        this.gl.enableVertexAttribArray(this.massLoc)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
+
+        // create forceBuf
         this.forceBuf = this.gl.createBuffer()
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.forceBuf)
         this.gl.bufferData(this.gl.ARRAY_BUFFER, this.capacity * 8, this.gl.DYNAMIC_DRAW)
@@ -193,17 +199,26 @@ export class GpuComputer {
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
     }
 
-    calculateForces(positions: Array<math.Vector2>): Array<math.Vector2> {
-        const positionBuf: Float32Array = new Float32Array(positions.length * 2)
+    calculateForces(nodeManager: any): Array<math.Vector2> {
+        const positionBuf: Float32Array = new Float32Array(nodeManager.length() * 2)
         {
             let offset = 0
-            for (const pos of positions) {
-                positionBuf[offset] = pos.x
-                positionBuf[offset + 1] = pos.y
+            for (let i = 0; i < nodeManager.length(); i++) {
+                const node = nodeManager.getNodeAt(i)
+                positionBuf[offset] = node.posX
+                positionBuf[offset + 1] = node.posY
 
                 offset += 2
             }
         }
+        const massBuf: Float32Array = new Float32Array(nodeManager.length())
+        {
+            for (let i = 0; i < nodeManager.length(); i++) {
+                const node = nodeManager.getNodeAt(i)
+                massBuf[i] = node.mass
+            }
+        }
+
         // ==================
         // create texture
         // ==================
@@ -214,7 +229,7 @@ export class GpuComputer {
                 this.gl.TEXTURE_2D,
                 0, // level
                 this.gl.RG32F, // internal format
-                positions.length, // width
+                nodeManager.length(), // width
                 1, // height
                 0, // border
                 this.gl.RG, // format
@@ -227,8 +242,9 @@ export class GpuComputer {
         // pipe to gpu buffer
         // =====================
         {
-            const indexBuf = new Uint32Array(positions.length)
-            for (let i = 0; i < positions.length; i++) {
+            // pipe index
+            const indexBuf = new Uint32Array(nodeManager.length())
+            for (let i = 0; i < nodeManager.length(); i++) {
                 indexBuf[i] = i
             }
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.indexBuf)
@@ -243,6 +259,7 @@ export class GpuComputer {
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
         }
         {
+            // pipe position
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuf)
             this.gl.bufferData(this.gl.ARRAY_BUFFER, positionBuf, this.gl.DYNAMIC_DRAW)
             this.gl.vertexAttribPointer(
@@ -255,22 +272,37 @@ export class GpuComputer {
             )
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
         }
+        {
+            const massBuf = new Float32Array(nodeManager.length())
+            // pipe mass
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.massBuf)
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, massBuf, this.gl.DYNAMIC_DRAW)
+            this.gl.vertexAttribPointer(
+                this.massLoc,
+                1, // size
+                this.gl.FLOAT, // type
+                false, // normalize
+                0, // stride
+                0, // offset
+            )
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
+        }
 
         this.gl.useProgram(this.program)
         this.gl.bindVertexArray(this.vao)
         this.gl.enable(this.gl.RASTERIZER_DISCARD);
 
-        this.gl.uniform1i(this.nodeCountLoc, positions.length)
+        this.gl.uniform1i(this.nodeCountLoc, nodeManager.length())
         this.gl.uniform1i(this.nodePositionsLoc, 0)
 
         this.gl.bindTransformFeedback(this.gl.TRANSFORM_FEEDBACK, this.tf);
         this.gl.beginTransformFeedback(this.gl.POINTS);
-        this.gl.drawArrays(this.gl.POINTS, 0, positions.length);
+        this.gl.drawArrays(this.gl.POINTS, 0, nodeManager.length());
         this.gl.endTransformFeedback();
         this.gl.bindTransformFeedback(this.gl.TRANSFORM_FEEDBACK, null);
         this.gl.disable(this.gl.RASTERIZER_DISCARD)
 
-        const forceBuf = new Float32Array(positions.length * 2)
+        const forceBuf = new Float32Array(nodeManager.length() * 2)
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.forceBuf)
         this.gl.getBufferSubData(

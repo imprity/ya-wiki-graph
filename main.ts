@@ -225,6 +225,8 @@ class NodeManager {
 function calculateNodeForces(
     manager: NodeManager,
 
+    gpuComputer: GpuComputer,
+
     // forces get significantly large
     // when nodes get too close
     // clamp dist
@@ -238,6 +240,7 @@ function calculateNodeForces(
     springMax: number
 ) {
     // apply repulsion
+    /*
     for (let a = 0; a < manager.length(); a++) {
         for (let b = 0; b < manager.length(); b++) {
             if (a == b) {
@@ -275,6 +278,21 @@ function calculateNodeForces(
             nodeB.forceY += force * atobNY
         }
     }
+    */
+
+    let repulsionForce = gpuComputer.calculateForces(manager)
+    for (let i = 0; i < manager.length(); i++) {
+        const node = manager.getNodeAt(i)
+        const force = repulsionForce[i]
+
+        node.forceX += force.x
+        node.forceY += force.y
+    }
+
+    if (repulsionForce.length > 1) {
+        let meme = 0
+    }
+
 
     // apply spring
     for (const con of manager.getConnections()) {
@@ -560,6 +578,8 @@ class App {
         calculateNodeForces(
             this.nodeManager,
 
+            this.gpuComputer,
+
             this.nodeMinDist,
 
             this.repulsion,
@@ -569,22 +589,6 @@ class App {
             this.springDist,
             this.springMax,
         )
-
-        // TEST TEST TEST TEST TEST
-        let result = this.gpuComputer.calculateForces(
-            [
-                new math.Vector2(this.mouseX, this.mouseY),
-                new math.Vector2(2, 8),
-                new math.Vector2(3, 9),
-                new math.Vector2(4, 10),
-                new math.Vector2(5, 11),
-                new math.Vector2(6, 12),
-            ]
-        )
-        for (let i = 0; i < result.length; i++) {
-            this.debugPrint(`vector${i}`, `(${result[i].x.toFixed(2)}, ${result[i].y.toFixed(2)})`)
-        }
-        // TEST TEST TEST TEST TEST
 
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i)
