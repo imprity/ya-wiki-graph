@@ -34,7 +34,12 @@ void main() {
             continue;
         }
 
-        vec4 other_node_info = texelFetch(node_infos, ivec2(i, 0), 0);
+        ivec2 textureSize = textureSize(node_infos, 0);
+
+        int textureX = i % textureSize.x;
+        int textureY = i / textureSize.x;
+
+        vec4 other_node_info = texelFetch(node_infos, ivec2(textureX, textureY), 0);
 
         vec2 other_pos = other_node_info.rg;
         float other_mass = other_node_info.b;
@@ -230,23 +235,28 @@ export class GpuComputer {
         // ==================
         // pipe to nodeInfosTex
         {
-            const nodesInfo = new Float32Array(nodeManager.length() * 3);
+            let textureSize = Math.ceil(Math.sqrt(nodeManager.length()));
+            const nodesInfo = new Float32Array(textureSize * textureSize * 4).fill(0);
             let nodeIndex = 0;
-            for (let i = 0; i < nodesInfo.length; i += 3) {
+            for (let i = 0; i < nodesInfo.length; i += 4) {
                 const node = nodeManager.getNodeAt(nodeIndex);
                 nodesInfo[i + 0] = node.posX;
                 nodesInfo[i + 1] = node.posY;
                 nodesInfo[i + 2] = node.mass;
+                nodesInfo[i + 3] = 0;
                 nodeIndex += 1;
+                if (nodeIndex >= nodeManager.length()) {
+                    break;
+                }
             }
             this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeInfosTex.textureNumber);
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeInfosTex.texture);
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            this.gl.RGB32F, // internal format
-            nodeManager.length(), // width
-            1, // height
+            this.gl.RGBA32F, // internal format
+            textureSize, // width
+            textureSize, // height
             0, // border
-            this.gl.RGB, // format
+            this.gl.RGBA, // format
             this.gl.FLOAT, // type
             nodesInfo // data
             );
