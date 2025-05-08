@@ -39,6 +39,11 @@ export function distSquared(x, y) {
 export function dist(x, y) {
     return Math.sqrt(distSquared(x, y));
 }
+export function posInCircle(posX, posY, circleX, circleY, radius) {
+    const dx = posX - circleX;
+    const dy = posY - circleY;
+    return dx * dx + dy * dy < radius * radius;
+}
 export function clamp(n, min, max) {
     n = Math.min(n, max);
     n = Math.max(n, min);

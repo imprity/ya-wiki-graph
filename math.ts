@@ -59,6 +59,17 @@ export function dist(x: number, y: number): number {
     return Math.sqrt(distSquared(x, y))
 }
 
+export function posInCircle(
+    posX: number, posY: number,
+    circleX: number, circleY: number,
+    radius: number
+): boolean {
+    const dx = posX - circleX
+    const dy = posY - circleY
+
+    return dx * dx + dy * dy < radius * radius
+}
+
 export function clamp(n: number, min: number, max: number): number {
     n = Math.min(n, max)
     n = Math.max(n, min)

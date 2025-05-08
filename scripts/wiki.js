@@ -57,7 +57,7 @@ export function retrieveAllLiks(title) {
             }
             const response = yield makeRequestToWiki(query);
             // TEST TEST TEST TEST TEST
-            console.log(response);
+            //console.log(response)
             // TEST TEST TEST TEST TEST
             if (!("continue" in response)) {
                 doBreak = true;
@@ -70,7 +70,7 @@ export function retrieveAllLiks(title) {
                 const page = response.query.pages[pageId];
                 for (const link of page.links) {
                     // TEST TEST TEST TEST TEST
-                    console.log(link);
+                    //console.log(link)
                     // TEST TEST TEST TEST TEST
                     results.push(link.title);
                 }

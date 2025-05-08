@@ -239,11 +239,9 @@ function calculateNodeForces(
     nodeMinDist: number,
 
     repulsion: number,
-    repulsionMax: number,
 
     spring: number,
     springDist: number,
-    springMax: number
 ) {
     // apply repulsion
     /*
@@ -327,7 +325,6 @@ function calculateNodeForces(
         dist = Math.max(dist, nodeMinDist)
 
         let force = Math.log(dist / springDist) * spring
-        force = math.clampAbs(force, springMax)
 
         let atobF = math.vector2Scale(atobN, force)
 
@@ -346,30 +343,47 @@ class App {
     width: number = 0
     height: number = 0
 
-    offsetX: number = 0
-    offsetY: number = 0
+    offset: math.Vector2 = new math.Vector2(0, 0)
 
     zoom: number = 1
 
+    isPinching: boolean = false
+    pinch: number = 0
+    pinchPos: math.Vector2 = new math.Vector2(0, 0)
+
     isRequesting: boolean = false
+    requestingNodeIndex: number = -1
 
     gpuComputer: GpuComputer = new GpuComputer()
 
     nodeManager: NodeManager
 
-    mouseX: number = 0
-    mouseY: number = 0
-
     debugMsgs: Map<string, string> = new Map()
 
-    nodeMinDist: number = 0.1
+    // ========================
+    // input states
+    // ========================
+    draggingCanvas: boolean = false
+    pDrag: math.Vector2 = new math.Vector2(0, 0)
 
-    repulsion: number = 16500
-    repulsionMax: number = 1000
+    mouse: math.Vector2 = new math.Vector2(0, 0)
 
-    spring: number = 0.002
-    springDist: number = 350
-    springMax: number = 1000
+    pMouse: math.Vector2 = new math.Vector2(0, 0)
+
+    isMouseDown: boolean = false
+
+    focusedOnNode: boolean = false
+    focusedNodeIndex: number = -1
+
+    // ========================
+    // simulation parameters
+    // ========================
+    nodeMinDist: number = 10
+
+    repulsion: number = 5000
+
+    spring: number = 5
+    springDist: number = 200
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvasElement = canvas
@@ -393,17 +407,24 @@ class App {
             this.handleEvent(e)
         })
 
-        this.canvasElement.addEventListener("wheel", (e) => {
-            this.handleEvent(e)
-        })
+        for (const eName of [
+            "wheel",
 
-        this.canvasElement.addEventListener("pointerdown", (e) => {
-            this.handleEvent(e)
-        })
+            "mousedown",
+            "mouseup",
+            "mousemove",
+            "mouseleave",
 
-        this.canvasElement.addEventListener("pointermove", (e) => {
-            this.handleEvent(e)
-        })
+            "touchcancel",
+            "touchend",
+            "touchmove",
+            "touchstart",
+        ]) {
+            this.canvasElement.addEventListener(eName, (e) => {
+                e.preventDefault()
+                this.handleEvent(e)
+            })
+        }
 
         // TEST TEST TEST TEST
         const testNode = new DocNode()
@@ -415,29 +436,75 @@ class App {
     }
 
     handleEvent(e: Event) {
-        switch (e.type) {
-            case "keydown": {
-                const keyEvent = e as KeyboardEvent
-                switch (keyEvent.code) {
-                    case "KeyW":
-                        this.offsetY += 10
-                        break
-                    case "KeyS":
-                        this.offsetY -= 10
-                        break
-                    case "KeyA":
-                        this.offsetX += 10
-                        break
-                    case "KeyD":
-                        this.offsetX -= 10
-                        break
-                }
-            } break
+        const startDragging = (x: number, y: number) => {
+            this.draggingCanvas = true
+            this.pDrag.x = x
+            this.pDrag.y = y
+        }
 
+        const doDrag = (x: number, y: number) => {
+            if (!this.draggingCanvas) {
+                return
+            }
+            const pPos = this.viewportToWorld(this.pDrag.x, this.pDrag.y)
+            const pos = this.viewportToWorld(x, y)
+
+            const toPos = math.vector2Sub(pos, pPos)
+
+            this.offset.x += toPos.x
+            this.offset.y += toPos.y
+
+            this.pDrag.x = x
+            this.pDrag.y = y
+        }
+
+        const endDragging = () => {
+            this.draggingCanvas = false
+        }
+
+        const handlePointClick = (x: number, y: number) => {
+            let clickedOnNode = false
+            let nodeIndex = -1
+
+            // check if we clicked on node
+            {
+                const pos = this.viewportToWorld(x, y)
+
+                for (let i = 0; i < this.nodeManager.length(); i++) {
+                    const node = this.nodeManager.getNodeAt(i)
+                    if (math.posInCircle(
+                        pos.x, pos.y,
+                        node.posX, node.posY,
+                        node.getRadius()
+                    )) {
+                        clickedOnNode = true
+                        nodeIndex = i
+                        break
+                    }
+                }
+            }
+
+            if (clickedOnNode) {
+                this.focusedOnNode = true
+                this.focusedNodeIndex = nodeIndex
+            } else {
+                startDragging(x, y)
+            }
+        }
+
+        const touchPos = (touch: Touch): math.Vector2 => {
+            let canvasRect = this.canvasElement.getBoundingClientRect();
+            return new math.Vector2(
+                touch.clientX - canvasRect.x,
+                touch.clientY - canvasRect.y,
+            )
+        }
+
+        switch (e.type) {
             case "wheel": {
                 const wheelEvent = e as WheelEvent
 
-                const zoomOrigin = this.viewportToWorld(this.mouseX, this.mouseY)
+                const zoomOrigin = this.viewportToWorld(this.mouse.x, this.mouse.y)
                 let newZoom = this.zoom
 
                 if (wheelEvent.deltaY < 0) {
@@ -448,39 +515,173 @@ class App {
 
                 this.zoom = newZoom
 
-                const newZoomOrigin = this.viewportToWorld(this.mouseX, this.mouseY)
+                const newZoomOrigin = this.viewportToWorld(this.mouse.x, this.mouse.y)
 
-                this.offsetX += (newZoomOrigin.x - zoomOrigin.x)
-                this.offsetY += (newZoomOrigin.y - zoomOrigin.y)
+                this.offset.x += (newZoomOrigin.x - zoomOrigin.x)
+                this.offset.y += (newZoomOrigin.y - zoomOrigin.y)
 
             } break
 
-            case "pointermove": {
-                const pointerEvent = e as PointerEvent
+            case "mousemove": {
+                const mouseEvent = e as MouseEvent
 
-                this.mouseX = pointerEvent.offsetX
-                this.mouseY = pointerEvent.offsetY
-            } break
+                this.pMouse.x = this.mouse.x
+                this.pMouse.y = this.mouse.y
 
-            case "pointerdown": {
-                const pointerEvent = e as PointerEvent
+                this.mouse.x = mouseEvent.offsetX
+                this.mouse.y = mouseEvent.offsetY
 
-                const pos = this.viewportToWorld(this.mouseX, this.mouseY)
+                if (this.draggingCanvas) {
+                    doDrag(this.mouse.x, this.mouse.y)
+                } else if (this.focusedOnNode) {
+                    const node = this.nodeManager.getNodeAt(this.focusedNodeIndex)
+                    const mw = this.viewportToWorld(this.mouse.x, this.mouse.y)
 
-                for (let i = 0; i < this.nodeManager.length(); i++) {
-                    const node = this.nodeManager.getNodeAt(i)
-
-                    const dx = pos.x - node.posX
-                    const dy = pos.y - node.posY
-
-                    const distSquared = dx * dx + dy * dy
-
-                    const radius = node.getRadius()
-
-                    if (distSquared < radius * radius) {
-                        this.expandNode(i)
-                        break
+                    if (!math.posInCircle(
+                        mw.x, mw.y,
+                        node.posX, node.posY,
+                        node.getRadius()
+                    )) {
+                        this.focusedOnNode = false
+                        if (this.isMouseDown) {
+                            startDragging(this.mouse.x, this.mouse.y)
+                        }
                     }
+                }
+            } break
+
+            case "mousedown": {
+                const mouseEvent = e as MouseEvent
+
+                this.isMouseDown = true
+
+                handlePointClick(this.mouse.x, this.mouse.y)
+            } break
+
+            case "mouseup": {
+                this.isMouseDown = false
+
+                if (this.focusedOnNode) {
+                    this.expandNode(this.focusedNodeIndex)
+                }
+                this.focusedOnNode = false
+
+                endDragging()
+            } break
+
+            case "mouseleave": {
+                endDragging()
+                this.focusedOnNode = false
+                this.isMouseDown = false
+            } break
+
+            case "touchstart": {
+                const touchEvent = e as TouchEvent
+                const touches = touchEvent.touches
+
+                if (touches.length == 1) {
+                    const touch = touchPos(touches[0])
+                    handlePointClick(touch.x, touch.y)
+                } else {
+                    this.focusedOnNode = false
+                    endDragging()
+                }
+
+                if (touches.length == 2) {
+                    this.isPinching = true
+
+                    const touch0 = touchPos(touches[0])
+                    const touch1 = touchPos(touches[1])
+
+                    this.pinch = math.dist(
+                        touch0.x - touch1.x,
+                        touch0.y - touch1.y
+                    )
+
+                    this.pinchPos.x = (touch0.x + touch1.x) * 0.5
+                    this.pinchPos.y = (touch0.y + touch1.y) * 0.5
+
+                } else {
+                    this.isPinching = false
+                }
+            } break
+
+            case "touchmove": {
+                const touchEvent = e as TouchEvent
+                const touches = touchEvent.touches
+
+                if (touches.length == 1) {
+                    const touch = touchPos(touches[0])
+
+                    if (this.draggingCanvas) {
+                        doDrag(touch.x, touch.y)
+                    } else if (this.focusedOnNode) {
+                        const node = this.nodeManager.getNodeAt(this.focusedNodeIndex)
+                        const tw = this.viewportToWorld(touch.x, touch.y)
+
+                        if (!math.posInCircle(
+                            tw.x, tw.y,
+                            node.posX, node.posY,
+                            node.getRadius()
+                        )) {
+                            this.focusedOnNode = false
+                            startDragging(touch.x, touch.y)
+                        }
+                    }
+                } else {
+                    this.focusedOnNode = false
+                    endDragging()
+                }
+
+                if (touches.length === 2) {
+                    if (this.isPinching) {
+                        const touch0 = touchPos(touches[0])
+                        const touch1 = touchPos(touches[1])
+
+                        const newPinch = math.dist(
+                            touch0.x - touch1.x,
+                            touch0.y - touch1.y
+                        )
+
+                        const newPinchPos = new math.Vector2(
+                            (touch0.x + touch1.x) * 0.5,
+                            (touch0.y + touch1.y) * 0.5
+                        )
+
+                        const pinchRatio = newPinch / this.pinch
+                        const newZoom = this.zoom * pinchRatio
+
+                        const pwOld = this.viewportToWorld(this.pinchPos.x, this.pinchPos.y)
+                        this.zoom = newZoom
+                        const pwNew = this.viewportToWorld(newPinchPos.x, newPinchPos.y)
+
+                        this.offset = math.vector2Add(math.vector2Sub(pwNew, pwOld), this.offset)
+
+                        this.pinch = newPinch
+                        this.pinchPos = newPinchPos
+                    }
+                }
+            } break
+
+            case "touchcancel": {
+            } break
+
+            case "touchend": {
+                const touchEvent = e as TouchEvent
+
+                if (touchEvent.touches.length === 0) {
+                    if (this.focusedOnNode) {
+                        this.expandNode(this.focusedNodeIndex)
+                        this.focusedOnNode = false
+                    }
+                }
+
+                if (touchEvent.touches.length !== 1) {
+                    endDragging()
+                }
+
+                if (touchEvent.touches.length !== 2) {
+                    this.isPinching = false
                 }
             } break
         }
@@ -501,6 +702,7 @@ class App {
             return
         }
 
+        this.requestingNodeIndex = nodeIndex
         const node = this.nodeManager.getNodeAt(nodeIndex)
 
         console.log(`requesting ${node.title}`)
@@ -593,11 +795,9 @@ class App {
             this.nodeMinDist,
 
             this.repulsion,
-            this.repulsionMax,
 
             this.spring,
             this.springDist,
-            this.springMax,
         )
 
         for (let i = 0; i < this.nodeManager.length(); i++) {
@@ -656,7 +856,19 @@ class App {
             if (node.doDraw) {
                 const pos = this.worldToViewport(node.posX, node.posY)
 
-                cd.fillCircle(this.ctx, pos.x, pos.y, node.getRadius() * this.zoom, "PaleTurquoise")
+                if (this.isRequesting && i === this.requestingNodeIndex) {
+                    cd.fillCircle(
+                        this.ctx, pos.x, pos.y,
+                        node.getRadius() * this.zoom,
+                        "red"
+                    )
+                } else {
+                    cd.fillCircle(
+                        this.ctx, pos.x, pos.y,
+                        node.getRadius() * this.zoom,
+                        "PaleTurquoise"
+                    )
+                }
             }
         }
 
@@ -680,7 +892,7 @@ class App {
 
         // draw mouse pointer
         {
-            let pos = this.viewportToWorld(this.mouseX, this.mouseY)
+            let pos = this.viewportToWorld(this.mouse.x, this.mouse.y)
             pos = this.worldToViewport(pos.x, pos.y)
             cd.fillCircle(this.ctx, pos.x, pos.y, 10 * this.zoom, "red")
         }
@@ -716,8 +928,8 @@ class App {
     }
 
     worldToViewport(x: number, y: number): math.Vector2 {
-        x += this.offsetX
-        y += this.offsetY
+        x += this.offset.x
+        y += this.offset.y
 
         x *= this.zoom
         y *= this.zoom
@@ -729,8 +941,8 @@ class App {
         x /= this.zoom
         y /= this.zoom
 
-        x -= this.offsetX
-        y -= this.offsetY
+        x -= this.offset.x
+        y -= this.offset.y
 
 
         return new math.Vector2(x, y)
@@ -744,8 +956,8 @@ class App {
         }
         container.connections = this.nodeManager.getConnections()
 
-        container.offsetX = this.offsetX
-        container.offsetY = this.offsetY
+        container.offsetX = this.offset.x
+        container.offsetY = this.offset.y
 
         container.zoom = this.zoom
 
@@ -782,8 +994,8 @@ class App {
                 )
             }
 
-            this.offsetX = container.offsetX
-            this.offsetY = container.offsetY
+            this.offset.x = container.offsetX
+            this.offset.y = container.offsetY
 
             this.zoom = container.zoom
         } catch (err) {
@@ -792,8 +1004,8 @@ class App {
     }
 
     reset(addStartingNode: boolean) {
-        this.offsetX = 0
-        this.offsetY = 0
+        this.offset.x = 0
+        this.offset.y = 0
 
         this.zoom = 1
 
@@ -913,6 +1125,13 @@ function main() {
             }
         })
 
+        let debugUICounter = 0
+
+        const getUIid = (): string => {
+            debugUICounter++;
+            return `debug-ui-id-${debugUICounter}`
+        }
+
         const addSlider = (
             startingValue: number,
             min: number, max: number,
@@ -928,11 +1147,11 @@ function main() {
             let div = document.createElement('div')
             div.classList.add('debug-ui-container')
 
-            const uuid = self.crypto.randomUUID();
+            const id = getUIid()
 
             let label = document.createElement('label')
             label.innerText = `${labelText}: ${startingValue}`
-            label.htmlFor = uuid.toString()
+            label.htmlFor = id
 
             let input = document.createElement('input')
             input.type = 'range'
@@ -940,7 +1159,7 @@ function main() {
             input.max = max.toString()
             input.step = step.toString()
             input.value = startingValue.toString()
-            input.id = uuid.toString()
+            input.id = id
             input.addEventListener('input', async (ev: Event) => {
                 label.innerText = `${labelText}: ${input.value}`
                 onValueChange(parseFloat(input.value))
@@ -964,16 +1183,16 @@ function main() {
             let div = document.createElement('div')
             div.classList.add('debug-ui-container')
 
-            const uuid = self.crypto.randomUUID();
+            const id = getUIid()
 
             let label = document.createElement('label')
             label.innerText = `${labelText}`
-            label.htmlFor = uuid.toString()
+            label.htmlFor = id
 
             let checkbox = document.createElement('input')
             checkbox.type = 'checkbox'
             checkbox.checked = startingValue
-            checkbox.id = uuid.toString()
+            checkbox.id = id
             checkbox.addEventListener('input', async (ev: Event) => {
                 label.innerText = `${labelText}`
                 onValueChange(checkbox.checked)
@@ -1024,13 +1243,6 @@ function main() {
             "repulsion",
             (value) => { app.repulsion = value }
         )
-        addSlider(
-            app.repulsionMax,
-            0, 10000,
-            1,
-            "repulsionMax",
-            (value) => { app.repulsionMax = value }
-        )
 
         addSlider(
             app.spring,
@@ -1045,13 +1257,6 @@ function main() {
             1,
             "springDist",
             (value) => { app.springDist = value }
-        )
-        addSlider(
-            app.springMax,
-            1, 1000,
-            1,
-            "springMax",
-            (value) => { app.springMax = value }
         )
     }
 

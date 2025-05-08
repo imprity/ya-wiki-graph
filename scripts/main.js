@@ -180,7 +180,7 @@ function calculateNodeForces(manager, gpuComputer,
 // forces get significantly large
 // when nodes get too close
 // clamp dist
-nodeMinDist, repulsion, repulsionMax, spring, springDist, springMax) {
+nodeMinDist, repulsion, spring, springDist) {
     // apply repulsion
     /*
     for (let a = 0; a < manager.length(); a++) {
@@ -247,7 +247,6 @@ nodeMinDist, repulsion, repulsionMax, spring, springDist, springMax) {
         dist = dist - (nodeA.getRadius() + nodeB.getRadius());
         dist = Math.max(dist, nodeMinDist);
         let force = Math.log(dist / springDist) * spring;
-        force = math.clampAbs(force, springMax);
         let atobF = math.vector2Scale(atobN, force);
         nodeA.forceX += atobF.x;
         nodeA.forceY += atobF.y;
@@ -259,20 +258,32 @@ class App {
     constructor(canvas) {
         this.width = 0;
         this.height = 0;
-        this.offsetX = 0;
-        this.offsetY = 0;
+        this.offset = new math.Vector2(0, 0);
         this.zoom = 1;
+        this.isPinching = false;
+        this.pinch = 0;
+        this.pinchPos = new math.Vector2(0, 0);
         this.isRequesting = false;
+        this.requestingNodeIndex = -1;
         this.gpuComputer = new GpuComputer();
-        this.mouseX = 0;
-        this.mouseY = 0;
         this.debugMsgs = new Map();
-        this.nodeMinDist = 0.1;
-        this.repulsion = 16500;
-        this.repulsionMax = 1000;
-        this.spring = 0.002;
-        this.springDist = 350;
-        this.springMax = 1000;
+        // ========================
+        // input states
+        // ========================
+        this.draggingCanvas = false;
+        this.pDrag = new math.Vector2(0, 0);
+        this.mouse = new math.Vector2(0, 0);
+        this.pMouse = new math.Vector2(0, 0);
+        this.isMouseDown = false;
+        this.focusedOnNode = false;
+        this.focusedNodeIndex = -1;
+        // ========================
+        // simulation parameters
+        // ========================
+        this.nodeMinDist = 10;
+        this.repulsion = 5000;
+        this.spring = 5;
+        this.springDist = 200;
         this.expandNode = (nodeIndex) => __awaiter(this, void 0, void 0, function* () {
             if (this.isRequesting) {
                 console.log("busy");
@@ -282,6 +293,7 @@ class App {
                 console.error(`node id ${nodeIndex} out of bound`);
                 return;
             }
+            this.requestingNodeIndex = nodeIndex;
             const node = this.nodeManager.getNodeAt(nodeIndex);
             console.log(`requesting ${node.title}`);
             this.isRequesting = true;
@@ -359,15 +371,22 @@ class App {
         window.addEventListener("keydown", (e) => {
             this.handleEvent(e);
         });
-        this.canvasElement.addEventListener("wheel", (e) => {
-            this.handleEvent(e);
-        });
-        this.canvasElement.addEventListener("pointerdown", (e) => {
-            this.handleEvent(e);
-        });
-        this.canvasElement.addEventListener("pointermove", (e) => {
-            this.handleEvent(e);
-        });
+        for (const eName of [
+            "wheel",
+            "mousedown",
+            "mouseup",
+            "mousemove",
+            "mouseleave",
+            "touchcancel",
+            "touchend",
+            "touchmove",
+            "touchstart",
+        ]) {
+            this.canvasElement.addEventListener(eName, (e) => {
+                e.preventDefault();
+                this.handleEvent(e);
+            });
+        }
         // TEST TEST TEST TEST
         const testNode = new DocNode();
         testNode.posX = this.width / 2;
@@ -377,30 +396,58 @@ class App {
         // TEST TEST TEST TEST
     }
     handleEvent(e) {
-        switch (e.type) {
-            case "keydown":
-                {
-                    const keyEvent = e;
-                    switch (keyEvent.code) {
-                        case "KeyW":
-                            this.offsetY += 10;
-                            break;
-                        case "KeyS":
-                            this.offsetY -= 10;
-                            break;
-                        case "KeyA":
-                            this.offsetX += 10;
-                            break;
-                        case "KeyD":
-                            this.offsetX -= 10;
-                            break;
+        const startDragging = (x, y) => {
+            this.draggingCanvas = true;
+            this.pDrag.x = x;
+            this.pDrag.y = y;
+        };
+        const doDrag = (x, y) => {
+            if (!this.draggingCanvas) {
+                return;
+            }
+            const pPos = this.viewportToWorld(this.pDrag.x, this.pDrag.y);
+            const pos = this.viewportToWorld(x, y);
+            const toPos = math.vector2Sub(pos, pPos);
+            this.offset.x += toPos.x;
+            this.offset.y += toPos.y;
+            this.pDrag.x = x;
+            this.pDrag.y = y;
+        };
+        const endDragging = () => {
+            this.draggingCanvas = false;
+        };
+        const handlePointClick = (x, y) => {
+            let clickedOnNode = false;
+            let nodeIndex = -1;
+            // check if we clicked on node
+            {
+                const pos = this.viewportToWorld(x, y);
+                for (let i = 0; i < this.nodeManager.length(); i++) {
+                    const node = this.nodeManager.getNodeAt(i);
+                    if (math.posInCircle(pos.x, pos.y, node.posX, node.posY, node.getRadius())) {
+                        clickedOnNode = true;
+                        nodeIndex = i;
+                        break;
                     }
                 }
-                break;
+            }
+            if (clickedOnNode) {
+                this.focusedOnNode = true;
+                this.focusedNodeIndex = nodeIndex;
+            }
+            else {
+                startDragging(x, y);
+            }
+        };
+        const touchPos = (touch) => {
+            let canvasRect = this.canvasElement.getBoundingClientRect();
+            return new math.Vector2(touch.clientX - canvasRect.x, touch.clientY - canvasRect.y);
+        };
+        switch (e.type) {
             case "wheel":
                 {
                     const wheelEvent = e;
-                    const zoomOrigin = this.viewportToWorld(this.mouseX, this.mouseY);
+                    const zoomOrigin = this.viewportToWorld(this.mouse.x, this.mouse.y);
                     let newZoom = this.zoom;
                     if (wheelEvent.deltaY < 0) {
                         newZoom *= 1.1;
@@ -409,32 +456,140 @@ class App {
                         newZoom *= 0.9;
                     }
                     this.zoom = newZoom;
-                    const newZoomOrigin = this.viewportToWorld(this.mouseX, this.mouseY);
-                    this.offsetX += (newZoomOrigin.x - zoomOrigin.x);
-                    this.offsetY += (newZoomOrigin.y - zoomOrigin.y);
+                    const newZoomOrigin = this.viewportToWorld(this.mouse.x, this.mouse.y);
+                    this.offset.x += (newZoomOrigin.x - zoomOrigin.x);
+                    this.offset.y += (newZoomOrigin.y - zoomOrigin.y);
                 }
                 break;
-            case "pointermove":
+            case "mousemove":
                 {
-                    const pointerEvent = e;
-                    this.mouseX = pointerEvent.offsetX;
-                    this.mouseY = pointerEvent.offsetY;
-                }
-                break;
-            case "pointerdown":
-                {
-                    const pointerEvent = e;
-                    const pos = this.viewportToWorld(this.mouseX, this.mouseY);
-                    for (let i = 0; i < this.nodeManager.length(); i++) {
-                        const node = this.nodeManager.getNodeAt(i);
-                        const dx = pos.x - node.posX;
-                        const dy = pos.y - node.posY;
-                        const distSquared = dx * dx + dy * dy;
-                        const radius = node.getRadius();
-                        if (distSquared < radius * radius) {
-                            this.expandNode(i);
-                            break;
+                    const mouseEvent = e;
+                    this.pMouse.x = this.mouse.x;
+                    this.pMouse.y = this.mouse.y;
+                    this.mouse.x = mouseEvent.offsetX;
+                    this.mouse.y = mouseEvent.offsetY;
+                    if (this.draggingCanvas) {
+                        doDrag(this.mouse.x, this.mouse.y);
+                    }
+                    else if (this.focusedOnNode) {
+                        const node = this.nodeManager.getNodeAt(this.focusedNodeIndex);
+                        const mw = this.viewportToWorld(this.mouse.x, this.mouse.y);
+                        if (!math.posInCircle(mw.x, mw.y, node.posX, node.posY, node.getRadius())) {
+                            this.focusedOnNode = false;
+                            if (this.isMouseDown) {
+                                startDragging(this.mouse.x, this.mouse.y);
+                            }
                         }
+                    }
+                }
+                break;
+            case "mousedown":
+                {
+                    const mouseEvent = e;
+                    this.isMouseDown = true;
+                    handlePointClick(this.mouse.x, this.mouse.y);
+                }
+                break;
+            case "mouseup":
+                {
+                    this.isMouseDown = false;
+                    if (this.focusedOnNode) {
+                        this.expandNode(this.focusedNodeIndex);
+                    }
+                    this.focusedOnNode = false;
+                    endDragging();
+                }
+                break;
+            case "mouseleave":
+                {
+                    endDragging();
+                    this.focusedOnNode = false;
+                    this.isMouseDown = false;
+                }
+                break;
+            case "touchstart":
+                {
+                    const touchEvent = e;
+                    const touches = touchEvent.touches;
+                    if (touches.length == 1) {
+                        const touch = touchPos(touches[0]);
+                        handlePointClick(touch.x, touch.y);
+                    }
+                    else {
+                        this.focusedOnNode = false;
+                        endDragging();
+                    }
+                    if (touches.length == 2) {
+                        this.isPinching = true;
+                        const touch0 = touchPos(touches[0]);
+                        const touch1 = touchPos(touches[1]);
+                        this.pinch = math.dist(touch0.x - touch1.x, touch0.y - touch1.y);
+                        this.pinchPos.x = (touch0.x + touch1.x) * 0.5;
+                        this.pinchPos.y = (touch0.y + touch1.y) * 0.5;
+                    }
+                    else {
+                        this.isPinching = false;
+                    }
+                }
+                break;
+            case "touchmove":
+                {
+                    const touchEvent = e;
+                    const touches = touchEvent.touches;
+                    if (touches.length == 1) {
+                        const touch = touchPos(touches[0]);
+                        if (this.draggingCanvas) {
+                            doDrag(touch.x, touch.y);
+                        }
+                        else if (this.focusedOnNode) {
+                            const node = this.nodeManager.getNodeAt(this.focusedNodeIndex);
+                            const tw = this.viewportToWorld(touch.x, touch.y);
+                            if (!math.posInCircle(tw.x, tw.y, node.posX, node.posY, node.getRadius())) {
+                                this.focusedOnNode = false;
+                                startDragging(touch.x, touch.y);
+                            }
+                        }
+                    }
+                    else {
+                        this.focusedOnNode = false;
+                        endDragging();
+                    }
+                    if (touches.length === 2) {
+                        if (this.isPinching) {
+                            const touch0 = touchPos(touches[0]);
+                            const touch1 = touchPos(touches[1]);
+                            const newPinch = math.dist(touch0.x - touch1.x, touch0.y - touch1.y);
+                            const newPinchPos = new math.Vector2((touch0.x + touch1.x) * 0.5, (touch0.y + touch1.y) * 0.5);
+                            const pinchRatio = newPinch / this.pinch;
+                            const newZoom = this.zoom * pinchRatio;
+                            const pwOld = this.viewportToWorld(this.pinchPos.x, this.pinchPos.y);
+                            this.zoom = newZoom;
+                            const pwNew = this.viewportToWorld(newPinchPos.x, newPinchPos.y);
+                            this.offset = math.vector2Add(math.vector2Sub(pwNew, pwOld), this.offset);
+                            this.pinch = newPinch;
+                            this.pinchPos = newPinchPos;
+                        }
+                    }
+                }
+                break;
+            case "touchcancel":
+                {
+                }
+                break;
+            case "touchend":
+                {
+                    const touchEvent = e;
+                    if (touchEvent.touches.length === 0) {
+                        if (this.focusedOnNode) {
+                            this.expandNode(this.focusedNodeIndex);
+                            this.focusedOnNode = false;
+                        }
+                    }
+                    if (touchEvent.touches.length !== 1) {
+                        endDragging();
+                    }
+                    if (touchEvent.touches.length !== 2) {
+                        this.isPinching = false;
                     }
                 }
                 break;
@@ -453,7 +608,7 @@ class App {
         }
         // debug print nodecount
         this.debugPrint('node count', this.nodeManager.length().toString());
-        calculateNodeForces(this.nodeManager, this.gpuComputer, this.nodeMinDist, this.repulsion, this.repulsionMax, this.spring, this.springDist, this.springMax);
+        calculateNodeForces(this.nodeManager, this.gpuComputer, this.nodeMinDist, this.repulsion, this.spring, this.springDist);
         for (let i = 0; i < this.nodeManager.length(); i++) {
             const node = this.nodeManager.getNodeAt(i);
             // node.velocityX += node.forceX
@@ -496,7 +651,12 @@ class App {
             const node = this.nodeManager.getNodeAt(i);
             if (node.doDraw) {
                 const pos = this.worldToViewport(node.posX, node.posY);
-                cd.fillCircle(this.ctx, pos.x, pos.y, node.getRadius() * this.zoom, "PaleTurquoise");
+                if (this.isRequesting && i === this.requestingNodeIndex) {
+                    cd.fillCircle(this.ctx, pos.x, pos.y, node.getRadius() * this.zoom, "red");
+                }
+                else {
+                    cd.fillCircle(this.ctx, pos.x, pos.y, node.getRadius() * this.zoom, "PaleTurquoise");
+                }
             }
         }
         // draw texts
@@ -517,7 +677,7 @@ class App {
         }
         // draw mouse pointer
         {
-            let pos = this.viewportToWorld(this.mouseX, this.mouseY);
+            let pos = this.viewportToWorld(this.mouse.x, this.mouse.y);
             pos = this.worldToViewport(pos.x, pos.y);
             cd.fillCircle(this.ctx, pos.x, pos.y, 10 * this.zoom, "red");
         }
@@ -543,8 +703,8 @@ class App {
         this.canvasElement.height = rect.height;
     }
     worldToViewport(x, y) {
-        x += this.offsetX;
-        y += this.offsetY;
+        x += this.offset.x;
+        y += this.offset.y;
         x *= this.zoom;
         y *= this.zoom;
         return new math.Vector2(x, y);
@@ -552,8 +712,8 @@ class App {
     viewportToWorld(x, y) {
         x /= this.zoom;
         y /= this.zoom;
-        x -= this.offsetX;
-        y -= this.offsetY;
+        x -= this.offset.x;
+        y -= this.offset.y;
         return new math.Vector2(x, y);
     }
     serialize() {
@@ -562,8 +722,8 @@ class App {
             container.nodes.push(this.nodeManager.getNodeAt(i));
         }
         container.connections = this.nodeManager.getConnections();
-        container.offsetX = this.offsetX;
-        container.offsetY = this.offsetY;
+        container.offsetX = this.offset.x;
+        container.offsetY = this.offset.y;
         container.zoom = this.zoom;
         return JSON.stringify(container);
     }
@@ -587,8 +747,8 @@ class App {
             for (const con of container.connections) {
                 this.nodeManager.setConnected(con.nodeIndexA, con.nodeIndexB, true);
             }
-            this.offsetX = container.offsetX;
-            this.offsetY = container.offsetY;
+            this.offset.x = container.offsetX;
+            this.offset.y = container.offsetY;
             this.zoom = container.zoom;
         }
         catch (err) {
@@ -596,8 +756,8 @@ class App {
         }
     }
     reset(addStartingNode) {
-        this.offsetX = 0;
-        this.offsetY = 0;
+        this.offset.x = 0;
+        this.offset.y = 0;
         this.zoom = 1;
         this.nodeManager.reset();
         if (addStartingNode) {
@@ -696,6 +856,11 @@ function main() {
                 }
             }
         }));
+        let debugUICounter = 0;
+        const getUIid = () => {
+            debugUICounter++;
+            return `debug-ui-id-${debugUICounter}`;
+        };
         const addSlider = (startingValue, min, max, step, labelText, onValueChange) => {
             let debugUIdiv = document.getElementById('debug-ui-div');
             if (debugUIdiv === null) {
@@ -703,17 +868,17 @@ function main() {
             }
             let div = document.createElement('div');
             div.classList.add('debug-ui-container');
-            const uuid = self.crypto.randomUUID();
+            const id = getUIid();
             let label = document.createElement('label');
             label.innerText = `${labelText}: ${startingValue}`;
-            label.htmlFor = uuid.toString();
+            label.htmlFor = id;
             let input = document.createElement('input');
             input.type = 'range';
             input.min = min.toString();
             input.max = max.toString();
             input.step = step.toString();
             input.value = startingValue.toString();
-            input.id = uuid.toString();
+            input.id = id;
             input.addEventListener('input', (ev) => __awaiter(this, void 0, void 0, function* () {
                 label.innerText = `${labelText}: ${input.value}`;
                 onValueChange(parseFloat(input.value));
@@ -729,14 +894,14 @@ function main() {
             }
             let div = document.createElement('div');
             div.classList.add('debug-ui-container');
-            const uuid = self.crypto.randomUUID();
+            const id = getUIid();
             let label = document.createElement('label');
             label.innerText = `${labelText}`;
-            label.htmlFor = uuid.toString();
+            label.htmlFor = id;
             let checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.checked = startingValue;
-            checkbox.id = uuid.toString();
+            checkbox.id = id;
             checkbox.addEventListener('input', (ev) => __awaiter(this, void 0, void 0, function* () {
                 label.innerText = `${labelText}`;
                 onValueChange(checkbox.checked);
@@ -761,10 +926,8 @@ function main() {
         addButton('reset', () => { app.reset(true); });
         addSlider(app.nodeMinDist, 0, 10, 0.01, "nodeMinDist", (value) => { app.nodeMinDist = value; });
         addSlider(app.repulsion, 0, 10000, 1, "repulsion", (value) => { app.repulsion = value; });
-        addSlider(app.repulsionMax, 0, 10000, 1, "repulsionMax", (value) => { app.repulsionMax = value; });
         addSlider(app.spring, 0, 5, 0.0001, "spring", (value) => { app.spring = value; });
         addSlider(app.springDist, 1, 1000, 1, "springDist", (value) => { app.springDist = value; });
-        addSlider(app.springMax, 1, 1000, 1, "springMax", (value) => { app.springMax = value; });
     }
     let prevTime;
     const onFrame = (timestamp) => {

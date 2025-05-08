@@ -105,7 +105,6 @@ class VertexAttribute {
 }
 export class GpuComputer {
     constructor() {
-        this.capacity = 8192;
         // =========================
         // create opengl context
         // =========================
