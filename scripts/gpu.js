@@ -1,8 +1,12 @@
 import * as math from "./math.js";
 const vertexShaderSrc = `#version 300 es
 
-uniform sampler2D node_positions;
+uniform sampler2D node_infos;
+
 uniform int node_count;
+
+uniform float node_min_dist;
+uniform float repulsion;
 
 in int index;
 
@@ -11,40 +15,94 @@ in float mass;
 
 out vec2 force;
 
+// NOTE:
+// !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
+// cpu also needs to figure out raidus from a mass
+// so if you are going to change this code,
+// change the code in in main.ts as well
+// !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
+
+float mass_to_radius(float m) {
+    return 8.0f + m * 0.1;
+}
+
 void main() {
-    vec2 repulsion = vec2(0.0f, 0.0f);
+    vec2 sum = vec2(0.0f, 0.0f);
 
     for (int i=0; i<node_count; i++) {
         if (i == index) {
             continue;
         }
 
-        vec2 otherPos = texelFetch(node_positions, ivec2(i, 0), 0).rg;
-        vec2 toOther = otherPos - position;
+        vec4 other_node_info = texelFetch(node_infos, ivec2(i, 0), 0);
 
-        float dist = length(toOther);
-        if (dist > 5000.0f) {
-            continue;
-        }else if (dist < 0.1f) {
+        vec2 other_pos = other_node_info.rg;
+        float other_mass = other_node_info.b;
+        float other_radius = mass_to_radius(other_mass);
+
+        vec2 to_other = other_pos - position;
+
+        float dist = length(to_other);
+
+        if (dist < 0.00001f) {
             continue;
         }
 
-        vec2 toOtherN = toOther / dist;
+        vec2 to_other_n = to_other / dist;
 
-        float f = (5000.0f / (dist * dist));
+        dist -= mass_to_radius(mass);
+        dist -= other_radius;
 
-        vec2 fv = toOtherN * f;
+        dist = max(dist, node_min_dist);
 
-        repulsion -= fv;
+        float f = repulsion * mass * other_mass / (dist * dist);
+
+        vec2 fv = to_other_n * f;
+
+        sum -= fv;
     }
 
-    force = repulsion;
+    force = sum;
 }
 `;
 const fragmentShaderSrc = `#version 300 es
 
 void main() {}
 `;
+var GpuDataType;
+(function (GpuDataType) {
+    GpuDataType[GpuDataType["Int32"] = 0] = "Int32";
+    GpuDataType[GpuDataType["Float32"] = 1] = "Float32";
+})(GpuDataType || (GpuDataType = {}));
+class VertexAttribute {
+    constructor(gl, program, name, type, elementSize) {
+        this.loc = gl.getAttribLocation(program, name);
+        this.buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+        gl.enableVertexAttribArray(this.loc);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        this.type = type;
+        this.elementSize = elementSize;
+    }
+    pipeData(gl, data) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+        if (this.type === GpuDataType.Int32) {
+            gl.vertexAttribIPointer(this.loc, // location
+            this.elementSize, // size
+            gl.INT, // type
+            0, // stride
+            0);
+        }
+        else {
+            gl.vertexAttribPointer(this.loc, this.elementSize, // size
+            gl.FLOAT, // type
+            false, // normalize
+            0, // stride
+            0);
+        }
+    }
+}
 export class GpuComputer {
     constructor() {
         this.capacity = 8192;
@@ -98,34 +156,20 @@ export class GpuComputer {
         // =========================
         // get locations
         // =========================
-        this.nodePositionsLoc = this.gl.getUniformLocation(this.program, 'node_positions');
         this.nodeCountLoc = this.gl.getUniformLocation(this.program, 'node_count');
-        this.indexLoc = this.gl.getAttribLocation(this.program, 'index');
-        this.massLoc = this.gl.getAttribLocation(this.program, 'mass');
-        this.positionLoc = this.gl.getAttribLocation(this.program, 'position');
+        this.nodeMinDistLoc = this.gl.getUniformLocation(this.program, 'node_min_dist');
+        this.repulsionLoc = this.gl.getUniformLocation(this.program, 'repulsion');
         // =========================
         // create vao
         // =========================
         this.vao = this.gl.createVertexArray();
         this.gl.bindVertexArray(this.vao);
+        this.indexAttrib = new VertexAttribute(this.gl, this.program, 'index', GpuDataType.Int32, 1);
+        this.positionAttrib = new VertexAttribute(this.gl, this.program, 'position', GpuDataType.Float32, 2);
+        this.massAttrib = new VertexAttribute(this.gl, this.program, 'mass', GpuDataType.Float32, 1);
         // =========================
         // create buffer
         // =========================
-        // create indexBuf
-        this.indexBuf = this.gl.createBuffer();
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.indexBuf);
-        this.gl.enableVertexAttribArray(this.indexLoc);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
-        // create positionBuf
-        this.positionBuf = this.gl.createBuffer();
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuf);
-        this.gl.enableVertexAttribArray(this.positionLoc);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
-        // create massBuf
-        this.massBuf = this.gl.createBuffer();
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.massBuf);
-        this.gl.enableVertexAttribArray(this.massLoc);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
         // create forceBuf
         this.forceBuf = this.gl.createBuffer();
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.forceBuf);
@@ -142,18 +186,26 @@ export class GpuComputer {
         // =========================
         // create texture
         // =========================
-        // create texture
-        this.nodePosTexture = this.gl.createTexture();
-        this.gl.activeTexture(this.gl.TEXTURE0 + 0);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodePosTexture);
-        // set up texture parameters
-        // set the filtering so we don't need mips
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        const createDataTexture = (name, textureNumber) => {
+            const loc = this.gl.getUniformLocation(this.program, name);
+            const texture = this.gl.createTexture();
+            // set up texture parameters
+            // set the filtering so we don't need mips
+            this.gl.activeTexture(this.gl.TEXTURE0 + textureNumber);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+            return {
+                texture: texture,
+                textureNumber: textureNumber,
+                loc: loc
+            };
+        };
+        this.nodeInfosTex = createDataTexture('node_infos', 0);
     }
-    calculateForces(nodeManager) {
+    calculateForces(nodeManager, nodeMinDist, repulsion) {
         const positionBuf = new Float32Array(nodeManager.length() * 2);
         {
             let offset = 0;
@@ -164,27 +216,37 @@ export class GpuComputer {
                 offset += 2;
             }
         }
-        const massBuf = new Float32Array(nodeManager.length());
+        const massesBuf = new Float32Array(nodeManager.length());
         {
             for (let i = 0; i < nodeManager.length(); i++) {
                 const node = nodeManager.getNodeAt(i);
-                massBuf[i] = node.mass;
+                massesBuf[i] = node.mass;
             }
         }
         // ==================
-        // create texture
+        // pipe to texture
         // ==================
+        // pipe to nodeInfosTex
         {
-            this.gl.activeTexture(this.gl.TEXTURE0 + 0);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodePosTexture);
+            const nodesInfo = new Float32Array(nodeManager.length() * 3);
+            let nodeIndex = 0;
+            for (let i = 0; i < nodesInfo.length; i += 3) {
+                const node = nodeManager.getNodeAt(nodeIndex);
+                nodesInfo[i + 0] = node.posX;
+                nodesInfo[i + 1] = node.posY;
+                nodesInfo[i + 2] = node.mass;
+                nodeIndex += 1;
+            }
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeInfosTex.textureNumber);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeInfosTex.texture);
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            this.gl.RG32F, // internal format
+            this.gl.RGB32F, // internal format
             nodeManager.length(), // width
             1, // height
             0, // border
-            this.gl.RG, // format
+            this.gl.RGB, // format
             this.gl.FLOAT, // type
-            positionBuf // data
+            nodesInfo // data
             );
         }
         // =====================
@@ -196,39 +258,25 @@ export class GpuComputer {
             for (let i = 0; i < nodeManager.length(); i++) {
                 indexBuf[i] = i;
             }
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.indexBuf);
-            this.gl.bufferData(this.gl.ARRAY_BUFFER, indexBuf, this.gl.DYNAMIC_DRAW);
-            this.gl.vertexAttribIPointer(this.indexLoc, 1, this.gl.INT, 0, 0);
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
+            this.indexAttrib.pipeData(this.gl, indexBuf);
         }
         {
             // pipe position
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuf);
-            this.gl.bufferData(this.gl.ARRAY_BUFFER, positionBuf, this.gl.DYNAMIC_DRAW);
-            this.gl.vertexAttribPointer(this.positionLoc, 2, // size
-            this.gl.FLOAT, // type
-            false, // normalize
-            0, // stride
-            0);
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
+            this.positionAttrib.pipeData(this.gl, positionBuf);
         }
         {
-            const massBuf = new Float32Array(nodeManager.length());
             // pipe mass
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.massBuf);
-            this.gl.bufferData(this.gl.ARRAY_BUFFER, massBuf, this.gl.DYNAMIC_DRAW);
-            this.gl.vertexAttribPointer(this.massLoc, 1, // size
-            this.gl.FLOAT, // type
-            false, // normalize
-            0, // stride
-            0);
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
+            this.massAttrib.pipeData(this.gl, massesBuf);
         }
         this.gl.useProgram(this.program);
         this.gl.bindVertexArray(this.vao);
         this.gl.enable(this.gl.RASTERIZER_DISCARD);
+        // setup uniforms
         this.gl.uniform1i(this.nodeCountLoc, nodeManager.length());
-        this.gl.uniform1i(this.nodePositionsLoc, 0);
+        this.gl.uniform1f(this.nodeMinDistLoc, nodeMinDist);
+        this.gl.uniform1f(this.repulsionLoc, repulsion);
+        // setup texture
+        this.gl.uniform1i(this.nodeInfosTex.loc, this.nodeInfosTex.textureNumber);
         this.gl.bindTransformFeedback(this.gl.TRANSFORM_FEEDBACK, this.tf);
         this.gl.beginTransformFeedback(this.gl.POINTS);
         this.gl.drawArrays(this.gl.POINTS, 0, nodeManager.length());

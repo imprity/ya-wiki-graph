@@ -16,6 +16,12 @@ class DocNode {
         return id
     }
 
+    // NOTE:
+    // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // gpu also needs to figure out raidus from a mass
+    // so if you are going to change this code,
+    // change the code in gpu shader code in gpu.ts as well
+    // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     static nodeMassToRadius(mass: number): number {
         return 8 + mass * 0.1
     }
@@ -280,7 +286,11 @@ function calculateNodeForces(
     }
     */
 
-    let repulsionForce = gpuComputer.calculateForces(manager)
+    let repulsionForce = gpuComputer.calculateForces(
+        manager,
+        nodeMinDist,
+        repulsion,
+    )
     for (let i = 0; i < manager.length(); i++) {
         const node = manager.getNodeAt(i)
         const force = repulsionForce[i]
