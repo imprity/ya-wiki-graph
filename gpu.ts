@@ -132,8 +132,6 @@ interface Texture {
 }
 
 export class GpuComputer {
-    capacity: number
-
     gl: WebGL2RenderingContext
     program: WebGLProgram
     vao: WebGLVertexArrayObject
@@ -153,8 +151,6 @@ export class GpuComputer {
     forceBuf: WebGLBuffer
 
     constructor() {
-        this.capacity = 8192
-
         // =========================
         // create opengl context
         // =========================
@@ -241,18 +237,11 @@ export class GpuComputer {
         // =========================
         // create forceBuf
         this.forceBuf = this.gl.createBuffer()
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.forceBuf)
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, this.capacity * 8, this.gl.DYNAMIC_DRAW)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
 
         // =========================
         // create transform feedback
         // =========================
         this.tf = this.gl.createTransformFeedback()
-        this.gl.bindTransformFeedback(this.gl.TRANSFORM_FEEDBACK, this.tf)
-        // bind the buffers to the transform feedback
-        this.gl.bindBufferBase(this.gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.forceBuf)
-        this.gl.bindTransformFeedback(this.gl.TRANSFORM_FEEDBACK, null)
 
         // =========================
         // create texture
@@ -305,6 +294,18 @@ export class GpuComputer {
                 massesBuf[i] = node.mass
             }
         }
+
+        // ==================
+        // prepare force buf
+        // ==================
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.forceBuf)
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, nodeManager.length() * 8, this.gl.DYNAMIC_DRAW)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
+
+        this.gl.bindTransformFeedback(this.gl.TRANSFORM_FEEDBACK, this.tf)
+        // bind the buffers to the transform feedback
+        this.gl.bindBufferBase(this.gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.forceBuf)
+        this.gl.bindTransformFeedback(this.gl.TRANSFORM_FEEDBACK, null)
 
         // ==================
         // pipe to texture
