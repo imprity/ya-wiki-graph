@@ -11,7 +11,7 @@ import * as cd from "./canvas.js";
 import * as wiki from "./wiki.js";
 import * as util from "./util.js";
 import * as math from "./math.js";
-import { GpuComputer } from "./gpu.js";
+import { GpuComputer, SimulationParameter } from "./gpu.js";
 import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js';
 const FirstTitle = "English language";
 //const FirstTitle = "Miss Meyers"
@@ -202,10 +202,7 @@ class App {
         // ========================
         // simulation parameters
         // ========================
-        this.nodeMinDist = 10;
-        this.repulsion = 5000;
-        this.spring = 5;
-        this.springDist = 200;
+        this.simParam = new SimulationParameter();
         this.expandNode = (nodeIndex) => __awaiter(this, void 0, void 0, function* () {
             if (this.isRequesting) {
                 console.log("busy");
@@ -288,6 +285,7 @@ class App {
         this.updateWidthAndHeight();
         this.nodeManager = new NodeManager();
         this.gpuComputer = new GpuComputer(this.nodeManager);
+        this.gpuComputer.simParam = this.simParam;
         // NOTE: we have to add it to window because canvas
         // doesn't take keyboard input
         // TODO: put canvas inside a div
@@ -801,10 +799,10 @@ function main() {
             debugUIdiv.appendChild(div);
         };
         addButton('reset', () => { app.reset(true); });
-        addSlider(app.nodeMinDist, 0, 10, 0.01, "nodeMinDist", (value) => { app.nodeMinDist = value; });
-        addSlider(app.repulsion, 0, 10000, 1, "repulsion", (value) => { app.repulsion = value; });
-        addSlider(app.spring, 0, 5, 0.0001, "spring", (value) => { app.spring = value; });
-        addSlider(app.springDist, 1, 1000, 1, "springDist", (value) => { app.springDist = value; });
+        addSlider(app.simParam.nodeMinDist, 0, 10, 0.01, "nodeMinDist", (value) => { app.simParam.nodeMinDist = value; });
+        addSlider(app.simParam.repulsion, 0, 10000, 1, "repulsion", (value) => { app.simParam.repulsion = value; });
+        addSlider(app.simParam.spring, 0, 20, 0.0001, "spring", (value) => { app.simParam.spring = value; });
+        addSlider(app.simParam.springDist, 1, 1000, 1, "springDist", (value) => { app.simParam.springDist = value; });
     }
     let prevTime;
     const onFrame = (timestamp) => {

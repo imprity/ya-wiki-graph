@@ -2,7 +2,7 @@ import * as cd from "./canvas.js"
 import * as wiki from "./wiki.js"
 import * as util from "./util.js"
 import * as math from "./math.js"
-import { GpuComputer } from "./gpu.js"
+import { GpuComputer, SimulationParameter } from "./gpu.js"
 import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js'
 
 const FirstTitle = "English language"
@@ -270,12 +270,7 @@ class App {
     // ========================
     // simulation parameters
     // ========================
-    nodeMinDist: number = 10
-
-    repulsion: number = 5000
-
-    spring: number = 5
-    springDist: number = 200
+    simParam: SimulationParameter = new SimulationParameter()
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvasElement = canvas
@@ -292,6 +287,7 @@ class App {
 
         this.nodeManager = new NodeManager()
         this.gpuComputer = new GpuComputer(this.nodeManager)
+        this.gpuComputer.simParam = this.simParam
 
         // NOTE: we have to add it to window because canvas
         // doesn't take keyboard input
@@ -1051,34 +1047,34 @@ function main() {
         )
 
         addSlider(
-            app.nodeMinDist,
+            app.simParam.nodeMinDist,
             0, 10,
             0.01,
             "nodeMinDist",
-            (value) => { app.nodeMinDist = value }
+            (value) => { app.simParam.nodeMinDist = value }
         )
 
         addSlider(
-            app.repulsion,
+            app.simParam.repulsion,
             0, 10000,
             1,
             "repulsion",
-            (value) => { app.repulsion = value }
+            (value) => { app.simParam.repulsion = value }
         )
 
         addSlider(
-            app.spring,
-            0, 5,
+            app.simParam.spring,
+            0, 20,
             0.0001,
             "spring",
-            (value) => { app.spring = value }
+            (value) => { app.simParam.spring = value }
         )
         addSlider(
-            app.springDist,
+            app.simParam.springDist,
             1, 1000,
             1,
             "springDist",
-            (value) => { app.springDist = value }
+            (value) => { app.simParam.springDist = value }
         )
     }
 

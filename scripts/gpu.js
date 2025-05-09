@@ -120,9 +120,9 @@ class VertexAttribute {
 export class SimulationParameter {
     constructor() {
         this.nodeMinDist = 10;
-        this.repulsion = 5000;
+        this.repulsion = 7000;
         this.spring = 5;
-        this.springDist = 200;
+        this.springDist = 600;
     }
 }
 export class GpuComputer {

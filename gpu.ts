@@ -140,10 +140,10 @@ interface Texture {
 export class SimulationParameter {
     nodeMinDist: number = 10
 
-    repulsion: number = 5000
+    repulsion: number = 7000
 
     spring: number = 5
-    springDist: number = 200
+    springDist: number = 600
 }
 
 export class GpuComputer {
