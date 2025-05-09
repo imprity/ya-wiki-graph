@@ -1,4 +1,5 @@
 import * as math from "./math.js"
+import { NodeManager } from "./main.js"
 
 const vertexShaderSrc = `#version 300 es
 
@@ -54,7 +55,8 @@ void main() {
             continue;
         }
 
-        vec2 to_other_n = to_other / dist;
+        //vec2 to_other_n = to_other / dist;
+        vec2 to_other_n = normalize(to_other);
 
         dist -= mass_to_radius(mass);
         dist -= other_radius;
@@ -136,7 +138,20 @@ interface Texture {
     loc: WebGLUniformLocation | null
 }
 
+export class SimulationParameter {
+    nodeMinDist: number = 10
+
+    repulsion: number = 5000
+
+    spring: number = 5
+    springDist: number = 200
+}
+
 export class GpuComputer {
+    nodeManager: NodeManager
+
+    simParam: SimulationParameter = new SimulationParameter()
+
     gl: WebGL2RenderingContext
     program: WebGLProgram
     vao: WebGLVertexArrayObject
@@ -155,7 +170,9 @@ export class GpuComputer {
 
     forceBuf: WebGLBuffer
 
-    constructor() {
+    constructor(nodeManager: NodeManager) {
+        this.nodeManager = nodeManager
+
         // =========================
         // create opengl context
         // =========================
@@ -276,26 +293,38 @@ export class GpuComputer {
         )
     }
 
-    calculateForces(
-        nodeManager: any,
-        nodeMinDist: number,
-        repulsion: number,
-    ): Array<math.Vector2> {
-        const positionBuf: Float32Array = new Float32Array(nodeManager.length() * 2)
+    async startSimulating() {
+        const loop = async () => {
+            this.simulateSpring()
+            await this.simulateRepulsion()
+            this.applyForces()
+            setTimeout(
+                loop,
+                0
+            )
+        }
+
+        loop()
+    }
+
+    async simulateRepulsion() {
+        const nodeCount = this.nodeManager.length()
+
+        const positionBuf: Float32Array = new Float32Array(nodeCount * 2)
         {
             let offset = 0
-            for (let i = 0; i < nodeManager.length(); i++) {
-                const node = nodeManager.getNodeAt(i)
+            for (let i = 0; i < nodeCount; i++) {
+                const node = this.nodeManager.getNodeAt(i)
                 positionBuf[offset] = node.posX
                 positionBuf[offset + 1] = node.posY
 
                 offset += 2
             }
         }
-        const massesBuf: Float32Array = new Float32Array(nodeManager.length())
+        const massesBuf: Float32Array = new Float32Array(nodeCount)
         {
-            for (let i = 0; i < nodeManager.length(); i++) {
-                const node = nodeManager.getNodeAt(i)
+            for (let i = 0; i < nodeCount; i++) {
+                const node = this.nodeManager.getNodeAt(i)
                 massesBuf[i] = node.mass
             }
         }
@@ -304,7 +333,7 @@ export class GpuComputer {
         // prepare force buf
         // ==================
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.forceBuf)
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, nodeManager.length() * 8, this.gl.DYNAMIC_DRAW)
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, nodeCount * 8, this.gl.STREAM_READ)
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
 
         this.gl.bindTransformFeedback(this.gl.TRANSFORM_FEEDBACK, this.tf)
@@ -318,13 +347,13 @@ export class GpuComputer {
         // pipe to nodeInfosTex
         {
 
-            let textureSize = Math.ceil(Math.sqrt(nodeManager.length()))
+            let textureSize = Math.ceil(Math.sqrt(nodeCount))
 
             const nodesInfo = new Float32Array(textureSize * textureSize * 4).fill(0)
             let nodeIndex = 0
 
             for (let i = 0; i < nodesInfo.length; i += 4) {
-                const node = nodeManager.getNodeAt(nodeIndex)
+                const node = this.nodeManager.getNodeAt(nodeIndex)
 
                 nodesInfo[i + 0] = node.posX
                 nodesInfo[i + 1] = node.posY
@@ -333,7 +362,7 @@ export class GpuComputer {
 
                 nodeIndex += 1
 
-                if (nodeIndex >= nodeManager.length()) {
+                if (nodeIndex >= nodeCount) {
                     break
                 }
             }
@@ -358,8 +387,8 @@ export class GpuComputer {
         // =====================
         {
             // pipe index
-            const indexBuf = new Uint32Array(nodeManager.length())
-            for (let i = 0; i < nodeManager.length(); i++) {
+            const indexBuf = new Uint32Array(nodeCount)
+            for (let i = 0; i < nodeCount; i++) {
                 indexBuf[i] = i
             }
             this.indexAttrib.pipeData(this.gl, indexBuf)
@@ -378,21 +407,51 @@ export class GpuComputer {
         this.gl.enable(this.gl.RASTERIZER_DISCARD);
 
         // setup uniforms
-        this.gl.uniform1i(this.nodeCountLoc, nodeManager.length())
-        this.gl.uniform1f(this.nodeMinDistLoc, nodeMinDist)
-        this.gl.uniform1f(this.repulsionLoc, repulsion)
+        this.gl.uniform1i(this.nodeCountLoc, nodeCount)
+        this.gl.uniform1f(this.nodeMinDistLoc, this.simParam.nodeMinDist)
+        this.gl.uniform1f(this.repulsionLoc, this.simParam.repulsion)
 
         // setup texture
         this.gl.uniform1i(this.nodeInfosTex.loc, this.nodeInfosTex.textureNumber)
 
         this.gl.bindTransformFeedback(this.gl.TRANSFORM_FEEDBACK, this.tf);
         this.gl.beginTransformFeedback(this.gl.POINTS);
-        this.gl.drawArrays(this.gl.POINTS, 0, nodeManager.length());
+        this.gl.drawArrays(this.gl.POINTS, 0, nodeCount);
         this.gl.endTransformFeedback();
         this.gl.bindTransformFeedback(this.gl.TRANSFORM_FEEDBACK, null);
         this.gl.disable(this.gl.RASTERIZER_DISCARD)
 
-        const forceBuf = new Float32Array(nodeManager.length() * 2)
+        // =======================
+        // retrieve result
+        // =======================
+        // copy pasted from https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices
+        const clientWaitSync = (sync: WebGLSync, intervalMs: number): Promise<void> => {
+            return new Promise((resolve, reject) => {
+                const test = () => {
+                    const result = this.gl.clientWaitSync(sync, 0, 0)
+                    if (result === this.gl.WAIT_FAILED) {
+                        reject()
+                        return
+                    }
+                    if (result === this.gl.TIMEOUT_EXPIRED) {
+                        setTimeout(test, intervalMs)
+                        return;
+                    }
+                    resolve()
+                }
+                test()
+            })
+        }
+
+        const sync = this.gl.fenceSync(this.gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        if (sync === null) {
+            throw new Error('failed to create gl sync object')
+        }
+        this.gl.flush();
+        await clientWaitSync(sync, 0);
+        this.gl.deleteSync(sync);
+
+        const forceBuf = new Float32Array(nodeCount * 2)
 
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.forceBuf)
         this.gl.getBufferSubData(
@@ -400,13 +459,81 @@ export class GpuComputer {
             0,    // byte offset into GPU buffer,
             forceBuf,
         );
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
 
-        const forceVBuf: Array<math.Vector2> = []
+        // =======================
+        // apply results to nodes
+        // =======================
+        {
+            let bufIndex = 0
+            for (let i = 0; i < nodeCount; i++) {
+                const node = this.nodeManager.getNodeAt(i)
 
-        for (let i = 0; i < forceBuf.length; i += 2) {
-            forceVBuf.push(new math.Vector2(forceBuf[i], forceBuf[i + 1]))
+                node.forceX += forceBuf[bufIndex]
+                node.forceY += forceBuf[bufIndex + 1]
+
+                bufIndex += 2
+            }
         }
+    }
 
-        return forceVBuf
+    simulateSpring() {
+        for (const con of this.nodeManager.getConnections()) {
+            const nodeA = this.nodeManager.getNodeAt(con.nodeIndexA)
+            const nodeB = this.nodeManager.getNodeAt(con.nodeIndexB)
+
+            const aPos = new math.Vector2(nodeA.posX, nodeA.posY)
+            const bPos = new math.Vector2(nodeB.posX, nodeB.posY)
+
+            const atob = math.vector2Sub(bPos, aPos)
+
+            let distSquared = math.vector2DistSquared(atob)
+            if (math.closeToZero(distSquared)) {
+                continue
+            }
+
+            let dist = Math.sqrt(distSquared)
+
+            const atobN = math.vector2Scale(atob, 1 / dist)
+
+            dist = dist - (nodeA.getRadius() + nodeB.getRadius())
+            dist = Math.max(dist, this.simParam.nodeMinDist)
+
+            let force = Math.log(dist / this.simParam.springDist) * this.simParam.spring
+
+            let atobF = math.vector2Scale(atobN, force)
+
+            nodeA.forceX += atobF.x
+            nodeA.forceY += atobF.y
+
+            nodeB.forceX -= atobF.x
+            nodeB.forceY -= atobF.y
+        }
+    }
+
+    applyForces() {
+        for (let i = 0; i < this.nodeManager.length(); i++) {
+            const node = this.nodeManager.getNodeAt(i)
+
+            if (node.mass <= 0) {
+                continue
+            }
+
+            node.forceX /= node.mass
+            node.forceY /= node.mass
+
+            if (math.distSquared(node.forceX, node.forceY) > 1 * 1) {
+                node.temp += 0.01
+            } else {
+                node.temp -= 0.01
+            }
+            node.temp = math.clamp(node.temp, 0, 1)
+
+            node.posX += node.forceX * node.temp
+            node.posY += node.forceY * node.temp
+
+            node.forceX = 0
+            node.forceY = 0
+        }
     }
 }

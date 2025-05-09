@@ -61,7 +61,7 @@ class Connection {
     }
 }
 
-class NodeManager {
+export class NodeManager {
     _connectionMatrix: Map<number, boolean> = new Map()
 
     _connections: Array<Connection> = []
@@ -228,113 +228,108 @@ class NodeManager {
     }
 }
 
-function calculateNodeForces(
-    manager: NodeManager,
-
-    gpuComputer: GpuComputer,
-
-    // forces get significantly large
-    // when nodes get too close
-    // clamp dist
-    nodeMinDist: number,
-
-    repulsion: number,
-
-    spring: number,
-    springDist: number,
-) {
-    // apply repulsion
-    /*
-    for (let a = 0; a < manager.length(); a++) {
-        for (let b = 0; b < manager.length(); b++) {
-            if (a == b) {
-                continue
-            }
-
-            const nodeA = manager.getNodeAt(a)
-            const nodeB = manager.getNodeAt(b)
-
-            const atobX = nodeB.posX - nodeA.posX
-            const atobY = nodeB.posY - nodeA.posY
-
-            const distSquared = math.distSquared(atobX, atobY)
-            if (math.closeToZero(distSquared)) {
-                continue
-            }
-
-            let dist = Math.sqrt(distSquared)
-
-            const atobNX = atobX / dist
-            const atobNY = atobY / dist
-
-            dist -= nodeA.getRadius()
-            dist -= nodeB.getRadius()
-
-            dist = Math.max(dist, nodeMinDist)
-
-            let force = repulsion * nodeA.mass * nodeB.mass / (dist * dist)
-            force = math.clampAbs(force, repulsionMax)
-
-            nodeA.forceX -= force * atobNX
-            nodeA.forceY -= force * atobNY
-
-            nodeB.forceX += force * atobNX
-            nodeB.forceY += force * atobNY
-        }
-    }
-    */
-
-    let repulsionForce = gpuComputer.calculateForces(
-        manager,
-        nodeMinDist,
-        repulsion,
-    )
-    for (let i = 0; i < manager.length(); i++) {
-        const node = manager.getNodeAt(i)
-        const force = repulsionForce[i]
-
-        node.forceX += force.x
-        node.forceY += force.y
-    }
-
-    if (repulsionForce.length > 1) {
-        let meme = 0
-    }
-
-
-    // apply spring
-    for (const con of manager.getConnections()) {
-        const nodeA = manager.getNodeAt(con.nodeIndexA)
-        const nodeB = manager.getNodeAt(con.nodeIndexB)
-
-        const aPos = new math.Vector2(nodeA.posX, nodeA.posY)
-        const bPos = new math.Vector2(nodeB.posX, nodeB.posY)
-
-        const atob = math.vector2Sub(bPos, aPos)
-
-        let distSquared = math.vector2DistSquared(atob)
-        if (math.closeToZero(distSquared)) {
-            continue
-        }
-
-        let dist = Math.sqrt(distSquared)
-
-        const atobN = math.vector2Scale(atob, 1 / dist)
-
-        dist = dist - (nodeA.getRadius() + nodeB.getRadius())
-        dist = Math.max(dist, nodeMinDist)
-
-        let force = Math.log(dist / springDist) * spring
-
-        let atobF = math.vector2Scale(atobN, force)
-
-        nodeA.forceX += atobF.x
-        nodeA.forceY += atobF.y
-
-        nodeB.forceX -= atobF.x
-        nodeB.forceY -= atobF.y
-    }
-}
+// function calculateNodeForces(
+//     manager: NodeManager,
+//
+//     gpuComputer: GpuComputer,
+//
+//     // forces get significantly large
+//     // when nodes get too close
+//     // clamp dist
+//     nodeMinDist: number,
+//
+//     repulsion: number,
+//
+//     spring: number,
+//     springDist: number,
+// ) {
+//     // apply repulsion
+//     /*
+//     for (let a = 0; a < manager.length(); a++) {
+//         for (let b = 0; b < manager.length(); b++) {
+//             if (a == b) {
+//                 continue
+//             }
+//
+//             const nodeA = manager.getNodeAt(a)
+//             const nodeB = manager.getNodeAt(b)
+//
+//             const atobX = nodeB.posX - nodeA.posX
+//             const atobY = nodeB.posY - nodeA.posY
+//
+//             const distSquared = math.distSquared(atobX, atobY)
+//             if (math.closeToZero(distSquared)) {
+//                 continue
+//             }
+//
+//             let dist = Math.sqrt(distSquared)
+//
+//             const atobNX = atobX / dist
+//             const atobNY = atobY / dist
+//
+//             dist -= nodeA.getRadius()
+//             dist -= nodeB.getRadius()
+//
+//             dist = Math.max(dist, nodeMinDist)
+//
+//             let force = repulsion * nodeA.mass * nodeB.mass / (dist * dist)
+//             force = math.clampAbs(force, repulsionMax)
+//
+//             nodeA.forceX -= force * atobNX
+//             nodeA.forceY -= force * atobNY
+//
+//             nodeB.forceX += force * atobNX
+//             nodeB.forceY += force * atobNY
+//         }
+//     }
+//     */
+//
+//     let repulsionForce = gpuComputer.calculateForces(
+//         manager,
+//         nodeMinDist,
+//         repulsion,
+//     )
+//     for (let i = 0; i < manager.length(); i++) {
+//         const node = manager.getNodeAt(i)
+//         const force = repulsionForce[i]
+//
+//         node.forceX += force.x
+//         node.forceY += force.y
+//     }
+//
+//     // apply spring
+//     for (const con of manager.getConnections()) {
+//         const nodeA = manager.getNodeAt(con.nodeIndexA)
+//         const nodeB = manager.getNodeAt(con.nodeIndexB)
+//
+//         const aPos = new math.Vector2(nodeA.posX, nodeA.posY)
+//         const bPos = new math.Vector2(nodeB.posX, nodeB.posY)
+//
+//         const atob = math.vector2Sub(bPos, aPos)
+//
+//         let distSquared = math.vector2DistSquared(atob)
+//         if (math.closeToZero(distSquared)) {
+//             continue
+//         }
+//
+//         let dist = Math.sqrt(distSquared)
+//
+//         const atobN = math.vector2Scale(atob, 1 / dist)
+//
+//         dist = dist - (nodeA.getRadius() + nodeB.getRadius())
+//         dist = Math.max(dist, nodeMinDist)
+//
+//         let force = Math.log(dist / springDist) * spring
+//
+//         let atobF = math.vector2Scale(atobN, force)
+//
+//         nodeA.forceX += atobF.x
+//         nodeA.forceY += atobF.y
+//
+//         nodeB.forceX -= atobF.x
+//         nodeB.forceY -= atobF.y
+//     }
+// }
 
 class App {
     canvasElement: HTMLCanvasElement
@@ -354,7 +349,7 @@ class App {
     isRequesting: boolean = false
     requestingNodeIndex: number = -1
 
-    gpuComputer: GpuComputer = new GpuComputer()
+    gpuComputer: GpuComputer
 
     nodeManager: NodeManager
 
@@ -400,6 +395,7 @@ class App {
         this.updateWidthAndHeight()
 
         this.nodeManager = new NodeManager()
+        this.gpuComputer = new GpuComputer(this.nodeManager)
 
         // NOTE: we have to add it to window because canvas
         // doesn't take keyboard input
@@ -434,6 +430,8 @@ class App {
         testNode.title = FirstTitle
         this.nodeManager.pushNode(testNode)
         // TEST TEST TEST TEST
+
+        this.gpuComputer.startSimulating()
     }
 
     handleEvent(e: Event) {
@@ -788,6 +786,7 @@ class App {
         // debug print nodecount
         this.debugPrint('node count', this.nodeManager.length().toString())
 
+        /*
         calculateNodeForces(
             this.nodeManager,
 
@@ -832,6 +831,7 @@ class App {
             node.forceX = 0
             node.forceY = 0
         }
+        */
     }
 
     draw(deltaTime: DOMHighResTimeStamp) {
@@ -874,6 +874,7 @@ class App {
         }
 
         // draw texts
+        /*
         this.ctx.font = `${this.zoom * 12}px sans-serif`
         this.ctx.fillStyle = "black"
         this.ctx.textAlign = "center"
@@ -890,6 +891,7 @@ class App {
                 this.ctx.fillText(node.mass.toString(), pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom)
             }
         }
+        */
 
         // draw mouse pointer
         {
