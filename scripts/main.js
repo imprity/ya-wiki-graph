@@ -12,7 +12,7 @@ import * as wiki from "./wiki.js";
 import * as util from "./util.js";
 import * as math from "./math.js";
 import { GpuComputer, SimulationParameter } from "./gpu.js";
-import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js';
+import { debugPrint, renderDebugPrint } from './debug_print.js';
 const FirstTitle = "English language";
 //const FirstTitle = "Miss Meyers"
 class DocNode {
@@ -806,7 +806,7 @@ function main() {
     }
     let prevTime;
     const onFrame = (timestamp) => {
-        clearDebugPrint();
+        //clearDebugPrint()
         if (prevTime === undefined) {
             prevTime = timestamp;
         }

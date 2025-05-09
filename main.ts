@@ -1081,7 +1081,7 @@ function main() {
     let prevTime: DOMHighResTimeStamp | undefined
 
     const onFrame = (timestamp: DOMHighResTimeStamp) => {
-        clearDebugPrint()
+        //clearDebugPrint()
 
         if (prevTime === undefined) {
             prevTime = timestamp

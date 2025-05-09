@@ -8,6 +8,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 import * as math from "./math.js";
+import { debugPrint } from './debug_print.js';
 const vertexShaderSrc = `#version 300 es
 
 uniform sampler2D node_infos;
@@ -223,7 +224,15 @@ export class GpuComputer {
     }
     startSimulating() {
         return __awaiter(this, void 0, void 0, function* () {
+            let prevTime = Date.now();
             const loop = () => __awaiter(this, void 0, void 0, function* () {
+                {
+                    let now = Date.now();
+                    let delta = now - prevTime;
+                    let fps = 1000 / delta;
+                    debugPrint('SIM FPS', Math.round(fps).toString());
+                    prevTime = now;
+                }
                 this.simulateSpring();
                 yield this.simulateRepulsion();
                 this.applyForces();

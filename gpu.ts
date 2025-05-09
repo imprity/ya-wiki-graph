@@ -1,5 +1,6 @@
 import * as math from "./math.js"
 import { NodeManager } from "./main.js"
+import { debugPrint } from './debug_print.js'
 
 const vertexShaderSrc = `#version 300 es
 
@@ -293,7 +294,18 @@ export class GpuComputer {
     }
 
     async startSimulating() {
+        let prevTime = Date.now()
+
         const loop = async () => {
+            {
+                let now = Date.now()
+                let delta = now - prevTime
+                let fps = 1000 / delta
+
+                debugPrint('SIM FPS', Math.round(fps).toString())
+                prevTime = now
+            }
+
             this.simulateSpring()
             await this.simulateRepulsion()
             this.applyForces()
