@@ -30,7 +30,6 @@ out vec2 force;
 // so if you are going to change this code,
 // change the code in in main.ts as well
 // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
-
 float mass_to_radius(float m) {
     return 8.0f + m * 0.1;
 }
@@ -63,7 +62,6 @@ void main() {
             continue;
         }
 
-        //vec2 to_other_n = to_other / dist;
         vec2 to_other_n = normalize(to_other);
 
         dist -= radius;

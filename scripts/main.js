@@ -12,6 +12,7 @@ import * as wiki from "./wiki.js";
 import * as util from "./util.js";
 import * as math from "./math.js";
 import { GpuComputer } from "./gpu.js";
+import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js';
 const FirstTitle = "English language";
 //const FirstTitle = "Miss Meyers"
 class DocNode {
@@ -176,108 +177,6 @@ export class NodeManager {
         return this._capacity;
     }
 }
-// function calculateNodeForces(
-//     manager: NodeManager,
-//
-//     gpuComputer: GpuComputer,
-//
-//     // forces get significantly large
-//     // when nodes get too close
-//     // clamp dist
-//     nodeMinDist: number,
-//
-//     repulsion: number,
-//
-//     spring: number,
-//     springDist: number,
-// ) {
-//     // apply repulsion
-//     /*
-//     for (let a = 0; a < manager.length(); a++) {
-//         for (let b = 0; b < manager.length(); b++) {
-//             if (a == b) {
-//                 continue
-//             }
-//
-//             const nodeA = manager.getNodeAt(a)
-//             const nodeB = manager.getNodeAt(b)
-//
-//             const atobX = nodeB.posX - nodeA.posX
-//             const atobY = nodeB.posY - nodeA.posY
-//
-//             const distSquared = math.distSquared(atobX, atobY)
-//             if (math.closeToZero(distSquared)) {
-//                 continue
-//             }
-//
-//             let dist = Math.sqrt(distSquared)
-//
-//             const atobNX = atobX / dist
-//             const atobNY = atobY / dist
-//
-//             dist -= nodeA.getRadius()
-//             dist -= nodeB.getRadius()
-//
-//             dist = Math.max(dist, nodeMinDist)
-//
-//             let force = repulsion * nodeA.mass * nodeB.mass / (dist * dist)
-//             force = math.clampAbs(force, repulsionMax)
-//
-//             nodeA.forceX -= force * atobNX
-//             nodeA.forceY -= force * atobNY
-//
-//             nodeB.forceX += force * atobNX
-//             nodeB.forceY += force * atobNY
-//         }
-//     }
-//     */
-//
-//     let repulsionForce = gpuComputer.calculateForces(
-//         manager,
-//         nodeMinDist,
-//         repulsion,
-//     )
-//     for (let i = 0; i < manager.length(); i++) {
-//         const node = manager.getNodeAt(i)
-//         const force = repulsionForce[i]
-//
-//         node.forceX += force.x
-//         node.forceY += force.y
-//     }
-//
-//     // apply spring
-//     for (const con of manager.getConnections()) {
-//         const nodeA = manager.getNodeAt(con.nodeIndexA)
-//         const nodeB = manager.getNodeAt(con.nodeIndexB)
-//
-//         const aPos = new math.Vector2(nodeA.posX, nodeA.posY)
-//         const bPos = new math.Vector2(nodeB.posX, nodeB.posY)
-//
-//         const atob = math.vector2Sub(bPos, aPos)
-//
-//         let distSquared = math.vector2DistSquared(atob)
-//         if (math.closeToZero(distSquared)) {
-//             continue
-//         }
-//
-//         let dist = Math.sqrt(distSquared)
-//
-//         const atobN = math.vector2Scale(atob, 1 / dist)
-//
-//         dist = dist - (nodeA.getRadius() + nodeB.getRadius())
-//         dist = Math.max(dist, nodeMinDist)
-//
-//         let force = Math.log(dist / springDist) * spring
-//
-//         let atobF = math.vector2Scale(atobN, force)
-//
-//         nodeA.forceX += atobF.x
-//         nodeA.forceY += atobF.y
-//
-//         nodeB.forceX -= atobF.x
-//         nodeB.forceY -= atobF.y
-//     }
-// }
 class App {
     constructor(canvas) {
         this.width = 0;
@@ -289,7 +188,6 @@ class App {
         this.pinchPos = new math.Vector2(0, 0);
         this.isRequesting = false;
         this.requestingNodeIndex = -1;
-        this.debugMsgs = new Map();
         // ========================
         // input states
         // ========================
@@ -622,65 +520,15 @@ class App {
                 break;
         }
     }
-    debugPrint(key, value) {
-        this.debugMsgs.set(key, value);
-    }
     update(deltaTime) {
         this.updateWidthAndHeight();
-        this.debugMsgs.clear(); // clear debug messages
         // debug print fps
         {
             let estimate = 1000.0 / deltaTime;
-            this.debugPrint('FPS', Math.round(estimate).toString());
+            debugPrint('FPS', Math.round(estimate).toString());
         }
         // debug print nodecount
-        this.debugPrint('node count', this.nodeManager.length().toString());
-        /*
-        calculateNodeForces(
-            this.nodeManager,
-
-            this.gpuComputer,
-
-            this.nodeMinDist,
-
-            this.repulsion,
-
-            this.spring,
-            this.springDist,
-        )
-
-        for (let i = 0; i < this.nodeManager.length(); i++) {
-            const node = this.nodeManager.getNodeAt(i)
-
-            // node.velocityX += node.forceX
-            // node.velocityY += node.forceY
-            //
-            // node.posX += node.velocityX
-            // node.posY += node.velocityY
-            if (node.mass <= 0) {
-                continue
-            }
-
-            node.forceX /= node.mass
-            node.forceY /= node.mass
-
-            if (math.distSquared(node.forceX, node.forceY) > 1 * 1) {
-                node.temp += 0.01
-            } else {
-                node.temp -= 0.01
-            }
-            node.temp = math.clamp(node.temp, 0, 1)
-
-            node.posX += node.forceX * node.temp
-            node.posY += node.forceY * node.temp
-            //
-            // node.velocityX *= 0.5
-            // node.velocityY *= 0.5
-
-            node.forceX = 0
-            node.forceY = 0
-        }
-        */
+        debugPrint('node count', this.nodeManager.length().toString());
     }
     draw(deltaTime) {
         // draw connections
@@ -705,42 +553,23 @@ class App {
             }
         }
         // draw texts
-        /*
-        this.ctx.font = `${this.zoom * 12}px sans-serif`
-        this.ctx.fillStyle = "black"
-        this.ctx.textAlign = "center"
-        this.ctx.textRendering = "optimizeSpeed"
-        this.ctx.textBaseline = "bottom"
+        this.ctx.font = `${this.zoom * 12}px sans-serif`;
+        this.ctx.fillStyle = "black";
+        this.ctx.textAlign = "center";
+        this.ctx.textRendering = "optimizeSpeed";
+        this.ctx.textBaseline = "bottom";
         for (let i = 0; i < this.nodeManager.length(); i++) {
-            const node = this.nodeManager.getNodeAt(i)
+            const node = this.nodeManager.getNodeAt(i);
             if (node.doDraw) {
-                const pos = this.worldToViewport(node.posX, node.posY)
-
-                // TEST TEST TEST TEST
-                //this.ctx.fillText(node.title, pos.x, pos.y - (this.nodeRadius + 5.0) * this.zoom)
-                // TEST TEST TEST TEST
-                this.ctx.fillText(node.mass.toString(), pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom)
+                const pos = this.worldToViewport(node.posX, node.posY);
+                this.ctx.fillText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
             }
         }
-        */
         // draw mouse pointer
         {
             let pos = this.viewportToWorld(this.mouse.x, this.mouse.y);
             pos = this.worldToViewport(pos.x, pos.y);
             cd.fillCircle(this.ctx, pos.x, pos.y, 10 * this.zoom, "red");
-        }
-        // debug print stuff
-        {
-            this.ctx.font = `16px 'Courier New', monospace`;
-            this.ctx.fillStyle = "red";
-            this.ctx.textAlign = "start";
-            this.ctx.textRendering = "optimizeSpeed";
-            this.ctx.textBaseline = "top";
-            let offsetY = 0;
-            this.debugMsgs.forEach((value, key, map) => {
-                this.ctx.fillText(`${key}: ${value}`, 0, offsetY);
-                offsetY += 20;
-            });
         }
     }
     updateWidthAndHeight() {
@@ -979,6 +808,7 @@ function main() {
     }
     let prevTime;
     const onFrame = (timestamp) => {
+        clearDebugPrint();
         if (prevTime === undefined) {
             prevTime = timestamp;
         }
@@ -986,6 +816,7 @@ function main() {
         prevTime = timestamp;
         app.update(deltaTime);
         app.draw(deltaTime);
+        renderDebugPrint();
         requestAnimationFrame(onFrame);
         /*
         // TODO: very bad way of keeping a 60 frames per second
