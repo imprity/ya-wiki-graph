@@ -38,12 +38,13 @@ float mass_to_radius(float m) {
 void main() {
     vec2 sum = vec2(0.0f, 0.0f);
 
+    ivec2 textureSize = textureSize(node_infos, 0);
+    float radius = mass_to_radius(mass);
+
     for (int i=0; i<node_count; i++) {
         if (i == index) {
             continue;
         }
-
-        ivec2 textureSize = textureSize(node_infos, 0);
 
         int textureX = i % textureSize.x;
         int textureY = i / textureSize.x;
@@ -58,14 +59,14 @@ void main() {
 
         float dist = length(to_other);
 
-        if (dist < 0.00001f) {
+        if (dist < 0.001f) {
             continue;
         }
 
         //vec2 to_other_n = to_other / dist;
         vec2 to_other_n = normalize(to_other);
 
-        dist -= mass_to_radius(mass);
+        dist -= radius;
         dist -= other_radius;
 
         dist = max(dist, node_min_dist);
