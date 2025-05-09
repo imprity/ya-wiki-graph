@@ -56,6 +56,8 @@ class Connection {
     nodeIndexA: number
     nodeIndexB: number
 
+    doDraw: boolean = true
+
     constructor(nodeIndexA: number, nodeIndexB: number) {
         this.nodeIndexA = nodeIndexA
         this.nodeIndexB = nodeIndexB
@@ -229,6 +231,224 @@ export class NodeManager {
     }
 }
 
+enum Direction {
+    TopLeft = 0,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+class QuadTree {
+    minX: number = 0
+    minY: number = 0
+
+    maxX: number = 0
+    maxY: number = 0
+
+    centerX: number = 0
+    centerY: number = 0
+
+    hasChildren: boolean = false
+    childrenTrees: Array<QuadTree | null> = new Array(4).fill(null)
+
+    node: DocNode | null = null
+
+    reset() {
+        this.minX = 0
+        this.minY = 0
+
+        this.maxX = 0
+        this.maxY = 0
+
+        this.centerX = 0
+        this.centerY = 0
+
+        this.hasChildren = false
+        this.childrenTrees.fill(null)
+
+        this.node = null
+    }
+
+    setRect(minX: number, minY: number, maxX: number, maxY: number) {
+        this.minX = minX
+        this.minY = minY
+
+        this.maxX = maxX
+        this.maxY = maxY
+
+        this.centerX = (this.minX + this.maxX) * 0.5
+        this.centerY = (this.minY + this.maxY) * 0.5
+    }
+
+    getPosDirection(posX: number, posY: number): Direction {
+        let onLeft = false
+        let onTop = false
+
+        if (posX < this.centerX) {
+            onLeft = true
+        }
+        if (posY < this.centerY) {
+            onTop = true
+        }
+
+        if (onLeft) { // left
+            if (onTop) { // top
+                return Direction.TopLeft
+            } else { // bottom
+                return Direction.BottomLeft
+            }
+        } else { // right
+            if (onTop) { // top
+                return Direction.TopRight
+            } else { // bottom
+                return Direction.BottomRight
+            }
+        }
+    }
+}
+
+class QuadTreeBuilder {
+    _treePool: Array<QuadTree>
+    _treePoolCursor: number = 0
+
+    constructor() {
+        const initCapacity = 512
+
+        this._treePool = new Array(initCapacity)
+
+        for (let i = 0; i < initCapacity; i++) {
+            this._treePool[i] = new QuadTree()
+        }
+    }
+
+    getNewTree(): QuadTree {
+        if (this._treePoolCursor >= this._treePool.length) {
+            const oldLen = this._treePool.length
+            const newLen = oldLen * 2
+
+            this._treePool.length = newLen
+
+            for (let i = oldLen; i < newLen; i++) {
+                this._treePool[i] = new QuadTree()
+            }
+        }
+        const tree = this._treePool[this._treePoolCursor]
+        tree.reset()
+        this._treePoolCursor++
+        return tree
+    }
+
+    _createTreeChild(tree: QuadTree, dir: Direction): QuadTree {
+        const child = this.getNewTree()
+
+        switch (dir) {
+            case Direction.TopLeft: {
+                child.setRect(
+                    tree.minX, tree.minY,
+                    tree.centerX, tree.centerY
+                )
+            } break
+            case Direction.TopRight: {
+                child.setRect(
+                    tree.centerX, tree.minY,
+                    tree.maxX, tree.centerY
+                )
+            } break
+            case Direction.BottomLeft: {
+                child.setRect(
+                    tree.minX, tree.centerY,
+                    tree.centerX, tree.maxY
+                )
+            } break
+            case Direction.BottomRight: {
+                child.setRect(
+                    tree.centerX, tree.centerY,
+                    tree.maxX, tree.maxY
+                )
+            } break
+        }
+
+        return child
+    }
+
+    _pushNodeToTree(tree: QuadTree, node: DocNode) {
+        if (tree.node === null && !tree.hasChildren) {
+            tree.node = node
+            return
+        }
+
+        tree.hasChildren = true
+
+        if (tree.node !== null) {
+            const ogNode = tree.node
+            tree.node = null
+
+            const ogNodeDirection = tree.getPosDirection(ogNode.posX, ogNode.posY)
+            if (tree.childrenTrees[ogNodeDirection] === null) {
+                tree.childrenTrees[ogNodeDirection] = this._createTreeChild(tree, ogNodeDirection)
+            }
+            this._pushNodeToTree(tree.childrenTrees[ogNodeDirection], ogNode)
+        }
+
+        const nodeDirection = tree.getPosDirection(node.posX, node.posY)
+        if (tree.childrenTrees[nodeDirection] === null) {
+            tree.childrenTrees[nodeDirection] = this._createTreeChild(tree, nodeDirection)
+        }
+        this._pushNodeToTree(tree.childrenTrees[nodeDirection], node)
+    }
+
+    buildTree(nodeManager: NodeManager) {
+        this._treePoolCursor = 0
+
+        if (nodeManager.length() <= 0) {
+            const tree = this.getNewTree()
+            tree.setRect(0, 0, 0, 0)
+            return tree
+        }
+
+        const root = this.getNewTree()
+
+        // calculate root rect
+        {
+            let minX: number = Number.MAX_VALUE
+            let minY: number = Number.MAX_VALUE
+
+            let maxX: number = -Number.MAX_VALUE
+            let maxY: number = -Number.MAX_VALUE
+
+            for (let i = 0; i < nodeManager.length(); i++) {
+                const node = nodeManager.getNodeAt(i)
+
+                minX = Math.min(node.posX, minX)
+                minY = Math.min(node.posY, minY)
+
+                maxX = Math.max(node.posX, maxX)
+                maxY = Math.max(node.posY, maxY)
+            }
+
+            const width = maxX - minX
+            const height = maxY - minY
+
+            const maxD = Math.max(width, height)
+
+            const centerX = minX + width * 0.5
+            const centerY = minY + height * 0.5
+
+            root.setRect(
+                centerX - maxD * 0.5, centerY - maxD * 0.5,
+                centerX + maxD * 0.5, centerY + maxD * 0.5,
+            )
+        }
+
+        for (let i = 0; i < nodeManager.length(); i++) {
+            const node = nodeManager._nodes[i]
+            this._pushNodeToTree(root, node)
+        }
+
+        return root
+    }
+}
+
 class App {
     canvasElement: HTMLCanvasElement
     ctx: CanvasRenderingContext2D
@@ -240,12 +460,11 @@ class App {
 
     zoom: number = 1
 
-    isPinching: boolean = false
-    pinch: number = 0
-    pinchPos: math.Vector2 = new math.Vector2(0, 0)
-
     isRequesting: boolean = false
     requestingNodeIndex: number = -1
+
+    quadTreeRoot: QuadTree = new QuadTree()
+    treeBuilder: QuadTreeBuilder = new QuadTreeBuilder()
 
     gpuComputer: GpuComputer
 
@@ -266,6 +485,10 @@ class App {
     isFocusedOnNode: boolean = false
     focusedNodeIndex: number = -1
     focusPos: math.Vector2 = new math.Vector2(0, 0)
+
+    isPinching: boolean = false
+    pinch: number = 0
+    pinchPos: math.Vector2 = new math.Vector2(0, 0)
 
     // ========================
     // simulation parameters
@@ -671,11 +894,85 @@ class App {
         }
         // debug print nodecount
         debugPrint('node count', this.nodeManager.length().toString())
+        // debug zoom
+        debugPrint('zoom', this.zoom.toFixed(2))
+
+        // build quad tree
+        this.quadTreeRoot = this.treeBuilder.buildTree(this.nodeManager)
+
+        // ==============================
+        // cache node visibility
+        // ==============================
+        {
+            for (let i = 0; i < this.nodeManager.length(); i++) {
+                const node = this.nodeManager.getNodeAt(i)
+                node.doDraw = false
+            }
+
+            const viewMin = this.viewportToWorld(0, 0)
+            const viewMax = this.viewportToWorld(this.width, this.height)
+
+            const toRecurse = (tree: QuadTree) => {
+                if (math.boxIntersects(
+                    viewMin.x, viewMin.y, viewMax.x, viewMax.y,
+                    tree.minX, tree.minY, tree.maxX, tree.maxY
+                )) {
+                    if (tree.node !== null) {
+                        tree.node.doDraw = true
+                    } else {
+                        for (const childTree of tree.childrenTrees) {
+                            if (childTree !== null) {
+                                toRecurse(childTree)
+                            }
+                        }
+                    }
+                }
+            }
+
+            toRecurse(this.quadTreeRoot)
+        }
+
+        // ==============================
+        // cache connection visibility
+        // ==============================
+        {
+            let connections = this.nodeManager.getConnections()
+            for (let i = 0; i < connections.length; i++) {
+                const con = connections[i]
+                con.doDraw = false
+            }
+
+            const viewMin = this.viewportToWorld(0, 0)
+            const viewMax = this.viewportToWorld(this.width, this.height)
+
+            for (let i = 0; i < connections.length; i++) {
+                const con = connections[i]
+                const nodeA = this.nodeManager.getNodeAt(con.nodeIndexA)
+                const nodeB = this.nodeManager.getNodeAt(con.nodeIndexB)
+
+                const minX = Math.min(nodeA.posX, nodeB.posX)
+                const maxX = Math.max(nodeA.posX, nodeB.posX)
+
+                const minY = Math.min(nodeA.posY, nodeB.posY)
+                const maxY = Math.max(nodeA.posY, nodeB.posY)
+
+                if (math.boxIntersects(
+                    viewMin.x, viewMin.y, viewMax.x, viewMax.y,
+                    minX, minY, maxX, maxY
+                )) {
+                    con.doDraw = true
+                }
+            }
+        }
     }
 
     draw(deltaTime: DOMHighResTimeStamp) {
         // draw connections
         this.nodeManager.getConnections().forEach((con) => {
+            if (!con.doDraw) {
+                return
+            }
+
             const nodeA = this.nodeManager.getNodeAt(con.nodeIndexA)
             const nodeB = this.nodeManager.getNodeAt(con.nodeIndexB)
 
@@ -713,17 +1010,19 @@ class App {
         }
 
         // draw texts
-        this.ctx.font = `${this.zoom * 12}px sans-serif`
-        this.ctx.fillStyle = "black"
-        this.ctx.textAlign = "center"
-        this.ctx.textRendering = "optimizeSpeed"
-        this.ctx.textBaseline = "bottom"
-        for (let i = 0; i < this.nodeManager.length(); i++) {
-            const node = this.nodeManager.getNodeAt(i)
-            if (node.doDraw) {
-                const pos = this.worldToViewport(node.posX, node.posY)
+        if (this.zoom > 0.3) {
+            this.ctx.font = `${this.zoom * 12}px sans-serif`
+            this.ctx.fillStyle = "black"
+            this.ctx.textAlign = "center"
+            this.ctx.textRendering = "optimizeSpeed"
+            this.ctx.textBaseline = "bottom"
+            for (let i = 0; i < this.nodeManager.length(); i++) {
+                const node = this.nodeManager.getNodeAt(i)
+                if (node.doDraw) {
+                    const pos = this.worldToViewport(node.posX, node.posY)
 
-                this.ctx.fillText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom)
+                    this.ctx.fillText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom)
+                }
             }
         }
 
