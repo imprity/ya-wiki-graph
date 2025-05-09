@@ -275,8 +275,9 @@ class App {
         this.mouse = new math.Vector2(0, 0);
         this.pMouse = new math.Vector2(0, 0);
         this.isMouseDown = false;
-        this.focusedOnNode = false;
+        this.isFocusedOnNode = false;
         this.focusedNodeIndex = -1;
+        this.focusPos = new math.Vector2(0, 0);
         // ========================
         // simulation parameters
         // ========================
@@ -396,6 +397,7 @@ class App {
         // TEST TEST TEST TEST
     }
     handleEvent(e) {
+        const focusLoseDist = 25;
         const startDragging = (x, y) => {
             this.draggingCanvas = true;
             this.pDrag.x = x;
@@ -432,8 +434,10 @@ class App {
                 }
             }
             if (clickedOnNode) {
-                this.focusedOnNode = true;
+                this.isFocusedOnNode = true;
                 this.focusedNodeIndex = nodeIndex;
+                this.focusPos.x = x;
+                this.focusPos.y = y;
             }
             else {
                 startDragging(x, y);
@@ -471,11 +475,10 @@ class App {
                     if (this.draggingCanvas) {
                         doDrag(this.mouse.x, this.mouse.y);
                     }
-                    else if (this.focusedOnNode) {
-                        const node = this.nodeManager.getNodeAt(this.focusedNodeIndex);
-                        const mw = this.viewportToWorld(this.mouse.x, this.mouse.y);
-                        if (!math.posInCircle(mw.x, mw.y, node.posX, node.posY, node.getRadius())) {
-                            this.focusedOnNode = false;
+                    else if (this.isFocusedOnNode) {
+                        const dist = math.dist(this.mouse.x - this.focusPos.x, this.mouse.y - this.focusPos.y);
+                        if (dist > focusLoseDist) {
+                            this.isFocusedOnNode = false;
                             if (this.isMouseDown) {
                                 startDragging(this.mouse.x, this.mouse.y);
                             }
@@ -493,17 +496,17 @@ class App {
             case "mouseup":
                 {
                     this.isMouseDown = false;
-                    if (this.focusedOnNode) {
+                    if (this.isFocusedOnNode) {
                         this.expandNode(this.focusedNodeIndex);
                     }
-                    this.focusedOnNode = false;
+                    this.isFocusedOnNode = false;
                     endDragging();
                 }
                 break;
             case "mouseleave":
                 {
                     endDragging();
-                    this.focusedOnNode = false;
+                    this.isFocusedOnNode = false;
                     this.isMouseDown = false;
                 }
                 break;
@@ -516,7 +519,7 @@ class App {
                         handlePointClick(touch.x, touch.y);
                     }
                     else {
-                        this.focusedOnNode = false;
+                        this.isFocusedOnNode = false;
                         endDragging();
                     }
                     if (touches.length == 2) {
@@ -541,17 +544,16 @@ class App {
                         if (this.draggingCanvas) {
                             doDrag(touch.x, touch.y);
                         }
-                        else if (this.focusedOnNode) {
-                            const node = this.nodeManager.getNodeAt(this.focusedNodeIndex);
-                            const tw = this.viewportToWorld(touch.x, touch.y);
-                            if (!math.posInCircle(tw.x, tw.y, node.posX, node.posY, node.getRadius())) {
-                                this.focusedOnNode = false;
+                        else if (this.isFocusedOnNode) {
+                            const dist = math.dist(touch.x - this.focusPos.x, touch.y - this.focusPos.y);
+                            if (dist > focusLoseDist) {
+                                this.isFocusedOnNode = false;
                                 startDragging(touch.x, touch.y);
                             }
                         }
                     }
                     else {
-                        this.focusedOnNode = false;
+                        this.isFocusedOnNode = false;
                         endDragging();
                     }
                     if (touches.length === 2) {
@@ -580,9 +582,9 @@ class App {
                 {
                     const touchEvent = e;
                     if (touchEvent.touches.length === 0) {
-                        if (this.focusedOnNode) {
+                        if (this.isFocusedOnNode) {
                             this.expandNode(this.focusedNodeIndex);
-                            this.focusedOnNode = false;
+                            this.isFocusedOnNode = false;
                         }
                     }
                     if (touchEvent.touches.length !== 1) {
