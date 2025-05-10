@@ -133,9 +133,17 @@ export class GpuComputer {
         // =========================
         // create opengl context
         // =========================
-        const canvas = document.createElement('canvas');
+        const canvas = document.getElementById('gpu-canvas');
+        canvas.focus();
+        if (canvas === null) {
+            throw new Error('failed to get canvas id gpu-canvas');
+        }
         {
-            const gl = canvas.getContext('webgl2');
+            const gl = canvas.getContext('webgl2', {
+                'desynchronized': true,
+                'preserveDrawingBuffer': false,
+                'powerPreference': "high-performance",
+            });
             if (gl === null) {
                 throw new Error('failed to get webgl2 context');
             }
@@ -225,7 +233,7 @@ export class GpuComputer {
     startSimulating() {
         return __awaiter(this, void 0, void 0, function* () {
             let prevTime = Date.now();
-            const loop = () => __awaiter(this, void 0, void 0, function* () {
+            while (true) {
                 {
                     let now = Date.now();
                     let delta = now - prevTime;
@@ -236,9 +244,7 @@ export class GpuComputer {
                 this.simulateSpring();
                 yield this.simulateRepulsion();
                 this.applyForces();
-                setTimeout(loop, 0);
-            });
-            loop();
+            }
         });
     }
     simulateRepulsion() {
