@@ -9,6 +9,7 @@ void main() {
 `;
 const forceCalcFShaderSrc = `#version 300 es
 precision highp float;
+precision highp int;
 
 uniform int u_node_count;
 uniform highp usampler2D u_node_infos_tex;
@@ -21,7 +22,7 @@ uniform float u_repulsion;
 uniform float u_spring;
 uniform float u_spring_dist;
 
-out highp uvec4 out_color;
+out uvec4 out_color;
 
 // NOTE:
 // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
@@ -228,42 +229,6 @@ void main() {
     return;
 }
 `;
-const forceSumVShaderSrc = `#version 300 es
-in vec4 vertex;
-
-void main() {
-    gl_Position = vertex;
-}
-`;
-const forceSumFShaderSrc = `#version 300 es
-precision highp float;
-
-uniform highp usampler2D u_node_infos_tex;
-uniform highp usampler2D u_repulsion_tex;
-// uniform highp usampler2D spring_tex;
-
-out highp uvec4 out_color;
-
-void main() {
-    ivec2 texel_pos = ivec2(gl_FragCoord.xy);
-
-    uvec4 info = texelFetch(u_node_infos_tex, texel_pos, 0);
-
-    uvec4 forceu1 = texelFetch(u_repulsion_tex, texel_pos, 0);
-    //uvec4 forceu2 = texelFetch(spring_tex, texel_pos, 0);
-    uvec4 forceu2 = uvec4(0,0,0,0);
-
-    vec2 force1 = uintBitsToFloat(forceu1.xy);
-    vec2 force2 = uintBitsToFloat(forceu2.xy);
-
-    vec2 pos = uintBitsToFloat(info.xy);
-
-    //pos += force1 + force2;
-    pos += force1;
-    uvec2 posu = floatBitsToUint(pos);
-
-    out_color = uvec4(posu.x, posu.y, info.z, info.w);
-}`;
 const drawNodeVShaderSrc = `#version 300 es
 in vec4 vertex;
 
@@ -381,8 +346,8 @@ export class GpuComputeRenderer {
                 node.posY = y;
                 node.mass = 1;
                 this.nodeManager.pushNode(node);
-                x += 20;
-                y += 10;
+                x += 5;
+                y += 5;
             }
             this.nodeManager.setConnected(0, 1, true);
             this.nodeManager.setConnected(0, 3, true);
@@ -609,6 +574,7 @@ export class GpuComputeRenderer {
             this.canvas.width = rect.width;
             this.canvas.height = rect.height;
         }
+        this.gl.disable(this.gl.DITHER);
         // calculate force
         {
             this.gl.useProgram(this.forceCalcUnit.program);
