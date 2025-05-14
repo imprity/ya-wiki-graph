@@ -1,21 +1,25 @@
 import { NodeManager, DocNode } from "./main.js";
 import { debugPrint } from './debug_print.js';
-const repulsionCalcVShaderSrc = `#version 300 es
+const forceCalcVShaderSrc = `#version 300 es
 in vec4 vertex;
 
 void main() {
     gl_Position = vertex;
 }
 `;
-const repulsionCalcFShaderSrc = `#version 300 es
+const forceCalcFShaderSrc = `#version 300 es
 precision highp float;
 
-uniform highp usampler2D node_infos_tex;
+uniform int u_node_count;
+uniform highp usampler2D u_node_infos_tex;
 
-uniform int node_count;
+uniform int u_con_count;
+uniform highp usampler2D u_con_infos_tex;
 
-uniform float node_min_dist;
-uniform float repulsion;
+uniform float u_node_min_dist;
+uniform float u_repulsion;
+uniform float u_spring;
+uniform float u_spring_dist;
 
 out highp uvec4 out_color;
 
@@ -30,13 +34,14 @@ float mass_to_radius(float m) {
 }
 
 vec2 get_node_position_at(int x, int y) {
-    return uintBitsToFloat(texelFetch(node_infos_tex, ivec2(x, y), 0).xy);
+    return uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(x, y), 0).xy);
 }
 
 float get_node_mass_at(int x, int y) {
-    return uintBitsToFloat(texelFetch(node_infos_tex, ivec2(x, y), 0).z);
+    return uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(x, y), 0).z);
 }
 
+// returns force that A should recieve
 vec2 calculate_repulsion(
     vec2 pos_a, float mass_a,
     vec2 pos_b, float mass_b
@@ -55,51 +60,116 @@ vec2 calculate_repulsion(
     dist -= raidus_a;
     dist -= raidus_b;
 
-    dist = max(dist, node_min_dist);
+    dist = max(dist, u_node_min_dist);
 
-    float f = repulsion * mass_a * mass_b / (dist * dist);
+    float f = u_repulsion * mass_a * mass_b / (dist * dist);
 
     vec2 atob_n = normalize(atob);
 
     return -atob_n * f;
 }
 
+// returns force that A should recieve
+vec2 calculate_spring(
+    vec2 pos_a, float mass_a,
+    vec2 pos_b, float mass_b
+) {
+    float raidus_a = mass_to_radius(mass_a);
+    float raidus_b = mass_to_radius(mass_b);
+
+    vec2 atob = pos_b - pos_a;
+
+    float dist = length(atob);
+
+    if (dist < 0.001f) {
+        return vec2(0.0f, 0.0f);
+    }
+
+    dist -= raidus_a;
+    dist -= raidus_b;
+
+    dist = max(dist, u_node_min_dist);
+
+    float f = log(dist / u_spring_dist) * u_spring;
+
+    vec2 atob_n = normalize(atob);
+
+    return atob_n * f;
+}
+
 void main() {
-    ivec2 texture_size = textureSize(node_infos_tex, 0);
     ivec2 texel_pos = ivec2(gl_FragCoord.xy);
 
-    if (texel_pos.x + texel_pos.y * texture_size.x >= node_count) {
+    ivec2 node_tex_size = textureSize(u_node_infos_tex, 0);
+
+    if (texel_pos.x + texel_pos.y * node_tex_size.x >= u_node_count) {
         out_color = uvec4(0, 0, 0, 0);
         return;
     }
 
+    ivec2 con_tex_size = textureSize(u_con_infos_tex, 0);
+
     vec2 node_pos = get_node_position_at(texel_pos.x, texel_pos.y);
     float node_mass = get_node_mass_at(texel_pos.x, texel_pos.y);
-
-    int node_index = 0;
+    int node_index = texel_pos.y * node_tex_size.x + texel_pos.x;
 
     vec2 force_sum = vec2(0.0f , 0.0f);
 
-    for (int y=0; y<texture_size.y; y++) {
-        for (int x=0; x<texture_size.x; x++) {
+    int counter = 0;
+    // calculate repulsions
+    for (int y=0; y<node_tex_size.y; y++) {
+        for (int x=0; x<node_tex_size.x; x++) {
+            counter++;
             // skip if it's same node
-            if (x == texel_pos.x && y == texel_pos.y) {
-                node_index++;
+            if (node_index + 1 == counter) {
                 continue;
             }
-            // break if we went past node_count
-            if (node_index >= node_count) {
+            // break if we went past u_node_count
+            if (counter > u_node_count) {
                 break;
             }
-            node_index++;
 
             force_sum += calculate_repulsion(
                 node_pos, node_mass,
                 get_node_position_at(x, y), get_node_mass_at(x, y)
             );
         }
-        // break if we went past node_count
-        if (node_index >= node_count) {
+        // break if we went past u_node_count
+        if (counter > u_node_count) {
+            break;
+        }
+    }
+
+    counter = 0;
+
+    // calculate springs
+    for (int y=0; y<con_tex_size.y; y++) {
+        for (int x=0; x<con_tex_size.x; x++) {
+            counter++;
+            // break if we went past u_node_count
+            if (counter > u_con_count) {
+                break;
+            }
+
+            ivec2 index_ab = ivec2(texelFetch(u_con_infos_tex, ivec2(x, y), 0).xy);
+
+            if (index_ab.x == node_index || index_ab.y == node_index) {
+                int other_node_index = index_ab.x;
+                if (other_node_index == node_index) {
+                    other_node_index = index_ab.y;
+                }
+
+                int other_x = other_node_index % node_tex_size.x;
+                int other_y = other_node_index / node_tex_size.x;
+
+                force_sum += calculate_spring(
+                    node_pos, node_mass,
+                    get_node_position_at(other_x, other_y), get_node_mass_at(other_x, other_y)
+                );
+            }
+        }
+        // break if we went past u_node_count
+        if (counter > u_con_count) {
             break;
         }
     }
@@ -121,8 +191,8 @@ void main() {
 const forceSumFShaderSrc = `#version 300 es
 precision highp float;
 
-uniform highp usampler2D node_infos_tex;
-uniform highp usampler2D repulsion_tex;
+uniform highp usampler2D u_node_infos_tex;
+uniform highp usampler2D u_repulsion_tex;
 // uniform highp usampler2D spring_tex;
 
 out highp uvec4 out_color;
@@ -130,9 +200,9 @@ out highp uvec4 out_color;
 void main() {
     ivec2 texel_pos = ivec2(gl_FragCoord.xy);
 
-    uvec4 info = texelFetch(node_infos_tex, texel_pos, 0);
+    uvec4 info = texelFetch(u_node_infos_tex, texel_pos, 0);
 
-    uvec4 forceu1 = texelFetch(repulsion_tex, texel_pos, 0);
+    uvec4 forceu1 = texelFetch(u_repulsion_tex, texel_pos, 0);
     //uvec4 forceu2 = texelFetch(spring_tex, texel_pos, 0);
     uvec4 forceu2 = uvec4(0,0,0,0);
 
@@ -150,9 +220,9 @@ void main() {
 const drawNodeVShaderSrc = `#version 300 es
 in vec4 vertex;
 
-uniform highp usampler2D node_infos_tex;
+uniform highp usampler2D u_node_infos_tex;
 
-uniform vec2 screen_size;
+uniform vec2 u_screen_size;
 
 out vec4 color;
 
@@ -164,18 +234,18 @@ void main() {
     x *= 10.0f;
     y *= 10.0f;
 
-    ivec2 texture_size = textureSize(node_infos_tex, 0);
+    ivec2 texture_size = textureSize(u_node_infos_tex, 0);
 
     int info_x = gl_InstanceID % texture_size.x;
     int info_y = gl_InstanceID / texture_size.x;
 
-    vec2 pos = uintBitsToFloat(texelFetch(node_infos_tex, ivec2(info_x, info_y), 0).xy);
+    vec2 pos = uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(info_x, info_y), 0).xy);
 
     x += pos.x;
     y += pos.y;
 
-    x = ((x / screen_size.x) - 0.5f) * 2.0f;
-    y = -((y / screen_size.y) - 0.5f) * 2.0f;
+    x = ((x / u_screen_size.x) - 0.5f) * 2.0f;
+    y = -((y / u_screen_size.y) - 0.5f) * 2.0f;
 
     gl_Position = vec4(
         x, y, 0, 1
@@ -223,7 +293,8 @@ class LocationGroup {
 }
 export class GpuComputeRenderer {
     constructor() {
-        this.capacity = 4096;
+        this.nodeCapacity = 4096;
+        this.conCapacity = 4096;
         this.useNodeInfosTex0 = false;
         this.textureUnitMax = -1;
         this.nodeManager = new NodeManager();
@@ -266,6 +337,8 @@ export class GpuComputeRenderer {
                 x += 20;
                 y += 10;
             }
+            this.nodeManager.setConnected(0, 1, true);
+            this.nodeManager.setConnected(0, 3, true);
         }
         // TEST TEST TEST TEST TEST
         // =========================
@@ -307,8 +380,8 @@ export class GpuComputeRenderer {
             }
             return program;
         };
-        this.repulsionCalcProgram = createProgram(repulsionCalcVShaderSrc, repulsionCalcFShaderSrc);
-        this.repulsionCalcLocs = new LocationGroup(this.gl, this.repulsionCalcProgram);
+        this.forceCalcProgram = createProgram(forceCalcVShaderSrc, forceCalcFShaderSrc);
+        this.forceCalcLocs = new LocationGroup(this.gl, this.forceCalcProgram);
         this.forceSumProgram = createProgram(forceSumVShaderSrc, forceSumFShaderSrc);
         this.forceSumLocs = new LocationGroup(this.gl, this.forceSumProgram);
         this.drawNodeProgram = createProgram(drawNodeVShaderSrc, drawNodeFShaderSrc);
@@ -316,7 +389,7 @@ export class GpuComputeRenderer {
         // =========================
         // create vao
         // =========================
-        this.repulsionCalcVAO = this.gl.createVertexArray();
+        this.forceCalcVAO = this.gl.createVertexArray();
         this.forceSumVAO = this.gl.createVertexArray();
         this.drawNodeVAO = this.gl.createVertexArray();
         // =========================
@@ -347,10 +420,10 @@ export class GpuComputeRenderer {
         // =====================================
         // bind buffers to vao
         // =====================================
-        this.gl.bindVertexArray(this.repulsionCalcVAO);
+        this.gl.bindVertexArray(this.forceCalcVAO);
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.fullRectBuf);
-        this.gl.enableVertexAttribArray(this.repulsionCalcLocs.aLoc('vertex'));
-        this.gl.vertexAttribPointer(this.repulsionCalcLocs.aLoc('vertex'), // location
+        this.gl.enableVertexAttribArray(this.forceCalcLocs.aLoc('vertex'));
+        this.gl.vertexAttribPointer(this.forceCalcLocs.aLoc('vertex'), // location
         4, // size
         this.gl.FLOAT, // type
         false, // normalize
@@ -415,16 +488,18 @@ export class GpuComputeRenderer {
             tex.width = w;
             tex.height = h;
         };
-        const texSize = Math.ceil(Math.sqrt(this.capacity));
+        // create textures to hold node informations
+        const nodeDataTexSize = this.capacityToEdge(this.nodeCapacity);
         this.nodeInfosTex0 = createDataTexture();
         this.nodeInfosTex1 = createDataTexture();
         this.forceTex = createDataTexture();
-        setDataTextureSize(this.nodeInfosTex0, texSize, texSize);
-        setDataTextureSize(this.nodeInfosTex1, texSize, texSize);
-        setDataTextureSize(this.forceTex, texSize, texSize);
+        setDataTextureSize(this.nodeInfosTex0, nodeDataTexSize, nodeDataTexSize);
+        setDataTextureSize(this.nodeInfosTex1, nodeDataTexSize, nodeDataTexSize);
+        setDataTextureSize(this.forceTex, nodeDataTexSize, nodeDataTexSize);
         // TEST TEST TEST TEST TEST
+        // supply texture with node infos
         {
-            let data = new Float32Array(texSize * texSize * 4);
+            let data = new Float32Array(nodeDataTexSize * nodeDataTexSize * 4);
             let offset = 0;
             for (let i = 0; i < this.nodeManager.length(); i++) {
                 const node = this.nodeManager.getNodeAt(i);
@@ -438,7 +513,7 @@ export class GpuComputeRenderer {
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeInfosTex0.texture);
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
             this.gl.RGBA32UI, // internal format
-            texSize, texSize, // width, height
+            nodeDataTexSize, nodeDataTexSize, // width, height
             0, // border
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
@@ -448,7 +523,7 @@ export class GpuComputeRenderer {
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeInfosTex1.texture);
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
             this.gl.RGBA32UI, // internal format
-            texSize, texSize, // width, height
+            nodeDataTexSize, nodeDataTexSize, // width, height
             0, // border
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
@@ -456,9 +531,37 @@ export class GpuComputeRenderer {
             );
         }
         // TEST TEST TEST TEST TEST
-        // ===================
-        // create forceFB
-        // ===================
+        // create textures to hold connection informations
+        const conDataTexSize = this.capacityToEdge(this.conCapacity);
+        this.conInfosTex = createDataTexture();
+        setDataTextureSize(this.conInfosTex, conDataTexSize, conDataTexSize);
+        // TEST TEST TEST TEST TEST
+        // supply texture with connection infos
+        {
+            let data = new Uint32Array(conDataTexSize * conDataTexSize * 4);
+            let offset = 0;
+            this.nodeManager.getConnections().forEach((con) => {
+                data[offset] = con.nodeIndexA;
+                data[offset + 1] = con.nodeIndexB;
+                data[offset + 2] = 0; // reserved
+                data[offset + 3] = 0; // reserved
+                offset += 4;
+            });
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
+            this.gl.RGBA32UI, // internal format
+            conDataTexSize, conDataTexSize, // width, height
+            0, // border
+            this.gl.RGBA_INTEGER, // format
+            this.gl.UNSIGNED_INT, // type
+            data // data
+            );
+        }
+        // TEST TEST TEST TEST TEST
+        // ========================
+        // create frame buffers
+        // ========================
         const createFramebuffer = (tex) => {
             const fb = this.gl.createFramebuffer();
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, fb);
@@ -477,10 +580,10 @@ export class GpuComputeRenderer {
             this.canvas.width = rect.width;
             this.canvas.height = rect.height;
         }
-        // calculate repulsion
+        // calculate force
         {
-            this.gl.useProgram(this.repulsionCalcProgram);
-            this.gl.bindVertexArray(this.repulsionCalcVAO);
+            this.gl.useProgram(this.forceCalcProgram);
+            this.gl.bindVertexArray(this.forceCalcVAO);
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.forceFB);
             this.gl.viewport(0, 0, this.forceTex.width, this.forceTex.height);
             let infoTex = this.nodeInfosTex0;
@@ -489,10 +592,16 @@ export class GpuComputeRenderer {
             }
             this.gl.activeTexture(this.gl.TEXTURE0 + infoTex.unit);
             this.gl.bindTexture(this.gl.TEXTURE_2D, infoTex.texture);
-            this.gl.uniform1i(this.repulsionCalcLocs.uLoc('node_infos_tex'), infoTex.unit);
-            this.gl.uniform1i(this.repulsionCalcLocs.uLoc('node_count'), this.nodeManager.length());
-            this.gl.uniform1f(this.repulsionCalcLocs.uLoc('node_min_dist'), 10); // TODO: expose setting
-            this.gl.uniform1f(this.repulsionCalcLocs.uLoc('repulsion'), 500); // TODO: expose setting
+            this.gl.uniform1i(this.forceCalcLocs.uLoc('u_node_infos_tex'), infoTex.unit);
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture);
+            this.gl.uniform1i(this.forceCalcLocs.uLoc('u_con_infos_tex'), this.conInfosTex.unit);
+            this.gl.uniform1i(this.forceCalcLocs.uLoc('u_node_count'), this.nodeManager.length());
+            this.gl.uniform1i(this.forceCalcLocs.uLoc('u_con_count'), this.nodeManager.getConnections().length);
+            this.gl.uniform1f(this.forceCalcLocs.uLoc('u_node_min_dist'), 10); // TODO: parameterize
+            this.gl.uniform1f(this.forceCalcLocs.uLoc('u_repulsion'), 500); // TODO: parameterize
+            this.gl.uniform1f(this.forceCalcLocs.uLoc('u_spring'), 0.1); // TODO: parameterize
+            this.gl.uniform1f(this.forceCalcLocs.uLoc('u_spring_dist'), 10); // TODO: parameterize
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6); // draw 2 triangles (6 vertices)
         }
         // sum forces
@@ -511,10 +620,10 @@ export class GpuComputeRenderer {
             }
             this.gl.activeTexture(this.gl.TEXTURE0 + infoTex.unit);
             this.gl.bindTexture(this.gl.TEXTURE_2D, infoTex.texture);
-            this.gl.uniform1i(this.forceSumLocs.uLoc('node_infos_tex'), infoTex.unit);
+            this.gl.uniform1i(this.forceSumLocs.uLoc('u_node_infos_tex'), infoTex.unit);
             this.gl.activeTexture(this.gl.TEXTURE0 + this.forceTex.unit);
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.forceTex.texture);
-            this.gl.uniform1i(this.forceSumLocs.uLoc('repulsion_tex'), this.forceTex.unit);
+            this.gl.uniform1i(this.forceSumLocs.uLoc('u_repulsion_tex'), this.forceTex.unit);
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6); // draw 2 triangles (6 vertices)
         }
         // draw nodes
@@ -529,8 +638,8 @@ export class GpuComputeRenderer {
             }
             this.gl.activeTexture(this.gl.TEXTURE0 + infoTex.unit);
             this.gl.bindTexture(this.gl.TEXTURE_2D, infoTex.texture);
-            this.gl.uniform1i(this.drawNodeLocs.uLoc('node_infos_tex'), infoTex.unit);
-            this.gl.uniform2f(this.drawNodeLocs.uLoc('screen_size'), this.gl.canvas.width, this.gl.canvas.height);
+            this.gl.uniform1i(this.drawNodeLocs.uLoc('u_node_infos_tex'), infoTex.unit);
+            this.gl.uniform2f(this.drawNodeLocs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
             this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, // offset
             6, // num vertices per instance
             this.nodeManager.length() // num instances
@@ -552,5 +661,8 @@ export class GpuComputeRenderer {
         }
         // TEST TEST TEST TEST TEST
         this.useNodeInfosTex0 = !this.useNodeInfosTex0;
+    }
+    capacityToEdge(cap) {
+        return Math.ceil(Math.sqrt(cap));
     }
 }
