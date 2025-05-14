@@ -2,8 +2,11 @@ import * as cd from "./canvas.js"
 import * as wiki from "./wiki.js"
 import * as util from "./util.js"
 import * as math from "./math.js"
-import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js'
 import { GpuComputeRenderer } from "./gpu.js"
+import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js'
+
+const FirstTitle = "English language"
+//const FirstTitle = "Miss Meyers"
 
 export class DocNode {
     static nodeIdMax: number = 0
@@ -228,14 +231,1189 @@ export class NodeManager {
     }
 }
 
-const test = new GpuComputeRenderer()
-
-const testLoop = () => {
-    clearDebugPrint()
-    test.render()
-    requestAnimationFrame(testLoop)
-    renderDebugPrint()
+enum Direction {
+    TopLeft = 0,
+    TopRight,
+    BottomLeft,
+    BottomRight,
 }
 
-testLoop()
+class QuadTree {
+    minX: number = 0
+    minY: number = 0
+
+    maxX: number = 0
+    maxY: number = 0
+
+    centerX: number = 0
+    centerY: number = 0
+
+    hasChildren: boolean = false
+    childrenTrees: Array<QuadTree | null> = new Array(4).fill(null)
+
+    node: DocNode | null = null
+
+    reset() {
+        this.minX = 0
+        this.minY = 0
+
+        this.maxX = 0
+        this.maxY = 0
+
+        this.centerX = 0
+        this.centerY = 0
+
+        this.hasChildren = false
+        this.childrenTrees.fill(null)
+
+        this.node = null
+    }
+
+    setRect(minX: number, minY: number, maxX: number, maxY: number) {
+        this.minX = minX
+        this.minY = minY
+
+        this.maxX = maxX
+        this.maxY = maxY
+
+        this.centerX = (this.minX + this.maxX) * 0.5
+        this.centerY = (this.minY + this.maxY) * 0.5
+    }
+
+    getPosDirection(posX: number, posY: number): Direction {
+        let onLeft = false
+        let onTop = false
+
+        if (posX < this.centerX) {
+            onLeft = true
+        }
+        if (posY < this.centerY) {
+            onTop = true
+        }
+
+        if (onLeft) { // left
+            if (onTop) { // top
+                return Direction.TopLeft
+            } else { // bottom
+                return Direction.BottomLeft
+            }
+        } else { // right
+            if (onTop) { // top
+                return Direction.TopRight
+            } else { // bottom
+                return Direction.BottomRight
+            }
+        }
+    }
+}
+
+class QuadTreeBuilder {
+    _treePool: Array<QuadTree>
+    _treePoolCursor: number = 0
+
+    constructor() {
+        const initCapacity = 512
+
+        this._treePool = new Array(initCapacity)
+
+        for (let i = 0; i < initCapacity; i++) {
+            this._treePool[i] = new QuadTree()
+        }
+    }
+
+    getNewTree(): QuadTree {
+        if (this._treePoolCursor >= this._treePool.length) {
+            const oldLen = this._treePool.length
+            const newLen = oldLen * 2
+
+            this._treePool.length = newLen
+
+            for (let i = oldLen; i < newLen; i++) {
+                this._treePool[i] = new QuadTree()
+            }
+        }
+        const tree = this._treePool[this._treePoolCursor]
+        tree.reset()
+        this._treePoolCursor++
+        return tree
+    }
+
+    _createTreeChild(tree: QuadTree, dir: Direction): QuadTree {
+        const child = this.getNewTree()
+
+        switch (dir) {
+            case Direction.TopLeft: {
+                child.setRect(
+                    tree.minX, tree.minY,
+                    tree.centerX, tree.centerY
+                )
+            } break
+            case Direction.TopRight: {
+                child.setRect(
+                    tree.centerX, tree.minY,
+                    tree.maxX, tree.centerY
+                )
+            } break
+            case Direction.BottomLeft: {
+                child.setRect(
+                    tree.minX, tree.centerY,
+                    tree.centerX, tree.maxY
+                )
+            } break
+            case Direction.BottomRight: {
+                child.setRect(
+                    tree.centerX, tree.centerY,
+                    tree.maxX, tree.maxY
+                )
+            } break
+        }
+
+        return child
+    }
+
+    _pushNodeToTree(tree: QuadTree, node: DocNode) {
+        if (tree.node === null && !tree.hasChildren) {
+            tree.node = node
+            return
+        }
+
+        tree.hasChildren = true
+
+        if (tree.node !== null) {
+            const ogNode = tree.node
+            tree.node = null
+
+            const ogNodeDirection = tree.getPosDirection(ogNode.posX, ogNode.posY)
+            if (tree.childrenTrees[ogNodeDirection] === null) {
+                tree.childrenTrees[ogNodeDirection] = this._createTreeChild(tree, ogNodeDirection)
+            }
+            this._pushNodeToTree(tree.childrenTrees[ogNodeDirection], ogNode)
+        }
+
+        const nodeDirection = tree.getPosDirection(node.posX, node.posY)
+        if (tree.childrenTrees[nodeDirection] === null) {
+            tree.childrenTrees[nodeDirection] = this._createTreeChild(tree, nodeDirection)
+        }
+        this._pushNodeToTree(tree.childrenTrees[nodeDirection], node)
+    }
+
+    buildTree(nodeManager: NodeManager) {
+        this._treePoolCursor = 0
+
+        if (nodeManager.length() <= 0) {
+            const tree = this.getNewTree()
+            tree.setRect(0, 0, 0, 0)
+            return tree
+        }
+
+        const root = this.getNewTree()
+
+        // calculate root rect
+        {
+            let minX: number = Number.MAX_VALUE
+            let minY: number = Number.MAX_VALUE
+
+            let maxX: number = -Number.MAX_VALUE
+            let maxY: number = -Number.MAX_VALUE
+
+            for (let i = 0; i < nodeManager.length(); i++) {
+                const node = nodeManager.getNodeAt(i)
+
+                minX = Math.min(node.posX, minX)
+                minY = Math.min(node.posY, minY)
+
+                maxX = Math.max(node.posX, maxX)
+                maxY = Math.max(node.posY, maxY)
+            }
+
+            const width = maxX - minX
+            const height = maxY - minY
+
+            const maxD = Math.max(width, height)
+
+            const centerX = minX + width * 0.5
+            const centerY = minY + height * 0.5
+
+            root.setRect(
+                centerX - maxD * 0.5, centerY - maxD * 0.5,
+                centerX + maxD * 0.5, centerY + maxD * 0.5,
+            )
+        }
+
+        for (let i = 0; i < nodeManager.length(); i++) {
+            const node = nodeManager._nodes[i]
+            this._pushNodeToTree(root, node)
+        }
+
+        return root
+    }
+}
+
+class App {
+    canvasElement: HTMLCanvasElement
+
+    width: number = 0
+    height: number = 0
+
+    offset: math.Vector2 = new math.Vector2(0, 0)
+
+    zoom: number = 1
+
+    isRequesting: boolean = false
+    requestingNodeIndex: number = -1
+
+    quadTreeRoot: QuadTree = new QuadTree()
+    treeBuilder: QuadTreeBuilder = new QuadTreeBuilder()
+
+    gpu: GpuComputeRenderer
+    simParam: any // TODO: actually put back sim param
+
+    nodeManager: NodeManager
+
+    // ========================
+    // input states
+    // ========================
+    draggingCanvas: boolean = false
+    pDrag: math.Vector2 = new math.Vector2(0, 0)
+
+    mouse: math.Vector2 = new math.Vector2(0, 0)
+
+    pMouse: math.Vector2 = new math.Vector2(0, 0)
+
+    isMouseDown: boolean = false
+
+    isFocusedOnNode: boolean = false
+    focusedNodeIndex: number = -1
+    focusPos: math.Vector2 = new math.Vector2(0, 0)
+
+    isPinching: boolean = false
+    pinch: number = 0
+    pinchPos: math.Vector2 = new math.Vector2(0, 0)
+
+    // ========================
+    // simulation parameters
+    // ========================
+    //simParam: SimulationParameter = new SimulationParameter()
+
+    constructor(canvas: HTMLCanvasElement) {
+        this.canvasElement = canvas
+
+        this.updateWidthAndHeight()
+
+        this.nodeManager = new NodeManager()
+        this.gpu = new GpuComputeRenderer(canvas)
+
+        // NOTE: we have to add it to window because canvas
+        // doesn't take keyboard input
+        // TODO: put canvas inside a div
+        window.addEventListener("keydown", (e) => {
+            this.handleEvent(e)
+        })
+
+        for (const eName of [
+            "wheel",
+
+            "mousedown",
+            "mouseup",
+            "mousemove",
+            "mouseleave",
+
+            "touchcancel",
+            "touchend",
+            "touchmove",
+            "touchstart",
+        ]) {
+            this.canvasElement.addEventListener(eName, (e) => {
+                e.preventDefault()
+                this.handleEvent(e)
+            })
+        }
+
+        // TEST TEST TEST TEST
+        const testNode = new DocNode()
+        testNode.posX = this.width / 2
+        testNode.posY = this.height / 2
+        testNode.title = FirstTitle
+        this.nodeManager.pushNode(testNode)
+        // TEST TEST TEST TEST
+
+        this.gpu.submitNodeManager(this.nodeManager)
+
+        //this.gpuComputer.startSimulating()
+    }
+
+    handleEvent(e: Event) {
+        const focusLoseDist = 25
+
+        const startDragging = (x: number, y: number) => {
+            this.draggingCanvas = true
+            this.pDrag.x = x
+            this.pDrag.y = y
+        }
+
+        const doDrag = (x: number, y: number) => {
+            if (!this.draggingCanvas) {
+                return
+            }
+            const pPos = this.viewportToWorld(this.pDrag.x, this.pDrag.y)
+            const pos = this.viewportToWorld(x, y)
+
+            const toPos = math.vector2Sub(pos, pPos)
+
+            this.offset.x += toPos.x
+            this.offset.y += toPos.y
+
+            this.pDrag.x = x
+            this.pDrag.y = y
+        }
+
+        const endDragging = () => {
+            this.draggingCanvas = false
+        }
+
+        const handlePointClick = (x: number, y: number) => {
+            let clickedOnNode = false
+            let nodeIndex = -1
+
+            this.gpu.updateNodePositionsAndTempsToNodeManager(this.nodeManager)
+
+            // check if we clicked on node
+            {
+                const pos = this.viewportToWorld(x, y)
+
+                for (let i = 0; i < this.nodeManager.length(); i++) {
+                    const node = this.nodeManager.getNodeAt(i)
+                    if (math.posInCircle(
+                        pos.x, pos.y,
+                        node.posX, node.posY,
+                        node.getRadius()
+                    )) {
+                        clickedOnNode = true
+                        nodeIndex = i
+                        break
+                    }
+                }
+            }
+
+            if (clickedOnNode) {
+                this.isFocusedOnNode = true
+                this.focusedNodeIndex = nodeIndex
+                this.focusPos.x = x
+                this.focusPos.y = y
+            } else {
+                startDragging(x, y)
+            }
+        }
+
+        const touchPos = (touch: Touch): math.Vector2 => {
+            let canvasRect = this.canvasElement.getBoundingClientRect();
+            return new math.Vector2(
+                touch.clientX - canvasRect.x,
+                touch.clientY - canvasRect.y,
+            )
+        }
+
+        switch (e.type) {
+            case "wheel": {
+                const wheelEvent = e as WheelEvent
+
+                const zoomOrigin = this.viewportToWorld(this.mouse.x, this.mouse.y)
+                let newZoom = this.zoom
+
+                if (wheelEvent.deltaY < 0) {
+                    newZoom *= 1.1
+                } else {
+                    newZoom *= 0.9
+                }
+
+                this.zoom = newZoom
+
+                const newZoomOrigin = this.viewportToWorld(this.mouse.x, this.mouse.y)
+
+                this.offset.x += (newZoomOrigin.x - zoomOrigin.x)
+                this.offset.y += (newZoomOrigin.y - zoomOrigin.y)
+
+            } break
+
+            case "mousemove": {
+                const mouseEvent = e as MouseEvent
+
+                this.pMouse.x = this.mouse.x
+                this.pMouse.y = this.mouse.y
+
+                this.mouse.x = mouseEvent.offsetX
+                this.mouse.y = mouseEvent.offsetY
+
+                if (this.draggingCanvas) {
+                    doDrag(this.mouse.x, this.mouse.y)
+                } else if (this.isFocusedOnNode) {
+                    const dist = math.dist(
+                        this.mouse.x - this.focusPos.x,
+                        this.mouse.y - this.focusPos.y,
+                    )
+
+                    if (dist > focusLoseDist) {
+                        this.isFocusedOnNode = false
+                        if (this.isMouseDown) {
+                            startDragging(this.mouse.x, this.mouse.y)
+                        }
+                    }
+                }
+            } break
+
+            case "mousedown": {
+                const mouseEvent = e as MouseEvent
+
+                this.isMouseDown = true
+
+                handlePointClick(this.mouse.x, this.mouse.y)
+            } break
+
+            case "mouseup": {
+                this.isMouseDown = false
+
+                if (this.isFocusedOnNode) {
+                    this.expandNode(this.focusedNodeIndex)
+                }
+                this.isFocusedOnNode = false
+
+                endDragging()
+            } break
+
+            case "mouseleave": {
+                endDragging()
+                this.isFocusedOnNode = false
+                this.isMouseDown = false
+            } break
+
+            case "touchstart": {
+                const touchEvent = e as TouchEvent
+                const touches = touchEvent.touches
+
+                if (touches.length == 1) {
+                    const touch = touchPos(touches[0])
+                    handlePointClick(touch.x, touch.y)
+                } else {
+                    this.isFocusedOnNode = false
+                    endDragging()
+                }
+
+                if (touches.length == 2) {
+                    this.isPinching = true
+
+                    const touch0 = touchPos(touches[0])
+                    const touch1 = touchPos(touches[1])
+
+                    this.pinch = math.dist(
+                        touch0.x - touch1.x,
+                        touch0.y - touch1.y
+                    )
+
+                    this.pinchPos.x = (touch0.x + touch1.x) * 0.5
+                    this.pinchPos.y = (touch0.y + touch1.y) * 0.5
+
+                } else {
+                    this.isPinching = false
+                }
+            } break
+
+            case "touchmove": {
+                const touchEvent = e as TouchEvent
+                const touches = touchEvent.touches
+
+                if (touches.length == 1) {
+                    const touch = touchPos(touches[0])
+
+                    if (this.draggingCanvas) {
+                        doDrag(touch.x, touch.y)
+                    } else if (this.isFocusedOnNode) {
+                        const dist = math.dist(
+                            touch.x - this.focusPos.x,
+                            touch.y - this.focusPos.y,
+                        )
+
+                        if (dist > focusLoseDist) {
+                            this.isFocusedOnNode = false
+                            startDragging(touch.x, touch.y)
+                        }
+                    }
+                } else {
+                    this.isFocusedOnNode = false
+                    endDragging()
+                }
+
+                if (touches.length === 2) {
+                    if (this.isPinching) {
+                        const touch0 = touchPos(touches[0])
+                        const touch1 = touchPos(touches[1])
+
+                        const newPinch = math.dist(
+                            touch0.x - touch1.x,
+                            touch0.y - touch1.y
+                        )
+
+                        const newPinchPos = new math.Vector2(
+                            (touch0.x + touch1.x) * 0.5,
+                            (touch0.y + touch1.y) * 0.5
+                        )
+
+                        const pinchRatio = newPinch / this.pinch
+                        const newZoom = this.zoom * pinchRatio
+
+                        const pwOld = this.viewportToWorld(this.pinchPos.x, this.pinchPos.y)
+                        this.zoom = newZoom
+                        const pwNew = this.viewportToWorld(newPinchPos.x, newPinchPos.y)
+
+                        this.offset = math.vector2Add(math.vector2Sub(pwNew, pwOld), this.offset)
+
+                        this.pinch = newPinch
+                        this.pinchPos = newPinchPos
+                    }
+                }
+            } break
+
+            case "touchcancel": {
+            } break
+
+            case "touchend": {
+                const touchEvent = e as TouchEvent
+
+                if (touchEvent.touches.length === 0) {
+                    if (this.isFocusedOnNode) {
+                        this.expandNode(this.focusedNodeIndex)
+                        this.isFocusedOnNode = false
+                    }
+                }
+
+                if (touchEvent.touches.length !== 1) {
+                    endDragging()
+                }
+
+                if (touchEvent.touches.length !== 2) {
+                    this.isPinching = false
+                }
+            } break
+        }
+    }
+
+    expandNode = async (nodeIndex: number) => {
+        if (this.isRequesting) {
+            console.log("busy")
+            return
+        }
+
+        if (!(0 <= nodeIndex && nodeIndex < this.nodeManager.length())) {
+            console.error(`node id ${nodeIndex} out of bound`)
+            return
+        }
+
+        this.requestingNodeIndex = nodeIndex
+        const node = this.nodeManager.getNodeAt(nodeIndex)
+
+        console.log(`requesting ${node.title}`)
+
+        this.isRequesting = true
+
+        try {
+            const regex = / /g
+            const links = await wiki.retrieveAllLiks(node.title.replace(regex, "_"))
+
+            if (links.length > 0) {
+
+                const angle: number = Math.PI * 2 / links.length
+
+                // not an accurate mass of node that will expand
+                // but good enough
+                const offsetV = { x: 0, y: - (100 + DocNode.nodeMassToRadius(links.length)) }
+                let index = 0;
+
+                const addNodeOneByOne = false
+
+                const addNode = () => {
+                    if (index >= links.length) {
+                        return
+                    }
+
+                    this.gpu.updateNodePositionsAndTempsToNodeManager(this.nodeManager)
+
+                    const link = links[index]
+                    const otherNodeIndex = this.nodeManager.findNodeFromTitle(link)
+
+                    if (otherNodeIndex < 0) {
+                        const newNode = new DocNode()
+                        const newNodeId = this.nodeManager.length()
+                        newNode.title = link
+
+                        const v = math.vector2Rotate(offsetV, angle * index)
+                        newNode.posX = node.posX + v.x // + (Math.random() - 0.5) * 20
+                        newNode.posY = node.posY + v.y // + (Math.random() - 0.5) * 20
+
+                        this.nodeManager.pushNode(newNode)
+                        this.nodeManager.setConnected(nodeIndex, newNodeId, true)
+
+                        node.mass += 1
+                        newNode.mass += 1
+                    } else {
+                        if (!this.nodeManager.isConnected(nodeIndex, otherNodeIndex)) {
+                            const otherNode = this.nodeManager.getNodeAt(otherNodeIndex)
+                            this.nodeManager.setConnected(nodeIndex, otherNodeIndex, true)
+                            node.mass += 1
+                            otherNode.mass += 1
+                        }
+                    }
+
+                    this.gpu.submitNodeManager(this.nodeManager)
+
+                    index += 1
+
+                    if (addNodeOneByOne) {
+                        setTimeout(addNode, 3)
+                    } else {
+                        addNode()
+                    }
+                }
+                if (addNodeOneByOne) {
+                    setTimeout(addNode, 3)
+                } else {
+                    addNode()
+                }
+            }
+        } catch (err) {
+            console.error(err)
+        } finally {
+            this.isRequesting = false
+        }
+    }
+
+    update(deltaTime: DOMHighResTimeStamp) {
+        this.updateWidthAndHeight()
+        // debug print fps
+        {
+            let estimate = 1000.0 / deltaTime
+            debugPrint('FPS', Math.round(estimate).toString())
+        }
+        // debug print nodecount
+        debugPrint('node count', this.nodeManager.length().toString())
+        // debug zoom
+        debugPrint('zoom', this.zoom.toFixed(2))
+
+        // build quad tree
+        //this.quadTreeRoot = this.treeBuilder.buildTree(this.nodeManager)
+
+        /*
+        // ==============================
+        // cache node visibility
+        // ==============================
+        {
+            for (let i = 0; i < this.nodeManager.length(); i++) {
+                const node = this.nodeManager.getNodeAt(i)
+                node.doDraw = false
+            }
+
+            const viewMin = this.viewportToWorld(0, 0)
+            const viewMax = this.viewportToWorld(this.width, this.height)
+
+            const toRecurse = (tree: QuadTree) => {
+                if (math.boxIntersects(
+                    viewMin.x, viewMin.y, viewMax.x, viewMax.y,
+                    tree.minX, tree.minY, tree.maxX, tree.maxY
+                )) {
+                    if (tree.node !== null) {
+                        tree.node.doDraw = true
+                    } else {
+                        for (const childTree of tree.childrenTrees) {
+                            if (childTree !== null) {
+                                toRecurse(childTree)
+                            }
+                        }
+                    }
+                }
+            }
+
+            toRecurse(this.quadTreeRoot)
+        }
+
+        // ==============================
+        // cache connection visibility
+        // ==============================
+        {
+            let connections = this.nodeManager.getConnections()
+            for (let i = 0; i < connections.length; i++) {
+                const con = connections[i]
+                con.doDraw = false
+            }
+
+            const viewMin = this.viewportToWorld(0, 0)
+            const viewMax = this.viewportToWorld(this.width, this.height)
+
+            for (let i = 0; i < connections.length; i++) {
+                const con = connections[i]
+                const nodeA = this.nodeManager.getNodeAt(con.nodeIndexA)
+                const nodeB = this.nodeManager.getNodeAt(con.nodeIndexB)
+
+                const minX = Math.min(nodeA.posX, nodeB.posX)
+                const maxX = Math.max(nodeA.posX, nodeB.posX)
+
+                const minY = Math.min(nodeA.posY, nodeB.posY)
+                const maxY = Math.max(nodeA.posY, nodeB.posY)
+
+                if (math.boxIntersects(
+                    viewMin.x, viewMin.y, viewMax.x, viewMax.y,
+                    minX, minY, maxX, maxY
+                )) {
+                    con.doDraw = true
+                }
+            }
+        }
+        */
+    }
+
+    draw(deltaTime: DOMHighResTimeStamp) {
+        // draw connections
+        /*this.nodeManager.getConnections().forEach((con) => {
+            if (!con.doDraw) {
+                return
+            }
+
+            const nodeA = this.nodeManager.getNodeAt(con.nodeIndexA)
+            const nodeB = this.nodeManager.getNodeAt(con.nodeIndexB)
+
+            const posA = this.worldToViewport(nodeA.posX, nodeA.posY)
+            const posB = this.worldToViewport(nodeB.posX, nodeB.posY)
+
+            cd.strokeLine(
+                this.ctx,
+                posA.x, posA.y,
+                posB.x, posB.y,
+                2 * this.zoom, "grey"
+            )
+        })
+
+        // draw circles
+        for (let i = 0; i < this.nodeManager.length(); i++) {
+            const node = this.nodeManager.getNodeAt(i)
+            if (node.doDraw) {
+                const pos = this.worldToViewport(node.posX, node.posY)
+
+                if (this.isRequesting && i === this.requestingNodeIndex) {
+                    cd.fillCircle(
+                        this.ctx, pos.x, pos.y,
+                        node.getRadius() * this.zoom,
+                        "red"
+                    )
+                } else {
+                    cd.fillCircle(
+                        this.ctx, pos.x, pos.y,
+                        node.getRadius() * this.zoom,
+                        "PaleTurquoise"
+                    )
+                }
+            }
+        }
+
+        // draw texts
+        if (this.zoom > 0.3) {
+            this.ctx.font = `${this.zoom * 12}px sans-serif`
+            this.ctx.fillStyle = "black"
+            this.ctx.textAlign = "center"
+            this.ctx.textRendering = "optimizeSpeed"
+            this.ctx.textBaseline = "bottom"
+            for (let i = 0; i < this.nodeManager.length(); i++) {
+                const node = this.nodeManager.getNodeAt(i)
+                if (node.doDraw) {
+                    const pos = this.worldToViewport(node.posX, node.posY)
+
+                    this.ctx.fillText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom)
+                }
+            }
+        }
+
+        // draw mouse pointer
+        {
+            let pos = this.viewportToWorld(this.mouse.x, this.mouse.y)
+            pos = this.worldToViewport(pos.x, pos.y)
+            cd.fillCircle(this.ctx, pos.x, pos.y, 10 * this.zoom, "red")
+        }
+        */
+        this.gpu.render()
+    }
+
+    updateWidthAndHeight() {
+        const rect = this.canvasElement.getBoundingClientRect()
+
+        this.width = rect.width
+        this.height = rect.height
+
+        this.canvasElement.width = rect.width
+        this.canvasElement.height = rect.height
+    }
+
+    worldToViewport(x: number, y: number): math.Vector2 {
+        x += this.offset.x
+        y += this.offset.y
+
+        x *= this.zoom
+        y *= this.zoom
+
+        return new math.Vector2(x, y)
+    }
+
+    viewportToWorld(x: number, y: number): math.Vector2 {
+        x /= this.zoom
+        y /= this.zoom
+
+        x -= this.offset.x
+        y -= this.offset.y
+
+
+        return new math.Vector2(x, y)
+    }
+
+    serialize(): string {
+        const container = new SerializationContainer()
+
+        for (let i = 0; i < this.nodeManager.length(); i++) {
+            container.nodes.push(this.nodeManager.getNodeAt(i))
+        }
+        container.connections = this.nodeManager.getConnections()
+
+        container.offsetX = this.offset.x
+        container.offsetY = this.offset.y
+
+        container.zoom = this.zoom
+
+        return JSON.stringify(container)
+    }
+
+    deserialize(jsonString: string) {
+        try {
+            const jsonObj = JSON.parse(jsonString)
+            if (!isSerializationContainer(jsonObj)) {
+                throw new Error("json object is not a SerializationContainer")
+            }
+            const container = jsonObj as SerializationContainer
+
+            this.reset(false)
+
+            for (const node of container.nodes) {
+                const nodeCopy = new DocNode()
+
+                nodeCopy.posX = node.posX
+                nodeCopy.posY = node.posY
+
+                // we don't need to deserialize force
+                // it will be handled by at later tick
+
+                nodeCopy.title = node.title
+
+                this.nodeManager.pushNode(nodeCopy)
+            }
+
+            for (const con of container.connections) {
+                this.nodeManager.setConnected(
+                    con.nodeIndexA, con.nodeIndexB, true,
+                )
+            }
+
+            this.offset.x = container.offsetX
+            this.offset.y = container.offsetY
+
+            this.zoom = container.zoom
+        } catch (err) {
+            console.error(err)
+        }
+    }
+
+    reset(addStartingNode: boolean) {
+        this.offset.x = 0
+        this.offset.y = 0
+
+        this.zoom = 1
+
+        this.nodeManager.reset()
+
+        if (addStartingNode) {
+            // TEST TEST TEST TEST
+            const testNode = new DocNode()
+            testNode.posX = this.width / 2
+            testNode.posY = this.height / 2
+            testNode.title = FirstTitle
+            this.nodeManager.pushNode(testNode)
+            // TEST TEST TEST TEST
+        }
+    }
+}
+
+class SerializationContainer {
+    nodes: Array<DocNode> = []
+    connections: Array<Connection> = []
+
+    offsetX: number = 0
+    offsetY: number = 0
+
+    zoom: number = 0
+}
+
+
+function isSerializationContainer(obj: any): boolean {
+    if (typeof obj !== 'object') {
+        return false
+    }
+
+    function objHasMatchingKeys(obj: any, instance: any): boolean {
+        const keys = Reflect.ownKeys(instance)
+
+        for (const key of keys) {
+            const instanceType = typeof instance[key]
+            const objType = typeof obj[key]
+
+            if (instanceType !== objType) {
+                return false
+            }
+
+            if (instanceType == "object") {
+                if (Array.isArray(instance[key])) {
+                    if (!Array.isArray(obj[key])) {
+                        return false
+                    }
+                } else {
+                    if (!objHasMatchingKeys(instance[key], obj[key])) {
+                        return false
+                    }
+                }
+            }
+        }
+
+        return true
+    }
+
+    if (!objHasMatchingKeys(obj, new SerializationContainer())) {
+        return false
+    }
+
+    if (obj.nodes.length > 0) {
+        const dummyNode = new DocNode()
+
+        for (const objNode of obj.nodes) {
+            if (!objHasMatchingKeys(objNode, dummyNode)) {
+                return false
+            }
+        }
+    }
+
+    if (obj.connections.length > 0) {
+        const dummyCon = new Connection(0, 0)
+
+        for (const objCon of obj.connections) {
+            if (!objHasMatchingKeys(objCon, dummyCon)) {
+                return false
+            }
+        }
+    }
+
+    return true
+}
+
+function main() {
+    const canvas = document.getElementById('my-canvas') as HTMLCanvasElement
+    if (canvas === null) {
+        throw new Error("failed to get canvas context")
+    }
+
+    const app = new App(canvas)
+
+    // set up debug UI elements
+    // TODO : bring back debug ui
+    /*
+    {
+        const downloadButton = document.getElementById('download-button') as HTMLButtonElement
+        downloadButton.onclick = () => {
+            const jsonString = app.serialize()
+            util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.json')
+        }
+
+        const uploadInput = document.getElementById('upload-input') as HTMLInputElement
+
+        uploadInput.addEventListener('change', async (ev: Event) => {
+            if (uploadInput.files !== null) {
+                if (uploadInput.files.length > 0) {
+                    try {
+                        const file = uploadInput.files[0]
+                        const text = await file.text()
+                        app.deserialize(text)
+                    } catch (err) {
+                        console.error(err)
+                    }
+                }
+            }
+        })
+
+        let debugUICounter = 0
+
+        const getUIid = (): string => {
+            debugUICounter++;
+            return `debug-ui-id-${debugUICounter}`
+        }
+
+        const addSlider = (
+            startingValue: number,
+            min: number, max: number,
+            step: number,
+            labelText: string,
+            onValueChange: (input: number) => void
+        ) => {
+            let debugUIdiv = document.getElementById('debug-ui-div')
+            if (debugUIdiv === null) {
+                return
+            }
+
+            let div = document.createElement('div')
+            div.classList.add('debug-ui-container')
+
+            const id = getUIid()
+
+            let label = document.createElement('label')
+            label.innerText = `${labelText}: ${startingValue}`
+            label.htmlFor = id
+
+            let input = document.createElement('input')
+            input.type = 'range'
+            input.min = min.toString()
+            input.max = max.toString()
+            input.step = step.toString()
+            input.value = startingValue.toString()
+            input.id = id
+            input.addEventListener('input', async (ev: Event) => {
+                label.innerText = `${labelText}: ${input.value}`
+                onValueChange(parseFloat(input.value))
+            })
+
+            div.appendChild(input)
+            div.appendChild(label)
+            debugUIdiv.appendChild(div)
+        }
+
+        const addCheckBox = (
+            startingValue: boolean,
+            labelText: string,
+            onValueChange: (input: boolean) => void
+        ) => {
+            let debugUIdiv = document.getElementById('debug-ui-div')
+            if (debugUIdiv === null) {
+                return
+            }
+
+            let div = document.createElement('div')
+            div.classList.add('debug-ui-container')
+
+            const id = getUIid()
+
+            let label = document.createElement('label')
+            label.innerText = `${labelText}`
+            label.htmlFor = id
+
+            let checkbox = document.createElement('input')
+            checkbox.type = 'checkbox'
+            checkbox.checked = startingValue
+            checkbox.id = id
+            checkbox.addEventListener('input', async (ev: Event) => {
+                label.innerText = `${labelText}`
+                onValueChange(checkbox.checked)
+            })
+
+            div.appendChild(checkbox)
+            div.appendChild(label)
+            debugUIdiv.appendChild(div)
+        }
+
+        const addButton = (
+            text: string,
+            onclick: () => void
+        ) => {
+            let debugUIdiv = document.getElementById('debug-ui-div')
+            if (debugUIdiv === null) {
+                return
+            }
+
+            let div = document.createElement('div')
+            div.classList.add('debug-ui-container')
+
+            let button = document.createElement('button')
+            button.innerText = text
+
+            button.onclick = onclick
+
+            div.appendChild(button)
+            debugUIdiv.appendChild(div)
+        }
+
+        addButton(
+            'reset', () => { app.reset(true) }
+        )
+
+        addSlider(
+            app.simParam.nodeMinDist,
+            0, 10,
+            0.01,
+            "nodeMinDist",
+            (value) => { app.simParam.nodeMinDist = value }
+        )
+
+        addSlider(
+            app.simParam.repulsion,
+            0, 10000,
+            1,
+            "repulsion",
+            (value) => { app.simParam.repulsion = value }
+        )
+
+        addSlider(
+            app.simParam.spring,
+            0, 20,
+            0.0001,
+            "spring",
+            (value) => { app.simParam.spring = value }
+        )
+        addSlider(
+            app.simParam.springDist,
+            1, 1000,
+            1,
+            "springDist",
+            (value) => { app.simParam.springDist = value }
+        )
+    }
+    */
+
+    let prevTime: DOMHighResTimeStamp | undefined
+
+    const onFrame = (timestamp: DOMHighResTimeStamp) => {
+        //clearDebugPrint()
+
+        if (prevTime === undefined) {
+            prevTime = timestamp
+        }
+        const deltaTime = timestamp - prevTime
+        prevTime = timestamp
+
+        app.update(deltaTime)
+        app.draw(deltaTime)
+
+        renderDebugPrint()
+
+        requestAnimationFrame(onFrame)
+
+        /*
+        // TODO: very bad way of keeping a 60 frames per second
+        setTimeout(() => {
+            requestAnimationFrame(onFrame)
+        }, 1000 / 60)
+        */
+    }
+
+    requestAnimationFrame(onFrame)
+}
+
+
+main()
+
 

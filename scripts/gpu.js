@@ -1,5 +1,3 @@
-import { NodeManager, DocNode } from "./main.js";
-import { debugPrint } from './debug_print.js';
 const forceCalcVShaderSrc = `#version 300 es
 in vec4 vertex;
 
@@ -319,7 +317,7 @@ void main() {
 
     // scale
     x *= len;
-    y *= 3.0f; // line thickness TODO: parameterize
+    y *= 2.0f; // line thickness TODO: parameterize
 
     // rotate
     float sinv = sin(angle);
@@ -354,7 +352,7 @@ void main() {
     //         color = color_b;
     //         break;
 
-    color = vec4(1, 0, 0, 1);
+    color = vec4(0, 0, 0, 1);
 }`;
 const drawConFSahderSrc = `#version 300 es
 precision highp float;
@@ -394,23 +392,15 @@ class LocationGroup {
     }
 }
 export class GpuComputeRenderer {
-    constructor() {
-        this.nodeCapacity = 4096;
-        this.conCapacity = 4096;
+    constructor(canvas) {
+        this.nodeLength = 0;
+        this.connectionLength = 0;
         this.useNodeInfosTex0 = false;
         this.textureUnitMax = -1;
-        this.nodeManager = new NodeManager();
         // =========================
         // create opengl context
         // =========================
-        {
-            const id = 'my-canvas';
-            const canvas = document.getElementById(id);
-            if (canvas === null) {
-                throw new Error(`failed to get canvas id ${id}`);
-            }
-            this.canvas = canvas;
-        }
+        this.canvas = canvas;
         {
             const gl = this.canvas.getContext('webgl2');
             if (gl === null) {
@@ -425,24 +415,6 @@ export class GpuComputeRenderer {
             this.canvas.width = rect.width;
             this.canvas.height = rect.height;
         }
-        // TEST TEST TEST TEST TEST
-        // push test nodes
-        {
-            let x = this.canvas.width * 0.5;
-            let y = this.canvas.height * 0.5;
-            for (let i = 0; i < 5; i++) {
-                const node = new DocNode();
-                node.posX = x;
-                node.posY = y;
-                node.mass = 1;
-                this.nodeManager.pushNode(node);
-                x += 10;
-                y += 5 * i * i;
-            }
-            this.nodeManager.setConnected(0, 1, true);
-            this.nodeManager.setConnected(0, 3, true);
-        }
-        // TEST TEST TEST TEST TEST
         // =========================
         // create render units
         // =========================
@@ -587,75 +559,15 @@ export class GpuComputeRenderer {
             tex.width = w;
             tex.height = h;
         };
+        const texInitSize = 128;
         // create textures to hold node informations
-        const nodeDataTexSize = this.capacityToEdge(this.nodeCapacity);
         this.nodeInfosTex0 = createDataTexture();
         this.nodeInfosTex1 = createDataTexture();
-        setDataTextureSize(this.nodeInfosTex0, nodeDataTexSize, nodeDataTexSize);
-        setDataTextureSize(this.nodeInfosTex1, nodeDataTexSize, nodeDataTexSize);
-        // TEST TEST TEST TEST TEST
-        // supply texture with node infos
-        {
-            let data = new Float32Array(nodeDataTexSize * nodeDataTexSize * 4);
-            let offset = 0;
-            for (let i = 0; i < this.nodeManager.length(); i++) {
-                const node = this.nodeManager.getNodeAt(i);
-                data[offset] = node.posX;
-                data[offset + 1] = node.posY;
-                data[offset + 2] = node.mass;
-                data[offset + 3] = 0; // reserved
-                offset += 4;
-            }
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeInfosTex0.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeInfosTex0.texture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            this.gl.RGBA32UI, // internal format
-            nodeDataTexSize, nodeDataTexSize, // width, height
-            0, // border
-            this.gl.RGBA_INTEGER, // format
-            this.gl.UNSIGNED_INT, // type
-            new Uint32Array(data.buffer) // data
-            );
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeInfosTex1.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeInfosTex1.texture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            this.gl.RGBA32UI, // internal format
-            nodeDataTexSize, nodeDataTexSize, // width, height
-            0, // border
-            this.gl.RGBA_INTEGER, // format
-            this.gl.UNSIGNED_INT, // type
-            new Uint32Array(data.buffer) // data
-            );
-        }
-        // TEST TEST TEST TEST TEST
+        setDataTextureSize(this.nodeInfosTex0, texInitSize, texInitSize);
+        setDataTextureSize(this.nodeInfosTex1, texInitSize, texInitSize);
         // create textures to hold connection informations
-        const conDataTexSize = this.capacityToEdge(this.conCapacity);
         this.conInfosTex = createDataTexture();
-        setDataTextureSize(this.conInfosTex, conDataTexSize, conDataTexSize);
-        // TEST TEST TEST TEST TEST
-        // supply texture with connection infos
-        {
-            let data = new Uint32Array(conDataTexSize * conDataTexSize * 4);
-            let offset = 0;
-            this.nodeManager.getConnections().forEach((con) => {
-                data[offset] = con.nodeIndexA;
-                data[offset + 1] = con.nodeIndexB;
-                data[offset + 2] = 0; // reserved
-                data[offset + 3] = 0; // reserved
-                offset += 4;
-            });
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            this.gl.RGBA32UI, // internal format
-            conDataTexSize, conDataTexSize, // width, height
-            0, // border
-            this.gl.RGBA_INTEGER, // format
-            this.gl.UNSIGNED_INT, // type
-            data // data
-            );
-        }
-        // TEST TEST TEST TEST TEST
+        setDataTextureSize(this.conInfosTex, texInitSize, texInitSize);
         // ========================
         // create frame buffers
         // ========================
@@ -697,8 +609,8 @@ export class GpuComputeRenderer {
             this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit);
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture);
             this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_con_infos_tex'), this.conInfosTex.unit);
-            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_node_count'), this.nodeManager.length());
-            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_con_count'), this.nodeManager.getConnections().length);
+            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_node_count'), this.nodeLength);
+            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_con_count'), this.connectionLength);
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_node_min_dist'), 10); // TODO: parameterize
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_repulsion'), 500); // TODO: parameterize
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring'), 0.1); // TODO: parameterize
@@ -724,7 +636,7 @@ export class GpuComputeRenderer {
             this.gl.uniform2f(this.drawConUint.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
             this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, // offset
             6, // num vertices per instance
-            this.nodeManager.getConnections().length // num instances
+            this.connectionLength // num instances
             );
         }
         // draw nodes
@@ -743,25 +655,114 @@ export class GpuComputeRenderer {
             this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
             this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, // offset
             6, // num vertices per instance
-            this.nodeManager.length() // num instances
+            this.nodeLength // num instances
             );
         }
         // TEST TEST TEST TEST TEST
+        /*
         {
-            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodeInfosFB1);
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodeInfosFB1)
+
             // get the result
-            let infos = new Uint32Array(this.nodeInfosTex0.width * this.nodeInfosTex1.height * 4);
+            let infos: any = new Uint32Array(this.nodeInfosTex0.width * this.nodeInfosTex1.height * 4);
             this.gl.readPixels(0, 0, this.nodeInfosTex0.width, this.nodeInfosTex1.height, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT, infos);
-            infos = new Float32Array(infos.buffer);
+
+            infos = new Float32Array(infos.buffer)
+
             // print the results
-            let offset = 0;
+            let offset = 0
             for (let i = 0; i < this.nodeManager.length(); ++i) {
-                debugPrint(`node${i}`, `${infos[offset].toFixed(2)}, ${infos[offset + 1].toFixed(2)}, ${infos[offset + 2].toFixed(2)}`);
-                offset += 4;
+                debugPrint(`node${i}`, `${infos[offset].toFixed(2)}, ${infos[offset + 1].toFixed(2)}, ${infos[offset + 2].toFixed(2)}`)
+                offset += 4
             }
         }
+        */
         // TEST TEST TEST TEST TEST
         this.useNodeInfosTex0 = !this.useNodeInfosTex0;
+    }
+    submitNodeManager(manager) {
+        this.nodeLength = manager.length();
+        this.connectionLength = manager.getConnections().length;
+        // supply texture with node infos
+        {
+            let nodeDataTexSize = this.capacityToEdge(this.nodeLength);
+            nodeDataTexSize = Math.max(nodeDataTexSize, 128); // prevent creating empty texture
+            let data = new Float32Array(nodeDataTexSize * nodeDataTexSize * 4);
+            let offset = 0;
+            for (let i = 0; i < manager.length(); i++) {
+                const node = manager.getNodeAt(i);
+                data[offset] = node.posX;
+                data[offset + 1] = node.posY;
+                data[offset + 2] = node.mass;
+                data[offset + 3] = 0; // reserved
+                offset += 4;
+            }
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeInfosTex0.unit);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeInfosTex0.texture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
+            this.gl.RGBA32UI, // internal format
+            nodeDataTexSize, nodeDataTexSize, // width, height
+            0, // border
+            this.gl.RGBA_INTEGER, // format
+            this.gl.UNSIGNED_INT, // type
+            new Uint32Array(data.buffer) // data
+            );
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeInfosTex1.unit);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeInfosTex1.texture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
+            this.gl.RGBA32UI, // internal format
+            nodeDataTexSize, nodeDataTexSize, // width, height
+            0, // border
+            this.gl.RGBA_INTEGER, // format
+            this.gl.UNSIGNED_INT, // type
+            new Uint32Array(data.buffer) // data
+            );
+        }
+        // supply texture with connection infos
+        {
+            let conDataTexSize = this.capacityToEdge(this.connectionLength);
+            conDataTexSize = Math.max(conDataTexSize, 128); // prevent creating empty texture
+            let data = new Uint32Array(conDataTexSize * conDataTexSize * 4);
+            let offset = 0;
+            manager.getConnections().forEach((con) => {
+                data[offset] = con.nodeIndexA;
+                data[offset + 1] = con.nodeIndexB;
+                data[offset + 2] = 0; // reserved
+                data[offset + 3] = 0; // reserved
+                offset += 4;
+            });
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
+            this.gl.RGBA32UI, // internal format
+            conDataTexSize, conDataTexSize, // width, height
+            0, // border
+            this.gl.RGBA_INTEGER, // format
+            this.gl.UNSIGNED_INT, // type
+            data // data
+            );
+        }
+    }
+    updateNodePositionsAndTempsToNodeManager(manager) {
+        // TODO : make this async
+        if (this.nodeLength !== manager.length()) {
+            console.error(`node length is different : ${this.nodeLength}, ${manager.length()}`);
+        }
+        const nodeLength = Math.min(this.nodeLength, manager.length());
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodeInfosFB1);
+        let nodeInfos = new Uint32Array(this.nodeInfosTex0.width * this.nodeInfosTex0.height * 4);
+        this.gl.readPixels(0, 0, this.nodeInfosTex0.width, this.nodeInfosTex0.height, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT, nodeInfos);
+        nodeInfos = new Float32Array(nodeInfos.buffer);
+        let offset = 0;
+        for (let i = 0; i < nodeLength; i++) {
+            const node = manager.getNodeAt(i);
+            node.posX = nodeInfos[offset];
+            node.posY = nodeInfos[offset + 1];
+            // we skip 2, which is mass
+            node.temp = nodeInfos[offset + 3];
+            offset += 4;
+        }
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
     }
     capacityToEdge(cap) {
         return Math.ceil(Math.sqrt(cap));
