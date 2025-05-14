@@ -33,6 +33,7 @@ float mass_to_radius(float m) {
     return 8.0f + m * 0.1;
 }
 
+/*
 vec2 get_node_position_at(int x, int y) {
     return uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(x, y), 0).xy);
 }
@@ -40,6 +41,7 @@ vec2 get_node_position_at(int x, int y) {
 float get_node_mass_at(int x, int y) {
     return uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(x, y), 0).z);
 }
+*/
 
 // returns force that A should recieve
 vec2 calculate_repulsion(
@@ -102,6 +104,7 @@ void main() {
 
     ivec2 node_tex_size = textureSize(u_node_infos_tex, 0);
 
+    // node count out of bound
     if (texel_pos.x + texel_pos.y * node_tex_size.x >= u_node_count) {
         out_color = uvec4(0, 0, 0, 0);
         return;
@@ -109,14 +112,26 @@ void main() {
 
     ivec2 con_tex_size = textureSize(u_con_infos_tex, 0);
 
-    vec2 node_pos = get_node_position_at(texel_pos.x, texel_pos.y);
-    float node_mass = get_node_mass_at(texel_pos.x, texel_pos.y);
+    uvec4 node_info = texelFetch(u_node_infos_tex, texel_pos, 0);
+
+    vec2 node_pos = uintBitsToFloat(node_info.xy);
+    float node_mass = uintBitsToFloat(node_info.z);
+    float node_temp = uintBitsToFloat(node_info.w);
     int node_index = texel_pos.y * node_tex_size.x + texel_pos.x;
+
+     // mass is too small
+    if (node_mass < 0.001f) {
+        out_color = texelFetch(u_node_infos_tex, texel_pos, 0);
+        return;
+    }
 
     vec2 force_sum = vec2(0.0f , 0.0f);
 
     int counter = 0;
+
+    // =====================
     // calculate repulsions
+    // =====================
     for (int y=0; y<node_tex_size.y; y++) {
         for (int x=0; x<node_tex_size.x; x++) {
             counter++;
@@ -129,9 +144,13 @@ void main() {
                 break;
             }
 
+            uvec4 other_node_info = texelFetch(u_node_infos_tex, ivec2(x, y), 0);
+            vec2 other_node_pos = uintBitsToFloat(other_node_info.xy);
+            float other_node_mass = uintBitsToFloat(other_node_info.z);
+
             force_sum += calculate_repulsion(
                 node_pos, node_mass,
-                get_node_position_at(x, y), get_node_mass_at(x, y)
+                other_node_pos, other_node_mass
             );
         }
         // break if we went past u_node_count
@@ -142,7 +161,9 @@ void main() {
 
     counter = 0;
 
+    // =====================
     // calculate springs
+    // =====================
     for (int y=0; y<con_tex_size.y; y++) {
         for (int x=0; x<con_tex_size.x; x++) {
             counter++;
@@ -162,9 +183,13 @@ void main() {
                 int other_x = other_node_index % node_tex_size.x;
                 int other_y = other_node_index / node_tex_size.x;
 
+                uvec4 other_node_info = texelFetch(u_node_infos_tex, ivec2(other_x, other_y), 0);
+                vec2 other_node_pos = uintBitsToFloat(other_node_info.xy);
+                float other_node_mass = uintBitsToFloat(other_node_info.z);
+
                 force_sum += calculate_spring(
                     node_pos, node_mass,
-                    get_node_position_at(other_x, other_y), get_node_mass_at(other_x, other_y)
+                    other_node_pos, other_node_mass
                 );
             }
         }
@@ -174,11 +199,33 @@ void main() {
         }
     }
 
-    uvec2 force_u = floatBitsToUint(force_sum);
+    // =====================
+    // apply force
+    // =====================
+    {
+        float force_size = length(force_sum);
+        float temp_fall_point = 1.0f; // TODO: parameterize
+        float temp_change_rate = 0.01f; // TODO: parameterize
+
+        if (force_size < temp_fall_point) {
+            node_temp -= temp_change_rate;
+        }else {
+            node_temp += temp_change_rate;
+        }
+
+        node_temp = clamp(node_temp, 0.0f, 1.0f);
+
+        node_pos += force_sum * node_temp;
+    }
+
+    uvec2 pos_u = floatBitsToUint(node_pos);
+    uint temp_u = floatBitsToUint(node_temp);
 
     out_color = uvec4(
-        force_u.x, force_u.y, 0, 0
+        pos_u.x, pos_u.y, node_info.z, temp_u
     );
+
+    return;
 }
 `;
 const forceSumVShaderSrc = `#version 300 es
@@ -342,7 +389,7 @@ export class GpuComputeRenderer {
         }
         // TEST TEST TEST TEST TEST
         // =========================
-        // create program
+        // create render units
         // =========================
         const createShader = (type, src) => {
             const shader = this.gl.createShader(type);
@@ -364,7 +411,7 @@ export class GpuComputeRenderer {
             }
             return shader;
         };
-        const createProgram = (vShaderSrc, fShaderSrc) => {
+        const createRenderUnit = (vShaderSrc, fShaderSrc) => {
             const program = this.gl.createProgram();
             const vShader = createShader(this.gl.VERTEX_SHADER, vShaderSrc);
             const fShader = createShader(this.gl.FRAGMENT_SHADER, fShaderSrc);
@@ -378,20 +425,16 @@ export class GpuComputeRenderer {
                 }
                 throw new Error(log);
             }
-            return program;
+            const locs = new LocationGroup(this.gl, program);
+            const vao = this.gl.createVertexArray();
+            return {
+                program: program,
+                locs: locs,
+                vao: vao
+            };
         };
-        this.forceCalcProgram = createProgram(forceCalcVShaderSrc, forceCalcFShaderSrc);
-        this.forceCalcLocs = new LocationGroup(this.gl, this.forceCalcProgram);
-        this.forceSumProgram = createProgram(forceSumVShaderSrc, forceSumFShaderSrc);
-        this.forceSumLocs = new LocationGroup(this.gl, this.forceSumProgram);
-        this.drawNodeProgram = createProgram(drawNodeVShaderSrc, drawNodeFShaderSrc);
-        this.drawNodeLocs = new LocationGroup(this.gl, this.drawNodeProgram);
-        // =========================
-        // create vao
-        // =========================
-        this.forceCalcVAO = this.gl.createVertexArray();
-        this.forceSumVAO = this.gl.createVertexArray();
-        this.drawNodeVAO = this.gl.createVertexArray();
+        this.forceCalcUnit = createRenderUnit(forceCalcVShaderSrc, forceCalcFShaderSrc);
+        this.drawNodeUnit = createRenderUnit(drawNodeVShaderSrc, drawNodeFShaderSrc);
         // =========================
         // create buffers
         // =========================
@@ -420,10 +463,10 @@ export class GpuComputeRenderer {
         // =====================================
         // bind buffers to vao
         // =====================================
-        this.gl.bindVertexArray(this.forceCalcVAO);
+        this.gl.bindVertexArray(this.forceCalcUnit.vao);
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.fullRectBuf);
-        this.gl.enableVertexAttribArray(this.forceCalcLocs.aLoc('vertex'));
-        this.gl.vertexAttribPointer(this.forceCalcLocs.aLoc('vertex'), // location
+        this.gl.enableVertexAttribArray(this.forceCalcUnit.locs.aLoc('vertex'));
+        this.gl.vertexAttribPointer(this.forceCalcUnit.locs.aLoc('vertex'), // location
         4, // size
         this.gl.FLOAT, // type
         false, // normalize
@@ -431,21 +474,10 @@ export class GpuComputeRenderer {
         0);
         this.gl.bindVertexArray(null);
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
-        this.gl.bindVertexArray(this.forceSumVAO);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.fullRectBuf);
-        this.gl.enableVertexAttribArray(this.forceSumLocs.aLoc('vertex'));
-        this.gl.vertexAttribPointer(this.forceSumLocs.aLoc('vertex'), // location
-        4, // size
-        this.gl.FLOAT, // type
-        false, // normalize
-        0, // stride
-        0);
-        this.gl.bindVertexArray(null);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
-        this.gl.bindVertexArray(this.drawNodeVAO);
+        this.gl.bindVertexArray(this.drawNodeUnit.vao);
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.rect1Buf);
-        this.gl.enableVertexAttribArray(this.drawNodeLocs.aLoc('vertex'));
-        this.gl.vertexAttribPointer(this.drawNodeLocs.aLoc('vertex'), // location
+        this.gl.enableVertexAttribArray(this.drawNodeUnit.locs.aLoc('vertex'));
+        this.gl.vertexAttribPointer(this.drawNodeUnit.locs.aLoc('vertex'), // location
         4, // size
         this.gl.FLOAT, // type
         false, // normalize
@@ -492,10 +524,8 @@ export class GpuComputeRenderer {
         const nodeDataTexSize = this.capacityToEdge(this.nodeCapacity);
         this.nodeInfosTex0 = createDataTexture();
         this.nodeInfosTex1 = createDataTexture();
-        this.forceTex = createDataTexture();
         setDataTextureSize(this.nodeInfosTex0, nodeDataTexSize, nodeDataTexSize);
         setDataTextureSize(this.nodeInfosTex1, nodeDataTexSize, nodeDataTexSize);
-        setDataTextureSize(this.forceTex, nodeDataTexSize, nodeDataTexSize);
         // TEST TEST TEST TEST TEST
         // supply texture with node infos
         {
@@ -568,7 +598,6 @@ export class GpuComputeRenderer {
             this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, tex.texture, 0);
             return fb;
         };
-        this.forceFB = createFramebuffer(this.forceTex);
         this.nodeInfosFB0 = createFramebuffer(this.nodeInfosTex0);
         this.nodeInfosFB1 = createFramebuffer(this.nodeInfosTex1);
     }
@@ -582,54 +611,36 @@ export class GpuComputeRenderer {
         }
         // calculate force
         {
-            this.gl.useProgram(this.forceCalcProgram);
-            this.gl.bindVertexArray(this.forceCalcVAO);
-            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.forceFB);
-            this.gl.viewport(0, 0, this.forceTex.width, this.forceTex.height);
-            let infoTex = this.nodeInfosTex0;
-            if (!this.useNodeInfosTex0) {
-                infoTex = this.nodeInfosTex1;
-            }
-            this.gl.activeTexture(this.gl.TEXTURE0 + infoTex.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, infoTex.texture);
-            this.gl.uniform1i(this.forceCalcLocs.uLoc('u_node_infos_tex'), infoTex.unit);
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture);
-            this.gl.uniform1i(this.forceCalcLocs.uLoc('u_con_infos_tex'), this.conInfosTex.unit);
-            this.gl.uniform1i(this.forceCalcLocs.uLoc('u_node_count'), this.nodeManager.length());
-            this.gl.uniform1i(this.forceCalcLocs.uLoc('u_con_count'), this.nodeManager.getConnections().length);
-            this.gl.uniform1f(this.forceCalcLocs.uLoc('u_node_min_dist'), 10); // TODO: parameterize
-            this.gl.uniform1f(this.forceCalcLocs.uLoc('u_repulsion'), 500); // TODO: parameterize
-            this.gl.uniform1f(this.forceCalcLocs.uLoc('u_spring'), 0.1); // TODO: parameterize
-            this.gl.uniform1f(this.forceCalcLocs.uLoc('u_spring_dist'), 10); // TODO: parameterize
-            this.gl.drawArrays(this.gl.TRIANGLES, 0, 6); // draw 2 triangles (6 vertices)
-        }
-        // sum forces
-        {
-            this.gl.useProgram(this.forceSumProgram);
-            this.gl.bindVertexArray(this.forceSumVAO);
+            this.gl.useProgram(this.forceCalcUnit.program);
+            this.gl.bindVertexArray(this.forceCalcUnit.vao);
             let fb = this.nodeInfosFB1;
             if (!this.useNodeInfosTex0) {
                 fb = this.nodeInfosFB0;
             }
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, fb);
-            this.gl.viewport(0, 0, this.forceTex.width, this.forceTex.height);
+            this.gl.viewport(0, 0, this.nodeInfosTex0.width, this.nodeInfosTex0.height);
             let infoTex = this.nodeInfosTex0;
             if (!this.useNodeInfosTex0) {
                 infoTex = this.nodeInfosTex1;
             }
             this.gl.activeTexture(this.gl.TEXTURE0 + infoTex.unit);
             this.gl.bindTexture(this.gl.TEXTURE_2D, infoTex.texture);
-            this.gl.uniform1i(this.forceSumLocs.uLoc('u_node_infos_tex'), infoTex.unit);
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.forceTex.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.forceTex.texture);
-            this.gl.uniform1i(this.forceSumLocs.uLoc('u_repulsion_tex'), this.forceTex.unit);
+            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_node_infos_tex'), infoTex.unit);
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture);
+            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_con_infos_tex'), this.conInfosTex.unit);
+            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_node_count'), this.nodeManager.length());
+            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_con_count'), this.nodeManager.getConnections().length);
+            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_node_min_dist'), 10); // TODO: parameterize
+            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_repulsion'), 500); // TODO: parameterize
+            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring'), 0.1); // TODO: parameterize
+            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring_dist'), 10); // TODO: parameterize
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6); // draw 2 triangles (6 vertices)
         }
         // draw nodes
         {
-            this.gl.useProgram(this.drawNodeProgram);
-            this.gl.bindVertexArray(this.drawNodeVAO);
+            this.gl.useProgram(this.drawNodeUnit.program);
+            this.gl.bindVertexArray(this.drawNodeUnit.vao);
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
             this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
             let infoTex = this.nodeInfosTex1;
@@ -638,8 +649,8 @@ export class GpuComputeRenderer {
             }
             this.gl.activeTexture(this.gl.TEXTURE0 + infoTex.unit);
             this.gl.bindTexture(this.gl.TEXTURE_2D, infoTex.texture);
-            this.gl.uniform1i(this.drawNodeLocs.uLoc('u_node_infos_tex'), infoTex.unit);
-            this.gl.uniform2f(this.drawNodeLocs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
+            this.gl.uniform1i(this.drawNodeUnit.locs.uLoc('u_node_infos_tex'), infoTex.unit);
+            this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
             this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, // offset
             6, // num vertices per instance
             this.nodeManager.length() // num instances
