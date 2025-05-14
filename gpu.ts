@@ -282,6 +282,98 @@ void main() {
 }
 `;
 
+const drawConVSahderSrc = `#version 300 es
+#define PI 3.14159265359
+
+in vec4 vertex;
+
+uniform vec2 u_screen_size;
+
+uniform highp usampler2D u_node_infos_tex;
+uniform highp usampler2D u_con_infos_tex;
+
+out vec4 color;
+
+vec2 get_node_pos(int node_index) {
+    ivec2 node_tex_size = textureSize(u_node_infos_tex, 0);
+
+    int x = node_index % node_tex_size.x;
+    int y = node_index / node_tex_size.x;
+    return uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(x, y), 0).xy);
+}
+
+void main() {
+    float x = vertex.x;
+    float y = vertex.y;
+
+    ivec2 con_tex_size = textureSize(u_con_infos_tex, 0);
+    int con_x = gl_InstanceID % con_tex_size.x;
+    int con_y = gl_InstanceID / con_tex_size.x;
+    uvec4 con_info = texelFetch(u_con_infos_tex, ivec2(con_x, con_y), 0);
+
+    vec2 pos_a = get_node_pos(int(con_info.x));
+    vec2 pos_b = get_node_pos(int(con_info.y));
+
+    vec2 atob = pos_b - pos_a;
+
+    float angle = atan(atob.y, atob.x);
+    float len = length(atob);
+    vec2 center = (pos_a + pos_b) * 0.5;
+
+    angle = angle;
+
+    // scale
+    x *= len;
+    y *= 3.0f; // line thickness TODO: parameterize
+
+    // rotate
+    float sinv = sin(angle);
+    float cosv = cos(angle);
+
+    float x2 = x * cosv - y * sinv;
+    float y2 = x * sinv + y * cosv;
+
+    x = x2;
+    y = y2;
+
+    // translate
+    x += center.x;
+    y += center.y;
+
+    x = ((x / u_screen_size.x) - 0.5f) * 2.0f;
+    y = -((y / u_screen_size.y) - 0.5f) * 2.0f;
+
+    gl_Position = vec4(
+        x, y, 0, 1
+    );
+
+    // switch (gl_VertexID){
+    //     case 0:
+    //     case 3:
+    //     case 5:
+    //         color = color_a;
+    //         break;
+    //     case 1:
+    //     case 2:
+    //     case 4:
+    //         color = color_b;
+    //         break;
+
+    color = vec4(1, 0, 0, 1);
+}`
+
+const drawConFSahderSrc = `#version 300 es
+precision highp float;
+
+in vec4 color;
+
+out vec4 out_color;
+
+void main() {
+  out_color = color;
+}
+`
+
 class LocationGroup {
     gl: WebGL2RenderingContext
     program: WebGLProgram
@@ -344,6 +436,7 @@ export class GpuComputeRenderer {
 
     forceCalcUnit: RenderUnit
     drawNodeUnit: RenderUnit
+    drawConUint: RenderUnit
 
     fullRectBuf: WebGLBuffer
     rect1Buf: WebGLBuffer
@@ -403,8 +496,8 @@ export class GpuComputeRenderer {
 
                 this.nodeManager.pushNode(node)
 
-                x += 5;
-                y += 5;
+                x += 10
+                y += 5 * i * i
             }
 
             this.nodeManager.setConnected(0, 1, true)
@@ -468,6 +561,7 @@ export class GpuComputeRenderer {
 
         this.forceCalcUnit = createRenderUnit(forceCalcVShaderSrc, forceCalcFShaderSrc)
         this.drawNodeUnit = createRenderUnit(drawNodeVShaderSrc, drawNodeFShaderSrc)
+        this.drawConUint = createRenderUnit(drawConVSahderSrc, drawConFSahderSrc)
 
         // =========================
         // create buffers
@@ -520,6 +614,20 @@ export class GpuComputeRenderer {
         this.gl.enableVertexAttribArray(this.drawNodeUnit.locs.aLoc('vertex'))
         this.gl.vertexAttribPointer(
             this.drawNodeUnit.locs.aLoc('vertex'), // location
+            4, // size
+            this.gl.FLOAT, // type
+            false, // normalize
+            0, // stride
+            0, // offset
+        )
+        this.gl.bindVertexArray(null)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
+
+        this.gl.bindVertexArray(this.drawConUint.vao)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.rect1Buf)
+        this.gl.enableVertexAttribArray(this.drawConUint.locs.aLoc('vertex'))
+        this.gl.vertexAttribPointer(
+            this.drawConUint.locs.aLoc('vertex'), // location
             4, // size
             this.gl.FLOAT, // type
             false, // normalize
@@ -732,6 +840,38 @@ export class GpuComputeRenderer {
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring_dist'), 10) // TODO: parameterize
 
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);  // draw 2 triangles (6 vertices)
+        }
+
+        // draw connections
+        {
+            this.gl.useProgram(this.drawConUint.program)
+            this.gl.bindVertexArray(this.drawConUint.vao)
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null)
+
+            this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
+
+            let infoTex = this.nodeInfosTex1
+            if (!this.useNodeInfosTex0) {
+                infoTex = this.nodeInfosTex0
+            }
+
+            this.gl.activeTexture(this.gl.TEXTURE0 + infoTex.unit)
+            this.gl.bindTexture(this.gl.TEXTURE_2D, infoTex.texture)
+            this.gl.uniform1i(this.drawConUint.locs.uLoc('u_node_infos_tex'), infoTex.unit)
+
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit)
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture)
+            this.gl.uniform1i(this.drawConUint.locs.uLoc('u_con_infos_tex'), this.conInfosTex.unit)
+
+            this.gl.uniform2f(
+                this.drawConUint.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height)
+
+            this.gl.drawArraysInstanced(
+                this.gl.TRIANGLES,
+                0, // offset
+                6, // num vertices per instance
+                this.nodeManager.getConnections().length // num instances
+            )
         }
 
         // draw nodes
