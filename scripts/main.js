@@ -673,14 +673,13 @@ class App {
     }
     update(deltaTime) {
         this.updateWidthAndHeight();
-        // debug print fps
+        // debug print stuff
         {
             let estimate = 1000.0 / deltaTime;
             debugPrint('FPS', Math.round(estimate).toString());
         }
-        // debug print nodecount
         debugPrint('node count', this.nodeManager.length().toString());
-        // debug zoom
+        debugPrint('connection count', this.nodeManager.getConnections().length.toString());
         debugPrint('zoom', this.zoom.toFixed(2));
         this.gpu.zoom = this.zoom;
         this.gpu.offset.x = this.offset.x;
@@ -1014,6 +1013,7 @@ function main() {
             div.appendChild(input);
             div.appendChild(label);
             debugUIdiv.appendChild(div);
+            onValueChange(startingValue);
         };
         const addCheckBox = (startingValue, labelText, onValueChange) => {
             let debugUIdiv = document.getElementById('debug-ui-div');
@@ -1052,10 +1052,10 @@ function main() {
             debugUIdiv.appendChild(div);
         };
         addButton('reset', () => { app.reset(true); });
-        addSlider(app.simParam.nodeMinDist, 0, 10, 0.01, "nodeMinDist", (value) => { app.simParam.nodeMinDist = value; });
-        addSlider(app.simParam.repulsion, 0, 10000, 1, "repulsion", (value) => { app.simParam.repulsion = value; });
-        addSlider(app.simParam.spring, 0, 20, 0.0001, "spring", (value) => { app.simParam.spring = value; });
-        addSlider(app.simParam.springDist, 1, 1000, 1, "springDist", (value) => { app.simParam.springDist = value; });
+        addSlider(10, 0, 10, 0.01, "nodeMinDist", (value) => { app.simParam.nodeMinDist = value; });
+        addSlider(7000, 0, 10000, 1, "repulsion", (value) => { app.simParam.repulsion = value; });
+        addSlider(5, 0, 20, 0.0001, "spring", (value) => { app.simParam.spring = value; });
+        addSlider(600, 1, 1000, 1, "springDist", (value) => { app.simParam.springDist = value; });
     }
     let prevTime;
     const onFrame = (timestamp) => {

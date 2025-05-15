@@ -870,14 +870,14 @@ class App {
 
     update(deltaTime: DOMHighResTimeStamp) {
         this.updateWidthAndHeight()
-        // debug print fps
+
+        // debug print stuff
         {
             let estimate = 1000.0 / deltaTime
             debugPrint('FPS', Math.round(estimate).toString())
         }
-        // debug print nodecount
         debugPrint('node count', this.nodeManager.length().toString())
-        // debug zoom
+        debugPrint('connection count', this.nodeManager.getConnections().length.toString())
         debugPrint('zoom', this.zoom.toFixed(2))
 
         this.gpu.zoom = this.zoom
@@ -1276,6 +1276,8 @@ function main() {
             div.appendChild(input)
             div.appendChild(label)
             debugUIdiv.appendChild(div)
+
+            onValueChange(startingValue)
         }
 
         const addCheckBox = (
@@ -1337,7 +1339,7 @@ function main() {
         )
 
         addSlider(
-            app.simParam.nodeMinDist,
+            10,
             0, 10,
             0.01,
             "nodeMinDist",
@@ -1345,7 +1347,7 @@ function main() {
         )
 
         addSlider(
-            app.simParam.repulsion,
+            7000,
             0, 10000,
             1,
             "repulsion",
@@ -1353,14 +1355,14 @@ function main() {
         )
 
         addSlider(
-            app.simParam.spring,
+            5,
             0, 20,
             0.0001,
             "spring",
             (value) => { app.simParam.spring = value }
         )
         addSlider(
-            app.simParam.springDist,
+            600,
             1, 1000,
             1,
             "springDist",
