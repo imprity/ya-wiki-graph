@@ -1,3 +1,12 @@
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 import * as math from "./math.js";
 // NOTE:
 // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
@@ -763,27 +772,73 @@ export class GpuComputeRenderer {
         }
     }
     updateNodePositionsAndTempsToNodeManager(manager) {
-        // TODO : make this async
-        if (this.nodeLength !== manager.length()) {
-            console.error(`node length is different : ${this.nodeLength}, ${manager.length()}`);
-        }
-        const nodeLength = Math.min(this.nodeLength, manager.length());
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodeInfosFB1);
-        let nodeInfos = new Uint32Array(this.nodeInfosTex0.width * this.nodeInfosTex0.height * 4);
-        this.gl.readPixels(0, 0, this.nodeInfosTex0.width, this.nodeInfosTex0.height, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT, nodeInfos);
-        nodeInfos = new Float32Array(nodeInfos.buffer);
-        let offset = 0;
-        for (let i = 0; i < nodeLength; i++) {
-            const node = manager.getNodeAt(i);
-            node.posX = nodeInfos[offset];
-            node.posY = nodeInfos[offset + 1];
-            // we skip 2, which is mass
-            node.temp = nodeInfos[offset + 3];
-            offset += 4;
-        }
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        return __awaiter(this, void 0, void 0, function* () {
+            if (this.nodeLength !== manager.length()) {
+                console.error(`node length is different : ${this.nodeLength}, ${manager.length()}`);
+            }
+            const nodeLength = Math.min(this.nodeLength, manager.length());
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodeInfosFB1);
+            let nodeInfos = new Uint32Array(this.nodeInfosTex0.width * this.nodeInfosTex0.height * 4);
+            yield readPixelsAsync(this.gl, 0, 0, this.nodeInfosTex0.width, this.nodeInfosTex0.height, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT, nodeInfos);
+            nodeInfos = new Float32Array(nodeInfos.buffer);
+            let offset = 0;
+            for (let i = 0; i < nodeLength; i++) {
+                const node = manager.getNodeAt(i);
+                node.posX = nodeInfos[offset];
+                node.posY = nodeInfos[offset + 1];
+                // we skip 2, which is mass
+                node.temp = nodeInfos[offset + 3];
+                offset += 4;
+            }
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        });
     }
     capacityToEdge(cap) {
         return Math.ceil(Math.sqrt(cap));
     }
+}
+// copy pasted from https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices
+function clientWaitAsync(gl, sync, interval_ms) {
+    return new Promise((resolve, reject) => {
+        function test() {
+            const res = gl.clientWaitSync(sync, 0, 0);
+            if (res === gl.WAIT_FAILED) {
+                reject();
+                return;
+            }
+            if (res === gl.TIMEOUT_EXPIRED) {
+                setTimeout(test, interval_ms);
+                return;
+            }
+            resolve();
+        }
+        test();
+    });
+}
+function getBufferSubDataAsync(gl_1, target_1, buffer_1, srcByteOffset_1, dstBuffer_1) {
+    return __awaiter(this, arguments, void 0, function* (gl, target, buffer, srcByteOffset, dstBuffer, dstOffset = 0, length = 0) {
+        const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        if (sync === null) {
+            throw new Error('failed to create WebGLSync');
+        }
+        gl.flush();
+        yield clientWaitAsync(gl, sync, 0);
+        gl.deleteSync(sync);
+        gl.bindBuffer(target, buffer);
+        gl.getBufferSubData(target, srcByteOffset, dstBuffer, dstOffset, length);
+        gl.bindBuffer(target, null);
+        return dstBuffer;
+    });
+}
+function readPixelsAsync(gl, x, y, w, h, format, type, dest) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf);
+        gl.bufferData(gl.PIXEL_PACK_BUFFER, dest.byteLength, gl.STREAM_READ);
+        gl.readPixels(x, y, w, h, format, type, 0);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        yield getBufferSubDataAsync(gl, gl.PIXEL_PACK_BUFFER, buf, 0, dest);
+        gl.deleteBuffer(buf);
+        return dest;
+    });
 }

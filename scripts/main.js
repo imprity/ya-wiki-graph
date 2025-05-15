@@ -363,9 +363,9 @@ class App {
         this.mouse = new math.Vector2(0, 0);
         this.pMouse = new math.Vector2(0, 0);
         this.isMouseDown = false;
-        this.isFocusedOnNode = false;
-        this.focusedNodeIndex = -1;
-        this.focusPos = new math.Vector2(0, 0);
+        this.readyToExpandNodeOnRelease = false;
+        this.tappedPos = new math.Vector2(0, 0);
+        this.lastPosBeforeRelease = new math.Vector2(0, 0);
         this.isPinching = false;
         this.pinch = 0;
         this.pinchPos = new math.Vector2(0, 0);
@@ -395,7 +395,7 @@ class App {
                     // but good enough
                     const offsetV = { x: 0, y: -(100 + DocNode.nodeMassToRadius(links.length)) };
                     if (links.length > 0) {
-                        this.gpu.updateNodePositionsAndTempsToNodeManager(this.nodeManager);
+                        yield this.gpu.updateNodePositionsAndTempsToNodeManager(this.nodeManager);
                         //for (const link of links) {
                         for (let i = 0; i < links.length; i++) {
                             const link = links[i];
@@ -405,8 +405,8 @@ class App {
                                 const newNodeId = this.nodeManager.length();
                                 newNode.title = link;
                                 const v = math.vector2Rotate(offsetV, angle * i);
-                                newNode.posX = node.posX + v.x; // + (Math.random() - 0.5) * 20
-                                newNode.posY = node.posY + v.y; // + (Math.random() - 0.5) * 20
+                                newNode.posX = node.posX + v.x; //
+                                newNode.posY = node.posY + v.y; //
                                 this.nodeManager.pushNode(newNode);
                                 this.nodeManager.setConnected(nodeIndex, newNodeId, true);
                                 node.mass += 1;
@@ -491,31 +491,50 @@ class App {
         const endDragging = () => {
             this.draggingCanvas = false;
         };
-        const handlePointClick = (x, y) => {
-            let clickedOnNode = false;
-            let nodeIndex = -1;
-            this.gpu.updateNodePositionsAndTempsToNodeManager(this.nodeManager);
-            // check if we clicked on node
-            {
-                const pos = this.viewportToWorld(x, y);
-                for (let i = 0; i < this.nodeManager.length(); i++) {
-                    const node = this.nodeManager.getNodeAt(i);
-                    if (math.posInCircle(pos.x, pos.y, node.posX, node.posY, node.getRadius())) {
-                        clickedOnNode = true;
-                        nodeIndex = i;
-                        break;
-                    }
+        const handlePointerDown = (x, y) => {
+            startDragging(x, y);
+            this.readyToExpandNodeOnRelease = true;
+            this.tappedPos.x = x;
+            this.tappedPos.y = y;
+            this.lastPosBeforeRelease.x = x;
+            this.lastPosBeforeRelease.y = y;
+        };
+        const handlePointerMove = (x, y) => {
+            if (this.draggingCanvas) {
+                doDrag(x, y);
+            }
+            if (this.readyToExpandNodeOnRelease) {
+                this.lastPosBeforeRelease.x = x;
+                this.lastPosBeforeRelease.y = y;
+                const dist = math.dist(x - this.tappedPos.x, y - this.tappedPos.y);
+                if (dist > focusLoseDist) {
+                    this.readyToExpandNodeOnRelease = false;
                 }
             }
-            if (clickedOnNode) {
-                this.isFocusedOnNode = true;
-                this.focusedNodeIndex = nodeIndex;
-                this.focusPos.x = x;
-                this.focusPos.y = y;
+        };
+        const handlePointerUp = () => {
+            if (this.readyToExpandNodeOnRelease) {
+                this.gpu.updateNodePositionsAndTempsToNodeManager(this.nodeManager).then(() => {
+                    // check if we clicked on node
+                    let clickedOnNode = false;
+                    let nodeIndex = -1;
+                    const pos = this.viewportToWorld(this.lastPosBeforeRelease.x, this.lastPosBeforeRelease.y);
+                    for (let i = 0; i < this.nodeManager.length(); i++) {
+                        const node = this.nodeManager.getNodeAt(i);
+                        if (math.posInCircle(pos.x, pos.y, node.posX, node.posY, node.getRadius())) {
+                            clickedOnNode = true;
+                            nodeIndex = i;
+                            break;
+                        }
+                    }
+                    // if we clicked on node, expand it
+                    if (clickedOnNode) {
+                        this.expandNode(nodeIndex);
+                    }
+                });
             }
-            else {
-                startDragging(x, y);
-            }
+            this.readyToExpandNodeOnRelease = false;
+            this.draggingCanvas = false;
         };
         const touchPos = (touch) => {
             let canvasRect = this.canvasElement.getBoundingClientRect();
@@ -546,42 +565,26 @@ class App {
                     this.pMouse.y = this.mouse.y;
                     this.mouse.x = mouseEvent.offsetX;
                     this.mouse.y = mouseEvent.offsetY;
-                    if (this.draggingCanvas) {
-                        doDrag(this.mouse.x, this.mouse.y);
-                    }
-                    else if (this.isFocusedOnNode) {
-                        const dist = math.dist(this.mouse.x - this.focusPos.x, this.mouse.y - this.focusPos.y);
-                        if (dist > focusLoseDist) {
-                            this.isFocusedOnNode = false;
-                            if (this.isMouseDown) {
-                                startDragging(this.mouse.x, this.mouse.y);
-                            }
-                        }
-                    }
+                    handlePointerMove(this.mouse.x, this.mouse.y);
                 }
                 break;
             case "mousedown":
                 {
                     const mouseEvent = e;
                     this.isMouseDown = true;
-                    handlePointClick(this.mouse.x, this.mouse.y);
+                    handlePointerDown(this.mouse.x, this.mouse.y);
                 }
                 break;
             case "mouseup":
                 {
                     this.isMouseDown = false;
-                    if (this.isFocusedOnNode) {
-                        this.expandNode(this.focusedNodeIndex);
-                    }
-                    this.isFocusedOnNode = false;
-                    endDragging();
+                    handlePointerUp();
                 }
                 break;
             case "mouseleave":
                 {
                     endDragging();
-                    this.isFocusedOnNode = false;
-                    this.isMouseDown = false;
+                    this.readyToExpandNodeOnRelease = false;
                 }
                 break;
             case "touchstart":
@@ -590,10 +593,10 @@ class App {
                     const touches = touchEvent.touches;
                     if (touches.length == 1) {
                         const touch = touchPos(touches[0]);
-                        handlePointClick(touch.x, touch.y);
+                        handlePointerDown(touch.x, touch.y);
                     }
                     else {
-                        this.isFocusedOnNode = false;
+                        this.readyToExpandNodeOnRelease = false;
                         endDragging();
                     }
                     if (touches.length == 2) {
@@ -615,19 +618,10 @@ class App {
                     const touches = touchEvent.touches;
                     if (touches.length == 1) {
                         const touch = touchPos(touches[0]);
-                        if (this.draggingCanvas) {
-                            doDrag(touch.x, touch.y);
-                        }
-                        else if (this.isFocusedOnNode) {
-                            const dist = math.dist(touch.x - this.focusPos.x, touch.y - this.focusPos.y);
-                            if (dist > focusLoseDist) {
-                                this.isFocusedOnNode = false;
-                                startDragging(touch.x, touch.y);
-                            }
-                        }
+                        handlePointerMove(touch.x, touch.y);
                     }
                     else {
-                        this.isFocusedOnNode = false;
+                        this.readyToExpandNodeOnRelease = false;
                         endDragging();
                     }
                     if (touches.length === 2) {
@@ -656,10 +650,7 @@ class App {
                 {
                     const touchEvent = e;
                     if (touchEvent.touches.length === 0) {
-                        if (this.isFocusedOnNode) {
-                            this.expandNode(this.focusedNodeIndex);
-                            this.isFocusedOnNode = false;
-                        }
+                        handlePointerUp();
                     }
                     if (touchEvent.touches.length !== 1) {
                         endDragging();
@@ -684,142 +675,8 @@ class App {
         this.gpu.zoom = this.zoom;
         this.gpu.offset.x = this.offset.x;
         this.gpu.offset.y = this.offset.y;
-        // build quad tree
-        //this.quadTreeRoot = this.treeBuilder.buildTree(this.nodeManager)
-        /*
-        // ==============================
-        // cache node visibility
-        // ==============================
-        {
-            for (let i = 0; i < this.nodeManager.length(); i++) {
-                const node = this.nodeManager.getNodeAt(i)
-                node.doDraw = false
-            }
-
-            const viewMin = this.viewportToWorld(0, 0)
-            const viewMax = this.viewportToWorld(this.width, this.height)
-
-            const toRecurse = (tree: QuadTree) => {
-                if (math.boxIntersects(
-                    viewMin.x, viewMin.y, viewMax.x, viewMax.y,
-                    tree.minX, tree.minY, tree.maxX, tree.maxY
-                )) {
-                    if (tree.node !== null) {
-                        tree.node.doDraw = true
-                    } else {
-                        for (const childTree of tree.childrenTrees) {
-                            if (childTree !== null) {
-                                toRecurse(childTree)
-                            }
-                        }
-                    }
-                }
-            }
-
-            toRecurse(this.quadTreeRoot)
-        }
-
-        // ==============================
-        // cache connection visibility
-        // ==============================
-        {
-            let connections = this.nodeManager.getConnections()
-            for (let i = 0; i < connections.length; i++) {
-                const con = connections[i]
-                con.doDraw = false
-            }
-
-            const viewMin = this.viewportToWorld(0, 0)
-            const viewMax = this.viewportToWorld(this.width, this.height)
-
-            for (let i = 0; i < connections.length; i++) {
-                const con = connections[i]
-                const nodeA = this.nodeManager.getNodeAt(con.nodeIndexA)
-                const nodeB = this.nodeManager.getNodeAt(con.nodeIndexB)
-
-                const minX = Math.min(nodeA.posX, nodeB.posX)
-                const maxX = Math.max(nodeA.posX, nodeB.posX)
-
-                const minY = Math.min(nodeA.posY, nodeB.posY)
-                const maxY = Math.max(nodeA.posY, nodeB.posY)
-
-                if (math.boxIntersects(
-                    viewMin.x, viewMin.y, viewMax.x, viewMax.y,
-                    minX, minY, maxX, maxY
-                )) {
-                    con.doDraw = true
-                }
-            }
-        }
-        */
     }
     draw(deltaTime) {
-        // draw connections
-        /*this.nodeManager.getConnections().forEach((con) => {
-            if (!con.doDraw) {
-                return
-            }
-
-            const nodeA = this.nodeManager.getNodeAt(con.nodeIndexA)
-            const nodeB = this.nodeManager.getNodeAt(con.nodeIndexB)
-
-            const posA = this.worldToViewport(nodeA.posX, nodeA.posY)
-            const posB = this.worldToViewport(nodeB.posX, nodeB.posY)
-
-            cd.strokeLine(
-                this.ctx,
-                posA.x, posA.y,
-                posB.x, posB.y,
-                2 * this.zoom, "grey"
-            )
-        })
-
-        // draw circles
-        for (let i = 0; i < this.nodeManager.length(); i++) {
-            const node = this.nodeManager.getNodeAt(i)
-            if (node.doDraw) {
-                const pos = this.worldToViewport(node.posX, node.posY)
-
-                if (this.isRequesting && i === this.requestingNodeIndex) {
-                    cd.fillCircle(
-                        this.ctx, pos.x, pos.y,
-                        node.getRadius() * this.zoom,
-                        "red"
-                    )
-                } else {
-                    cd.fillCircle(
-                        this.ctx, pos.x, pos.y,
-                        node.getRadius() * this.zoom,
-                        "PaleTurquoise"
-                    )
-                }
-            }
-        }
-
-        // draw texts
-        if (this.zoom > 0.3) {
-            this.ctx.font = `${this.zoom * 12}px sans-serif`
-            this.ctx.fillStyle = "black"
-            this.ctx.textAlign = "center"
-            this.ctx.textRendering = "optimizeSpeed"
-            this.ctx.textBaseline = "bottom"
-            for (let i = 0; i < this.nodeManager.length(); i++) {
-                const node = this.nodeManager.getNodeAt(i)
-                if (node.doDraw) {
-                    const pos = this.worldToViewport(node.posX, node.posY)
-
-                    this.ctx.fillText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom)
-                }
-            }
-        }
-
-        // draw mouse pointer
-        {
-            let pos = this.viewportToWorld(this.mouse.x, this.mouse.y)
-            pos = this.worldToViewport(pos.x, pos.y)
-            cd.fillCircle(this.ctx, pos.x, pos.y, 10 * this.zoom, "red")
-        }
-        */
         this.gpu.render();
     }
     updateWidthAndHeight() {
@@ -1072,7 +929,7 @@ function main() {
         /*
         // TODO: very bad way of keeping a 60 frames per second
         setTimeout(() => {
-            requestAnimationFrame(onFrame)
+        requestAnimationFrame(onFrame)
         }, 1000 / 60)
         */
     };
