@@ -348,13 +348,17 @@ class QuadTreeBuilder {
     }
 }
 class App {
-    constructor(canvas) {
+    constructor(mainCanvas, overlayCanvas) {
         this.width = 0;
         this.height = 0;
         this.zoom = 1;
         this.offset = new math.Vector2(0, 0);
         this.isRequesting = false;
         this.requestingNodeIndex = -1;
+        // quadTreeRoot: QuadTree = new QuadTree()
+        this.treeBuilder = new QuadTreeBuilder();
+        this.nodePositionsUpdated = false;
+        this.updatingNodePositions = false;
         // ========================
         // input states
         // ========================
@@ -432,10 +436,18 @@ class App {
                 this.isRequesting = false;
             }
         });
-        this.canvasElement = canvas;
+        this.mainCanvas = mainCanvas;
+        this.overlayCanvas = overlayCanvas;
+        {
+            const ctx = overlayCanvas.getContext('2d');
+            if (ctx === null) {
+                throw new Error('failed to get CanvasRenderingContext2D');
+            }
+            this.overlayCtx = ctx;
+        }
         this.updateWidthAndHeight();
         this.nodeManager = new NodeManager();
-        this.gpu = new GpuComputeRenderer(canvas);
+        this.gpu = new GpuComputeRenderer(this.mainCanvas);
         this.gpu.simParam = this.simParam;
         // NOTE: we have to add it to window because canvas
         // doesn't take keyboard input
@@ -454,7 +466,7 @@ class App {
             "touchmove",
             "touchstart",
         ]) {
-            this.canvasElement.addEventListener(eName, (e) => {
+            this.mainCanvas.addEventListener(eName, (e) => {
                 e.preventDefault();
                 this.handleEvent(e);
             });
@@ -467,10 +479,9 @@ class App {
         this.nodeManager.pushNode(testNode);
         // TEST TEST TEST TEST
         this.gpu.submitNodeManager(this.nodeManager);
-        //this.gpuComputer.startSimulating()
     }
     handleEvent(e) {
-        const focusLoseDist = 25;
+        const focusLoseDist = 100;
         const startDragging = (x, y) => {
             this.draggingCanvas = true;
             this.pDrag.x = x;
@@ -537,7 +548,7 @@ class App {
             this.draggingCanvas = false;
         };
         const touchPos = (touch) => {
-            let canvasRect = this.canvasElement.getBoundingClientRect();
+            let canvasRect = this.mainCanvas.getBoundingClientRect();
             return new math.Vector2(touch.clientX - canvasRect.x, touch.clientY - canvasRect.y);
         };
         switch (e.type) {
@@ -678,13 +689,66 @@ class App {
     }
     draw(deltaTime) {
         this.gpu.render();
+        this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
+        // =========================
+        // draw texts
+        // =========================
+        // TODO: text is jittery because node position update is delayed
+        if (this.zoom > 0.3) {
+            if (this.nodePositionsUpdated) {
+                this.overlayCtx.font = `${this.zoom * 12}px sans-serif`;
+                this.overlayCtx.fillStyle = "blue";
+                this.overlayCtx.textAlign = "center";
+                this.overlayCtx.textRendering = "optimizeSpeed";
+                this.overlayCtx.textBaseline = "bottom";
+                // drawing text for every node is too expensive
+                // use QuadTree to filter nodes that are not visible
+                const root = this.treeBuilder.buildTree(this.nodeManager);
+                const viewMin = this.viewportToWorld(0, 0);
+                const viewMax = this.viewportToWorld(this.width, this.height);
+                const vx = viewMax.x - viewMin.x;
+                const vy = viewMax.y - viewMin.y;
+                viewMin.x -= vx * 0.25;
+                viewMax.x += vx * 0.25;
+                viewMin.y -= vy * 0.1;
+                viewMax.y += vy * 0.1;
+                const toRecurse = (tree) => {
+                    if (math.boxIntersects(viewMin.x, viewMin.y, viewMax.x, viewMax.y, tree.minX, tree.minY, tree.maxX, tree.maxY)) {
+                        if (tree.node !== null) {
+                            const pos = this.worldToViewport(tree.node.posX, tree.node.posY);
+                            this.overlayCtx.fillText(tree.node.title, pos.x, pos.y - (tree.node.getRadius() + 5.0) * this.zoom);
+                        }
+                        else {
+                            for (const childTree of tree.childrenTrees) {
+                                if (childTree !== null) {
+                                    toRecurse(childTree);
+                                }
+                            }
+                        }
+                    }
+                };
+                toRecurse(root);
+            }
+            if (!this.updatingNodePositions) {
+                this.updatingNodePositions = true;
+                this.gpu.updateNodePositionsAndTempsToNodeManager(this.nodeManager).then(() => {
+                    this.updatingNodePositions = false;
+                    this.nodePositionsUpdated = true;
+                });
+            }
+        }
+        else {
+            this.nodePositionsUpdated = false;
+        }
     }
     updateWidthAndHeight() {
-        const rect = this.canvasElement.getBoundingClientRect();
+        const rect = this.mainCanvas.getBoundingClientRect();
         this.width = rect.width;
         this.height = rect.height;
-        this.canvasElement.width = rect.width;
-        this.canvasElement.height = rect.height;
+        this.mainCanvas.width = rect.width;
+        this.mainCanvas.height = rect.height;
+        this.overlayCanvas.width = rect.width;
+        this.overlayCanvas.height = rect.height;
     }
     worldToViewport(x, y) {
         x += this.offset.x;
@@ -813,11 +877,15 @@ function isSerializationContainer(obj) {
     return true;
 }
 function main() {
-    const canvas = document.getElementById('my-canvas');
-    if (canvas === null) {
-        throw new Error("failed to get canvas context");
+    const mainCanvas = document.getElementById('main-canvas');
+    if (mainCanvas === null) {
+        throw new Error("failed to get main-canvas");
     }
-    const app = new App(canvas);
+    const overlayCanvas = document.getElementById('overlay-canvas');
+    if (overlayCanvas === null) {
+        throw new Error("failed to get overlay-canvas");
+    }
+    const app = new App(mainCanvas, overlayCanvas);
     // set up debug UI elements
     {
         const downloadButton = document.getElementById('download-button');

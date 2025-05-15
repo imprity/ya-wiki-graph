@@ -822,7 +822,7 @@ function getBufferSubDataAsync(gl_1, target_1, buffer_1, srcByteOffset_1, dstBuf
             throw new Error('failed to create WebGLSync');
         }
         gl.flush();
-        yield clientWaitAsync(gl, sync, 0);
+        yield clientWaitAsync(gl, sync, 0.1);
         gl.deleteSync(sync);
         gl.bindBuffer(target, buffer);
         gl.getBufferSubData(target, srcByteOffset, dstBuffer, dstOffset, length);

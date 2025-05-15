@@ -1006,7 +1006,7 @@ async function getBufferSubDataAsync(
 
     gl.flush();
 
-    await clientWaitAsync(gl, sync, 0);
+    await clientWaitAsync(gl, sync, 0.1);
     gl.deleteSync(sync);
 
     gl.bindBuffer(target, buffer);
