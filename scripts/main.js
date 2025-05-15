@@ -10,7 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 import * as wiki from "./wiki.js";
 import * as util from "./util.js";
 import * as math from "./math.js";
-import { GpuComputeRenderer } from "./gpu.js";
+import { GpuComputeRenderer, SimulationParameter } from "./gpu.js";
 import { debugPrint, renderDebugPrint } from './debug_print.js';
 const FirstTitle = "English language";
 //const FirstTitle = "Miss Meyers"
@@ -21,11 +21,11 @@ export class DocNode {
         return id;
     }
     // NOTE:
-    // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    // gpu also needs to figure out raidus from a mass
+    // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
+    // cpu also needs to figure out raidus from a mass
     // so if you are going to change this code,
-    // change the code in gpu shader code in gpu.ts as well
-    // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // change the code in in gpu.ts as well
+    // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
     static nodeMassToRadius(mass) {
         return 8 + mass * 0.1;
     }
@@ -348,19 +348,13 @@ class QuadTreeBuilder {
     }
 }
 class App {
-    // ========================
-    // simulation parameters
-    // ========================
-    //simParam: SimulationParameter = new SimulationParameter()
     constructor(canvas) {
         this.width = 0;
         this.height = 0;
-        this.offset = new math.Vector2(0, 0);
         this.zoom = 1;
+        this.offset = new math.Vector2(0, 0);
         this.isRequesting = false;
         this.requestingNodeIndex = -1;
-        this.quadTreeRoot = new QuadTree();
-        this.treeBuilder = new QuadTreeBuilder();
         // ========================
         // input states
         // ========================
@@ -375,6 +369,10 @@ class App {
         this.isPinching = false;
         this.pinch = 0;
         this.pinchPos = new math.Vector2(0, 0);
+        // ========================
+        // simulation parameters
+        // ========================
+        this.simParam = new SimulationParameter();
         this.expandNode = (nodeIndex) => __awaiter(this, void 0, void 0, function* () {
             if (this.isRequesting) {
                 console.log("busy");
@@ -396,49 +394,34 @@ class App {
                     // not an accurate mass of node that will expand
                     // but good enough
                     const offsetV = { x: 0, y: -(100 + DocNode.nodeMassToRadius(links.length)) };
-                    let index = 0;
-                    const addNodeOneByOne = false;
-                    const addNode = () => {
-                        if (index >= links.length) {
-                            return;
-                        }
+                    if (links.length > 0) {
                         this.gpu.updateNodePositionsAndTempsToNodeManager(this.nodeManager);
-                        const link = links[index];
-                        const otherNodeIndex = this.nodeManager.findNodeFromTitle(link);
-                        if (otherNodeIndex < 0) {
-                            const newNode = new DocNode();
-                            const newNodeId = this.nodeManager.length();
-                            newNode.title = link;
-                            const v = math.vector2Rotate(offsetV, angle * index);
-                            newNode.posX = node.posX + v.x; // + (Math.random() - 0.5) * 20
-                            newNode.posY = node.posY + v.y; // + (Math.random() - 0.5) * 20
-                            this.nodeManager.pushNode(newNode);
-                            this.nodeManager.setConnected(nodeIndex, newNodeId, true);
-                            node.mass += 1;
-                            newNode.mass += 1;
-                        }
-                        else {
-                            if (!this.nodeManager.isConnected(nodeIndex, otherNodeIndex)) {
-                                const otherNode = this.nodeManager.getNodeAt(otherNodeIndex);
-                                this.nodeManager.setConnected(nodeIndex, otherNodeIndex, true);
+                        //for (const link of links) {
+                        for (let i = 0; i < links.length; i++) {
+                            const link = links[i];
+                            const otherNodeIndex = this.nodeManager.findNodeFromTitle(link);
+                            if (otherNodeIndex < 0) {
+                                const newNode = new DocNode();
+                                const newNodeId = this.nodeManager.length();
+                                newNode.title = link;
+                                const v = math.vector2Rotate(offsetV, angle * i);
+                                newNode.posX = node.posX + v.x; // + (Math.random() - 0.5) * 20
+                                newNode.posY = node.posY + v.y; // + (Math.random() - 0.5) * 20
+                                this.nodeManager.pushNode(newNode);
+                                this.nodeManager.setConnected(nodeIndex, newNodeId, true);
                                 node.mass += 1;
-                                otherNode.mass += 1;
+                                newNode.mass += 1;
+                            }
+                            else {
+                                if (!this.nodeManager.isConnected(nodeIndex, otherNodeIndex)) {
+                                    const otherNode = this.nodeManager.getNodeAt(otherNodeIndex);
+                                    this.nodeManager.setConnected(nodeIndex, otherNodeIndex, true);
+                                    node.mass += 1;
+                                    otherNode.mass += 1;
+                                }
                             }
                         }
                         this.gpu.submitNodeManager(this.nodeManager);
-                        index += 1;
-                        if (addNodeOneByOne) {
-                            setTimeout(addNode, 3);
-                        }
-                        else {
-                            addNode();
-                        }
-                    };
-                    if (addNodeOneByOne) {
-                        setTimeout(addNode, 3);
-                    }
-                    else {
-                        addNode();
                     }
                 }
             }
@@ -453,6 +436,7 @@ class App {
         this.updateWidthAndHeight();
         this.nodeManager = new NodeManager();
         this.gpu = new GpuComputeRenderer(canvas);
+        this.gpu.simParam = this.simParam;
         // NOTE: we have to add it to window because canvas
         // doesn't take keyboard input
         // TODO: put canvas inside a div
@@ -698,6 +682,9 @@ class App {
         debugPrint('node count', this.nodeManager.length().toString());
         // debug zoom
         debugPrint('zoom', this.zoom.toFixed(2));
+        this.gpu.zoom = this.zoom;
+        this.gpu.offset.x = this.offset.x;
+        this.gpu.offset.y = this.offset.y;
         // build quad tree
         //this.quadTreeRoot = this.treeBuilder.buildTree(this.nodeManager)
         /*
@@ -976,166 +963,100 @@ function main() {
     }
     const app = new App(canvas);
     // set up debug UI elements
-    // TODO : bring back debug ui
-    /*
     {
-        const downloadButton = document.getElementById('download-button') as HTMLButtonElement
+        const downloadButton = document.getElementById('download-button');
         downloadButton.onclick = () => {
-            const jsonString = app.serialize()
-            util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.json')
-        }
-
-        const uploadInput = document.getElementById('upload-input') as HTMLInputElement
-
-        uploadInput.addEventListener('change', async (ev: Event) => {
+            const jsonString = app.serialize();
+            util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.json');
+        };
+        const uploadInput = document.getElementById('upload-input');
+        uploadInput.addEventListener('change', (ev) => __awaiter(this, void 0, void 0, function* () {
             if (uploadInput.files !== null) {
                 if (uploadInput.files.length > 0) {
                     try {
-                        const file = uploadInput.files[0]
-                        const text = await file.text()
-                        app.deserialize(text)
-                    } catch (err) {
-                        console.error(err)
+                        const file = uploadInput.files[0];
+                        const text = yield file.text();
+                        app.deserialize(text);
+                    }
+                    catch (err) {
+                        console.error(err);
                     }
                 }
             }
-        })
-
-        let debugUICounter = 0
-
-        const getUIid = (): string => {
+        }));
+        let debugUICounter = 0;
+        const getUIid = () => {
             debugUICounter++;
-            return `debug-ui-id-${debugUICounter}`
-        }
-
-        const addSlider = (
-            startingValue: number,
-            min: number, max: number,
-            step: number,
-            labelText: string,
-            onValueChange: (input: number) => void
-        ) => {
-            let debugUIdiv = document.getElementById('debug-ui-div')
+            return `debug-ui-id-${debugUICounter}`;
+        };
+        const addSlider = (startingValue, min, max, step, labelText, onValueChange) => {
+            let debugUIdiv = document.getElementById('debug-ui-div');
             if (debugUIdiv === null) {
-                return
+                return;
             }
-
-            let div = document.createElement('div')
-            div.classList.add('debug-ui-container')
-
-            const id = getUIid()
-
-            let label = document.createElement('label')
-            label.innerText = `${labelText}: ${startingValue}`
-            label.htmlFor = id
-
-            let input = document.createElement('input')
-            input.type = 'range'
-            input.min = min.toString()
-            input.max = max.toString()
-            input.step = step.toString()
-            input.value = startingValue.toString()
-            input.id = id
-            input.addEventListener('input', async (ev: Event) => {
-                label.innerText = `${labelText}: ${input.value}`
-                onValueChange(parseFloat(input.value))
-            })
-
-            div.appendChild(input)
-            div.appendChild(label)
-            debugUIdiv.appendChild(div)
-        }
-
-        const addCheckBox = (
-            startingValue: boolean,
-            labelText: string,
-            onValueChange: (input: boolean) => void
-        ) => {
-            let debugUIdiv = document.getElementById('debug-ui-div')
+            let div = document.createElement('div');
+            div.classList.add('debug-ui-container');
+            const id = getUIid();
+            let label = document.createElement('label');
+            label.innerText = `${labelText}: ${startingValue}`;
+            label.htmlFor = id;
+            let input = document.createElement('input');
+            input.type = 'range';
+            input.min = min.toString();
+            input.max = max.toString();
+            input.step = step.toString();
+            input.value = startingValue.toString();
+            input.id = id;
+            input.addEventListener('input', (ev) => __awaiter(this, void 0, void 0, function* () {
+                label.innerText = `${labelText}: ${input.value}`;
+                onValueChange(parseFloat(input.value));
+            }));
+            div.appendChild(input);
+            div.appendChild(label);
+            debugUIdiv.appendChild(div);
+        };
+        const addCheckBox = (startingValue, labelText, onValueChange) => {
+            let debugUIdiv = document.getElementById('debug-ui-div');
             if (debugUIdiv === null) {
-                return
+                return;
             }
-
-            let div = document.createElement('div')
-            div.classList.add('debug-ui-container')
-
-            const id = getUIid()
-
-            let label = document.createElement('label')
-            label.innerText = `${labelText}`
-            label.htmlFor = id
-
-            let checkbox = document.createElement('input')
-            checkbox.type = 'checkbox'
-            checkbox.checked = startingValue
-            checkbox.id = id
-            checkbox.addEventListener('input', async (ev: Event) => {
-                label.innerText = `${labelText}`
-                onValueChange(checkbox.checked)
-            })
-
-            div.appendChild(checkbox)
-            div.appendChild(label)
-            debugUIdiv.appendChild(div)
-        }
-
-        const addButton = (
-            text: string,
-            onclick: () => void
-        ) => {
-            let debugUIdiv = document.getElementById('debug-ui-div')
+            let div = document.createElement('div');
+            div.classList.add('debug-ui-container');
+            const id = getUIid();
+            let label = document.createElement('label');
+            label.innerText = `${labelText}`;
+            label.htmlFor = id;
+            let checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = startingValue;
+            checkbox.id = id;
+            checkbox.addEventListener('input', (ev) => __awaiter(this, void 0, void 0, function* () {
+                label.innerText = `${labelText}`;
+                onValueChange(checkbox.checked);
+            }));
+            div.appendChild(checkbox);
+            div.appendChild(label);
+            debugUIdiv.appendChild(div);
+        };
+        const addButton = (text, onclick) => {
+            let debugUIdiv = document.getElementById('debug-ui-div');
             if (debugUIdiv === null) {
-                return
+                return;
             }
-
-            let div = document.createElement('div')
-            div.classList.add('debug-ui-container')
-
-            let button = document.createElement('button')
-            button.innerText = text
-
-            button.onclick = onclick
-
-            div.appendChild(button)
-            debugUIdiv.appendChild(div)
-        }
-
-        addButton(
-            'reset', () => { app.reset(true) }
-        )
-
-        addSlider(
-            app.simParam.nodeMinDist,
-            0, 10,
-            0.01,
-            "nodeMinDist",
-            (value) => { app.simParam.nodeMinDist = value }
-        )
-
-        addSlider(
-            app.simParam.repulsion,
-            0, 10000,
-            1,
-            "repulsion",
-            (value) => { app.simParam.repulsion = value }
-        )
-
-        addSlider(
-            app.simParam.spring,
-            0, 20,
-            0.0001,
-            "spring",
-            (value) => { app.simParam.spring = value }
-        )
-        addSlider(
-            app.simParam.springDist,
-            1, 1000,
-            1,
-            "springDist",
-            (value) => { app.simParam.springDist = value }
-        )
+            let div = document.createElement('div');
+            div.classList.add('debug-ui-container');
+            let button = document.createElement('button');
+            button.innerText = text;
+            button.onclick = onclick;
+            div.appendChild(button);
+            debugUIdiv.appendChild(div);
+        };
+        addButton('reset', () => { app.reset(true); });
+        addSlider(app.simParam.nodeMinDist, 0, 10, 0.01, "nodeMinDist", (value) => { app.simParam.nodeMinDist = value; });
+        addSlider(app.simParam.repulsion, 0, 10000, 1, "repulsion", (value) => { app.simParam.repulsion = value; });
+        addSlider(app.simParam.spring, 0, 20, 0.0001, "spring", (value) => { app.simParam.spring = value; });
+        addSlider(app.simParam.springDist, 1, 1000, 1, "springDist", (value) => { app.simParam.springDist = value; });
     }
-    */
     let prevTime;
     const onFrame = (timestamp) => {
         //clearDebugPrint()

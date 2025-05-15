@@ -2,7 +2,7 @@ import * as cd from "./canvas.js"
 import * as wiki from "./wiki.js"
 import * as util from "./util.js"
 import * as math from "./math.js"
-import { GpuComputeRenderer } from "./gpu.js"
+import { GpuComputeRenderer, SimulationParameter } from "./gpu.js"
 import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js'
 
 const FirstTitle = "English language"
@@ -18,11 +18,11 @@ export class DocNode {
     }
 
     // NOTE:
-    // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    // gpu also needs to figure out raidus from a mass
+    // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
+    // cpu also needs to figure out raidus from a mass
     // so if you are going to change this code,
-    // change the code in gpu shader code in gpu.ts as well
-    // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // change the code in in gpu.ts as well
+    // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
     static nodeMassToRadius(mass: number): number {
         return 8 + mass * 0.1
     }
@@ -455,18 +455,16 @@ class App {
     width: number = 0
     height: number = 0
 
-    offset: math.Vector2 = new math.Vector2(0, 0)
-
     zoom: number = 1
+    offset: math.Vector2 = new math.Vector2(0, 0)
 
     isRequesting: boolean = false
     requestingNodeIndex: number = -1
 
-    quadTreeRoot: QuadTree = new QuadTree()
-    treeBuilder: QuadTreeBuilder = new QuadTreeBuilder()
+    // quadTreeRoot: QuadTree = new QuadTree()
+    // treeBuilder: QuadTreeBuilder = new QuadTreeBuilder()
 
     gpu: GpuComputeRenderer
-    simParam: any // TODO: actually put back sim param
 
     nodeManager: NodeManager
 
@@ -493,7 +491,7 @@ class App {
     // ========================
     // simulation parameters
     // ========================
-    //simParam: SimulationParameter = new SimulationParameter()
+    simParam: SimulationParameter = new SimulationParameter()
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvasElement = canvas
@@ -502,6 +500,8 @@ class App {
 
         this.nodeManager = new NodeManager()
         this.gpu = new GpuComputeRenderer(canvas)
+
+        this.gpu.simParam = this.simParam
 
         // NOTE: we have to add it to window because canvas
         // doesn't take keyboard input
@@ -825,57 +825,40 @@ class App {
                 // not an accurate mass of node that will expand
                 // but good enough
                 const offsetV = { x: 0, y: - (100 + DocNode.nodeMassToRadius(links.length)) }
-                let index = 0;
 
-                const addNodeOneByOne = false
-
-                const addNode = () => {
-                    if (index >= links.length) {
-                        return
-                    }
-
+                if (links.length > 0) {
                     this.gpu.updateNodePositionsAndTempsToNodeManager(this.nodeManager)
 
-                    const link = links[index]
-                    const otherNodeIndex = this.nodeManager.findNodeFromTitle(link)
+                    //for (const link of links) {
+                    for (let i = 0; i < links.length; i++) {
+                        const link = links[i]
 
-                    if (otherNodeIndex < 0) {
-                        const newNode = new DocNode()
-                        const newNodeId = this.nodeManager.length()
-                        newNode.title = link
+                        const otherNodeIndex = this.nodeManager.findNodeFromTitle(link)
 
-                        const v = math.vector2Rotate(offsetV, angle * index)
-                        newNode.posX = node.posX + v.x // + (Math.random() - 0.5) * 20
-                        newNode.posY = node.posY + v.y // + (Math.random() - 0.5) * 20
+                        if (otherNodeIndex < 0) {
+                            const newNode = new DocNode()
+                            const newNodeId = this.nodeManager.length()
+                            newNode.title = link
 
-                        this.nodeManager.pushNode(newNode)
-                        this.nodeManager.setConnected(nodeIndex, newNodeId, true)
+                            const v = math.vector2Rotate(offsetV, angle * i)
+                            newNode.posX = node.posX + v.x // + (Math.random() - 0.5) * 20
+                            newNode.posY = node.posY + v.y // + (Math.random() - 0.5) * 20
 
-                        node.mass += 1
-                        newNode.mass += 1
-                    } else {
-                        if (!this.nodeManager.isConnected(nodeIndex, otherNodeIndex)) {
-                            const otherNode = this.nodeManager.getNodeAt(otherNodeIndex)
-                            this.nodeManager.setConnected(nodeIndex, otherNodeIndex, true)
+                            this.nodeManager.pushNode(newNode)
+                            this.nodeManager.setConnected(nodeIndex, newNodeId, true)
+
                             node.mass += 1
-                            otherNode.mass += 1
+                            newNode.mass += 1
+                        } else {
+                            if (!this.nodeManager.isConnected(nodeIndex, otherNodeIndex)) {
+                                const otherNode = this.nodeManager.getNodeAt(otherNodeIndex)
+                                this.nodeManager.setConnected(nodeIndex, otherNodeIndex, true)
+                                node.mass += 1
+                                otherNode.mass += 1
+                            }
                         }
                     }
-
                     this.gpu.submitNodeManager(this.nodeManager)
-
-                    index += 1
-
-                    if (addNodeOneByOne) {
-                        setTimeout(addNode, 3)
-                    } else {
-                        addNode()
-                    }
-                }
-                if (addNodeOneByOne) {
-                    setTimeout(addNode, 3)
-                } else {
-                    addNode()
                 }
             }
         } catch (err) {
@@ -896,6 +879,10 @@ class App {
         debugPrint('node count', this.nodeManager.length().toString())
         // debug zoom
         debugPrint('zoom', this.zoom.toFixed(2))
+
+        this.gpu.zoom = this.zoom
+        this.gpu.offset.x = this.offset.x
+        this.gpu.offset.y = this.offset.y
 
         // build quad tree
         //this.quadTreeRoot = this.treeBuilder.buildTree(this.nodeManager)
@@ -1223,8 +1210,6 @@ function main() {
     const app = new App(canvas)
 
     // set up debug UI elements
-    // TODO : bring back debug ui
-    /*
     {
         const downloadButton = document.getElementById('download-button') as HTMLButtonElement
         downloadButton.onclick = () => {
@@ -1382,7 +1367,6 @@ function main() {
             (value) => { app.simParam.springDist = value }
         )
     }
-    */
 
     let prevTime: DOMHighResTimeStamp | undefined
 

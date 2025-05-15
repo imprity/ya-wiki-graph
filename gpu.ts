@@ -2,6 +2,18 @@ import * as math from "./math.js"
 import { NodeManager, DocNode } from "./main.js"
 import { debugPrint } from './debug_print.js'
 
+// NOTE:
+// !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
+// cpu also needs to figure out raidus from a mass
+// so if you are going to change this code,
+// change the code in in main.ts as well
+// !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
+const nodeMassToRadiusGLSL = `
+float node_mass_to_radius(float m) {
+    return 8.0f + m * 0.1;
+}
+`
+
 const forceCalcVShaderSrc = `#version 300 es
 in vec4 vertex;
 
@@ -26,15 +38,7 @@ uniform float u_spring_dist;
 
 out uvec4 out_color;
 
-// NOTE:
-// !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
-// cpu also needs to figure out raidus from a mass
-// so if you are going to change this code,
-// change the code in in main.ts as well
-// !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
-float mass_to_radius(float m) {
-    return 8.0f + m * 0.1;
-}
+${nodeMassToRadiusGLSL}
 
 /*
 vec2 get_node_position_at(int x, int y) {
@@ -51,8 +55,8 @@ vec2 calculate_repulsion(
     vec2 pos_a, float mass_a,
     vec2 pos_b, float mass_b
 ) {
-    float raidus_a = mass_to_radius(mass_a);
-    float raidus_b = mass_to_radius(mass_b);
+    float raidus_a = node_mass_to_radius(mass_a);
+    float raidus_b = node_mass_to_radius(mass_b);
 
     vec2 atob = pos_b - pos_a;
 
@@ -79,8 +83,8 @@ vec2 calculate_spring(
     vec2 pos_a, float mass_a,
     vec2 pos_b, float mass_b
 ) {
-    float raidus_a = mass_to_radius(mass_a);
-    float raidus_b = mass_to_radius(mass_b);
+    float raidus_a = node_mass_to_radius(mass_a);
+    float raidus_b = node_mass_to_radius(mass_b);
 
     vec2 atob = pos_b - pos_a;
 
@@ -218,7 +222,7 @@ void main() {
 
         node_temp = clamp(node_temp, 0.0f, 1.0f);
 
-        node_pos += force_sum * node_temp;
+        node_pos += force_sum * node_temp / node_mass;
     }
 
     uvec2 pos_u = floatBitsToUint(node_pos);
@@ -232,38 +236,59 @@ void main() {
 }
 `
 
+const worldToViewport = `
+uniform vec2 u_screen_size;
+uniform float u_zoom;
+uniform vec2 u_offset;
+
+vec2 world_to_viewport(vec2 pos) {
+    pos += u_offset;
+
+    pos *= u_zoom;
+
+    pos.x = ((pos.x / u_screen_size.x) - 0.5f) * 2.0f;
+    pos.y = -((pos.y / u_screen_size.y) - 0.5f) * 2.0f;
+
+    return pos;
+}
+`
+
 const drawNodeVShaderSrc = `#version 300 es
 in vec4 vertex;
 
 uniform highp usampler2D u_node_infos_tex;
 
-uniform vec2 u_screen_size;
-
 out vec4 color;
+
+${worldToViewport}
+
+${nodeMassToRadiusGLSL}
 
 void main() {
     float x = vertex.x;
     float y = vertex.y;
-
-    // TODO: parameterize using uniform
-    x *= 10.0f;
-    y *= 10.0f;
 
     ivec2 texture_size = textureSize(u_node_infos_tex, 0);
 
     int info_x = gl_InstanceID % texture_size.x;
     int info_y = gl_InstanceID / texture_size.x;
 
-    vec2 pos = uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(info_x, info_y), 0).xy);
+    vec2 node_pos = uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(info_x, info_y), 0).xy);
+    float node_mass = uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(info_x, info_y), 0).z);
 
-    x += pos.x;
-    y += pos.y;
+    float node_raidus = node_mass_to_radius(node_mass);
 
-    x = ((x / u_screen_size.x) - 0.5f) * 2.0f;
-    y = -((y / u_screen_size.y) - 0.5f) * 2.0f;
+    x *= node_raidus * 2.0f;
+    y *= node_raidus * 2.0f;
+
+    x += node_pos.x;
+    y += node_pos.y;
+
+    vec2 pos = vec2(x, y);
+    pos = world_to_viewport(pos);
 
     gl_Position = vec4(
-        x, y, 0, 1
+        pos.x, pos.y, 0, 1
     );
 
     color = vec4(1, 0, 0, 1);
@@ -287,10 +312,10 @@ const drawConVSahderSrc = `#version 300 es
 
 in vec4 vertex;
 
-uniform vec2 u_screen_size;
-
 uniform highp usampler2D u_node_infos_tex;
 uniform highp usampler2D u_con_infos_tex;
+
+${worldToViewport}
 
 out vec4 color;
 
@@ -340,11 +365,11 @@ void main() {
     x += center.x;
     y += center.y;
 
-    x = ((x / u_screen_size.x) - 0.5f) * 2.0f;
-    y = -((y / u_screen_size.y) - 0.5f) * 2.0f;
+    vec2 pos = vec2(x, y);
+    pos = world_to_viewport(pos);
 
     gl_Position = vec4(
-        x, y, 0, 1
+        pos.x, pos.y, 0, 1
     );
 
     // switch (gl_VertexID){
@@ -373,6 +398,15 @@ void main() {
   out_color = color;
 }
 `
+
+export class SimulationParameter {
+    nodeMinDist: number = 10
+
+    repulsion: number = 7000
+
+    spring: number = 5
+    springDist: number = 600
+}
 
 class LocationGroup {
     gl: WebGL2RenderingContext
@@ -431,6 +465,11 @@ export class GpuComputeRenderer {
 
     canvas: HTMLCanvasElement
     gl: WebGL2RenderingContext
+
+    zoom: number = 1
+    offset: math.Vector2 = new math.Vector2(0, 0)
+
+    simParam: SimulationParameter = new SimulationParameter()
 
     forceCalcUnit: RenderUnit
     drawNodeUnit: RenderUnit
@@ -724,12 +763,12 @@ export class GpuComputeRenderer {
             this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_node_count'), this.nodeLength)
             this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_con_count'), this.connectionLength)
 
-            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_node_min_dist'), 10) // TODO: parameterize
+            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_node_min_dist'), this.simParam.nodeMinDist)
 
-            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_repulsion'), 500) // TODO: parameterize
+            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_repulsion'), this.simParam.repulsion)
 
-            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring'), 0.1) // TODO: parameterize
-            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring_dist'), 10) // TODO: parameterize
+            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring'), this.simParam.spring)
+            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring_dist'), this.simParam.springDist)
 
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);  // draw 2 triangles (6 vertices)
         }
@@ -757,6 +796,10 @@ export class GpuComputeRenderer {
 
             this.gl.uniform2f(
                 this.drawConUint.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height)
+            this.gl.uniform1f(
+                this.drawConUint.locs.uLoc('u_zoom'), this.zoom)
+            this.gl.uniform2f(
+                this.drawConUint.locs.uLoc('u_offset'), this.offset.x, this.offset.y)
 
             this.gl.drawArraysInstanced(
                 this.gl.TRIANGLES,
@@ -785,6 +828,10 @@ export class GpuComputeRenderer {
 
             this.gl.uniform2f(
                 this.drawNodeUnit.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height)
+            this.gl.uniform1f(
+                this.drawNodeUnit.locs.uLoc('u_zoom'), this.zoom)
+            this.gl.uniform2f(
+                this.drawNodeUnit.locs.uLoc('u_offset'), this.offset.x, this.offset.y)
 
             this.gl.drawArraysInstanced(
                 this.gl.TRIANGLES,
@@ -793,27 +840,6 @@ export class GpuComputeRenderer {
                 this.nodeLength // num instances
             )
         }
-
-        // TEST TEST TEST TEST TEST
-        /*
-        {
-            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodeInfosFB1)
-
-            // get the result
-            let infos: any = new Uint32Array(this.nodeInfosTex0.width * this.nodeInfosTex1.height * 4);
-            this.gl.readPixels(0, 0, this.nodeInfosTex0.width, this.nodeInfosTex1.height, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT, infos);
-
-            infos = new Float32Array(infos.buffer)
-
-            // print the results
-            let offset = 0
-            for (let i = 0; i < this.nodeManager.length(); ++i) {
-                debugPrint(`node${i}`, `${infos[offset].toFixed(2)}, ${infos[offset + 1].toFixed(2)}, ${infos[offset + 2].toFixed(2)}`)
-                offset += 4
-            }
-        }
-        */
-        // TEST TEST TEST TEST TEST
 
         this.useNodeInfosTex0 = !this.useNodeInfosTex0
     }
@@ -835,7 +861,7 @@ export class GpuComputeRenderer {
                 data[offset] = node.posX
                 data[offset + 1] = node.posY
                 data[offset + 2] = node.mass
-                data[offset + 3] = 0 // reserved
+                data[offset + 3] = node.temp
 
                 offset += 4
             }
