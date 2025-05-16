@@ -354,8 +354,16 @@ void main() {
     float pixel_height = 2.0 / u_screen_size.y;
 
     float line_thickness = pixel_height * (2.0) * u_zoom; // line thickness TODO: parameterize
+    float line_alpha = 1.0;
+    float line_limit = 2.0;
 
-    angle = angle;
+    // if line becomes thinnner than line_limit,
+    // instead of making lines thinner,
+    // reduce the line_alpha
+    if (line_thickness < pixel_height * line_limit) {
+        line_alpha =  line_thickness / (pixel_height * line_limit);
+        line_thickness = pixel_height * line_limit;
+    }
 
     // scale
     x *= len;
@@ -393,7 +401,7 @@ void main() {
     //         color = color_b;
     //         break;
 
-    v_color = vec4(0.5, 0.5, 0.5, 1.0);
+    v_color = vec4(0.5, 0.5, 0.5, 1.0) * line_alpha;
     v_uv = a_uv;
 }`;
 const drawConFSahderSrc = `#version 300 es
@@ -405,7 +413,11 @@ in vec2 v_uv;
 out vec4 out_color;
 
 void main() {
-    out_color = v_color;
+    float dist = abs(v_uv.y - 0.5);
+    dist *= 2.0;
+    dist = 1.0 - dist;
+    float alpha = smoothstep(0.0, 1.0, dist);
+    out_color = v_color * alpha;
 }
 `;
 export class SimulationParameter {
@@ -459,6 +471,7 @@ export class GpuComputeRenderer {
             const gl = this.canvas.getContext('webgl2', {
                 'antialias': true,
                 'premultipliedAlpha': true,
+                'alpha': false,
             });
             if (gl === null) {
                 throw new Error('failed to get webgl2 context');
@@ -658,6 +671,8 @@ export class GpuComputeRenderer {
             this.canvas.height = rect.height;
         }
         this.gl.disable(this.gl.DITHER);
+        // for calculations, disable alpha blending
+        this.gl.disable(this.gl.BLEND);
         // calculate force
         {
             this.gl.useProgram(this.forceCalcUnit.program);
@@ -686,6 +701,13 @@ export class GpuComputeRenderer {
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring_dist'), this.simParam.springDist);
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6); // draw 2 triangles (6 vertices)
         }
+        // enable alpha blending
+        this.gl.enable(this.gl.BLEND);
+        this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+        // clear background
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        this.gl.clearColor(1, 1, 1, 1);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
         // draw connections
         {
             this.gl.useProgram(this.drawConUint.program);
