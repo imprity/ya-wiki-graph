@@ -15,10 +15,10 @@ float node_mass_to_radius(float m) {
 `
 
 const forceCalcVShaderSrc = `#version 300 es
-in vec4 vertex;
+in vec4 a_vertex;
 
 void main() {
-    gl_Position = vertex;
+    gl_Position = a_vertex;
 }
 `
 const forceCalcFShaderSrc = `#version 300 es
@@ -254,19 +254,19 @@ vec2 world_to_viewport(vec2 pos) {
 `
 
 const drawNodeVShaderSrc = `#version 300 es
-in vec4 vertex;
+in vec4 a_vertex;
 
 uniform highp usampler2D u_node_infos_tex;
 
-out vec4 color;
+out vec4 v_color;
 
 ${worldToViewport}
 
 ${nodeMassToRadiusGLSL}
 
 void main() {
-    float x = vertex.x;
-    float y = vertex.y;
+    float x = a_vertex.x;
+    float y = a_vertex.y;
 
     ivec2 texture_size = textureSize(u_node_infos_tex, 0);
 
@@ -291,33 +291,35 @@ void main() {
         pos.x, pos.y, 0, 1
     );
 
-    color = vec4(1, 0, 0, 1);
+    v_color = vec4(175.0f/255.0f, 238.0f/255.0f, 238.0f/255.0f, 1);
 }
 `
 
 const drawNodeFShaderSrc = `#version 300 es
 precision highp float;
 
-in vec4 color;
+in vec4 v_color;
 
 out vec4 out_color;
 
 void main() {
-  out_color = color;
+  out_color = v_color;
 }
 `;
 
 const drawConVSahderSrc = `#version 300 es
 #define PI 3.14159265359
 
-in vec4 vertex;
+in vec4 a_vertex;
+in vec2 a_uv;
 
 uniform highp usampler2D u_node_infos_tex;
 uniform highp usampler2D u_con_infos_tex;
 
 ${worldToViewport}
 
-out vec4 color;
+out vec4 v_color;
+out vec2 v_uv;
 
 vec2 get_node_pos(int node_index) {
     ivec2 node_tex_size = textureSize(u_node_infos_tex, 0);
@@ -328,8 +330,8 @@ vec2 get_node_pos(int node_index) {
 }
 
 void main() {
-    float x = vertex.x;
-    float y = vertex.y;
+    float x = a_vertex.x;
+    float y = a_vertex.y;
 
     ivec2 con_tex_size = textureSize(u_con_infos_tex, 0);
     int con_x = gl_InstanceID % con_tex_size.x;
@@ -339,37 +341,43 @@ void main() {
     vec2 pos_a = get_node_pos(int(con_info.x));
     vec2 pos_b = get_node_pos(int(con_info.y));
 
+    pos_a = world_to_viewport(pos_a);
+    pos_b = world_to_viewport(pos_b);
+
     vec2 atob = pos_b - pos_a;
 
     float angle = atan(atob.y, atob.x);
     float len = length(atob);
     vec2 center = (pos_a + pos_b) * 0.5;
 
+    float pixel_height = 2.0 / u_screen_size.y;
+
+    float line_thickness = pixel_height * (2.0) * u_zoom; // line thickness TODO: parameterize
+
     angle = angle;
 
     // scale
     x *= len;
-    y *= 2.0f; // line thickness TODO: parameterize
+    y *= line_thickness;
 
     // rotate
-    float sinv = sin(angle);
-    float cosv = cos(angle);
+    {
+        float sinv = sin(angle);
+        float cosv = cos(angle);
 
-    float x2 = x * cosv - y * sinv;
-    float y2 = x * sinv + y * cosv;
+        float x2 = x * cosv - y * sinv;
+        float y2 = x * sinv + y * cosv;
 
-    x = x2;
-    y = y2;
+        x = x2;
+        y = y2;
+    }
 
     // translate
     x += center.x;
     y += center.y;
 
-    vec2 pos = vec2(x, y);
-    pos = world_to_viewport(pos);
-
     gl_Position = vec4(
-        pos.x, pos.y, 0, 1
+        x, y, 0, 1
     );
 
     // switch (gl_VertexID){
@@ -384,18 +392,20 @@ void main() {
     //         color = color_b;
     //         break;
 
-    color = vec4(0, 0, 0, 1);
+    v_color = vec4(0.5, 0.5, 0.5, 1.0);
+    v_uv = a_uv;
 }`
 
 const drawConFSahderSrc = `#version 300 es
 precision highp float;
 
-in vec4 color;
+in vec4 v_color;
+in vec2 v_uv;
 
 out vec4 out_color;
 
 void main() {
-  out_color = color;
+    out_color = v_color;
 }
 `
 
@@ -478,6 +488,8 @@ export class GpuComputeRenderer {
     fullRectBuf: WebGLBuffer
     rect1Buf: WebGLBuffer
 
+    rectUVBuf: WebGLBuffer
+
     nodeInfosTex0: Texture
     nodeInfosTex1: Texture
     useNodeInfosTex0: boolean = false
@@ -495,7 +507,10 @@ export class GpuComputeRenderer {
         // =========================
         this.canvas = canvas
         {
-            const gl = this.canvas.getContext('webgl2')
+            const gl = this.canvas.getContext('webgl2', {
+                'antialias': true,
+                'premultipliedAlpha': true,
+            })
             if (gl === null) {
                 throw new Error('failed to get webgl2 context')
             }
@@ -536,7 +551,8 @@ export class GpuComputeRenderer {
             return shader;
         }
 
-        const createRenderUnit = (vShaderSrc: string, fShaderSrc: string): RenderUnit => {
+        const createRenderUnit = (vShaderSrc: string, fShaderSrc: string, name: string): RenderUnit => {
+            console.log(`creating ${name} RenderUnit`)
             const program = this.gl.createProgram()
 
             const vShader = createShader(this.gl.VERTEX_SHADER, vShaderSrc)
@@ -564,9 +580,12 @@ export class GpuComputeRenderer {
             }
         }
 
-        this.forceCalcUnit = createRenderUnit(forceCalcVShaderSrc, forceCalcFShaderSrc)
-        this.drawNodeUnit = createRenderUnit(drawNodeVShaderSrc, drawNodeFShaderSrc)
-        this.drawConUint = createRenderUnit(drawConVSahderSrc, drawConFSahderSrc)
+        this.forceCalcUnit = createRenderUnit(
+            forceCalcVShaderSrc, forceCalcFShaderSrc, 'forceCalcUnit')
+        this.drawNodeUnit = createRenderUnit(
+            drawNodeVShaderSrc, drawNodeFShaderSrc, 'drawNodeUnit')
+        this.drawConUint = createRenderUnit(
+            drawConVSahderSrc, drawConFSahderSrc, 'drawConUint')
 
         // =========================
         // create buffers
@@ -597,50 +616,83 @@ export class GpuComputeRenderer {
         ]), this.gl.STATIC_DRAW)
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
 
+        this.rectUVBuf = this.gl.createBuffer()
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.rectUVBuf)
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([
+            0.0, 0.0,
+            1.0, 0.0,
+            1.0, 1.0,
+
+            0.0, 0.0,
+            1.0, 1.0,
+            0.0, 1.0,
+        ]), this.gl.STATIC_DRAW)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
+
         // =====================================
         // bind buffers to vao
         // =====================================
-        this.gl.bindVertexArray(this.forceCalcUnit.vao)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.fullRectBuf)
-        this.gl.enableVertexAttribArray(this.forceCalcUnit.locs.aLoc('vertex'))
-        this.gl.vertexAttribPointer(
-            this.forceCalcUnit.locs.aLoc('vertex'), // location
-            4, // size
-            this.gl.FLOAT, // type
-            false, // normalize
-            0, // stride
-            0, // offset
-        )
-        this.gl.bindVertexArray(null)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
+        const bindBufferToVAO = (
+            buffer: WebGLBuffer,
+            unit: RenderUnit,
+            locName: string,
 
-        this.gl.bindVertexArray(this.drawNodeUnit.vao)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.rect1Buf)
-        this.gl.enableVertexAttribArray(this.drawNodeUnit.locs.aLoc('vertex'))
-        this.gl.vertexAttribPointer(
-            this.drawNodeUnit.locs.aLoc('vertex'), // location
-            4, // size
-            this.gl.FLOAT, // type
-            false, // normalize
-            0, // stride
-            0, // offset
-        )
-        this.gl.bindVertexArray(null)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
+            size: GLint,
+            type: GLenum,
+            normalized: GLboolean,
+            stride: GLsizei = 0,
+            offset: GLintptr = 0
+        ) => {
+            this.gl.bindVertexArray(unit.vao)
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer)
+            this.gl.enableVertexAttribArray(unit.locs.aLoc(locName))
+            this.gl.vertexAttribPointer(
+                unit.locs.aLoc(locName), // location
+                size, // size
+                type, // type
+                normalized, // normalize
+                stride, // stride
+                offset, // offset
+            )
+            this.gl.bindVertexArray(null)
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
+        }
 
-        this.gl.bindVertexArray(this.drawConUint.vao)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.rect1Buf)
-        this.gl.enableVertexAttribArray(this.drawConUint.locs.aLoc('vertex'))
-        this.gl.vertexAttribPointer(
-            this.drawConUint.locs.aLoc('vertex'), // location
+        bindBufferToVAO(
+            this.fullRectBuf, this.forceCalcUnit, 'a_vertex',
             4, // size
             this.gl.FLOAT, // type
             false, // normalize
             0, // stride
             0, // offset
         )
-        this.gl.bindVertexArray(null)
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null)
+
+        bindBufferToVAO(
+            this.rect1Buf, this.drawNodeUnit, 'a_vertex',
+            4, // size
+            this.gl.FLOAT, // type
+            false, // normalize
+            0, // stride
+            0, // offset
+        )
+
+        bindBufferToVAO(
+            this.rect1Buf, this.drawConUint, 'a_vertex',
+            4, // size
+            this.gl.FLOAT, // type
+            false, // normalize
+            0, // stride
+            0, // offset
+        )
+
+        bindBufferToVAO(
+            this.rectUVBuf, this.drawConUint, 'a_uv',
+            2, // size
+            this.gl.FLOAT, // type
+            false, // normalize
+            0, // stride
+            0, // offset
+        )
 
         // =========================
         // create texture
