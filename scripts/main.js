@@ -10,6 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 import * as wiki from "./wiki.js";
 import * as util from "./util.js";
 import * as math from "./math.js";
+import * as assets from "./assets.js";
 import { GpuComputeRenderer, SimulationParameter } from "./gpu.js";
 import { debugPrint, renderDebugPrint } from './debug_print.js';
 const FirstTitle = "English language";
@@ -877,130 +878,133 @@ function isSerializationContainer(obj) {
     return true;
 }
 function main() {
-    const mainCanvas = document.getElementById('main-canvas');
-    if (mainCanvas === null) {
-        throw new Error("failed to get main-canvas");
-    }
-    const overlayCanvas = document.getElementById('overlay-canvas');
-    if (overlayCanvas === null) {
-        throw new Error("failed to get overlay-canvas");
-    }
-    const app = new App(mainCanvas, overlayCanvas);
-    // set up debug UI elements
-    {
-        const downloadButton = document.getElementById('download-button');
-        downloadButton.onclick = () => {
-            const jsonString = app.serialize();
-            util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.json');
-        };
-        const uploadInput = document.getElementById('upload-input');
-        uploadInput.addEventListener('change', (ev) => __awaiter(this, void 0, void 0, function* () {
-            if (uploadInput.files !== null) {
-                if (uploadInput.files.length > 0) {
-                    try {
-                        const file = uploadInput.files[0];
-                        const text = yield file.text();
-                        app.deserialize(text);
-                    }
-                    catch (err) {
-                        console.error(err);
+    return __awaiter(this, void 0, void 0, function* () {
+        const mainCanvas = document.getElementById('main-canvas');
+        if (mainCanvas === null) {
+            throw new Error("failed to get main-canvas");
+        }
+        const overlayCanvas = document.getElementById('overlay-canvas');
+        if (overlayCanvas === null) {
+            throw new Error("failed to get overlay-canvas");
+        }
+        yield assets.loadAssets();
+        const app = new App(mainCanvas, overlayCanvas);
+        // set up debug UI elements
+        {
+            const downloadButton = document.getElementById('download-button');
+            downloadButton.onclick = () => {
+                const jsonString = app.serialize();
+                util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.json');
+            };
+            const uploadInput = document.getElementById('upload-input');
+            uploadInput.addEventListener('change', (ev) => __awaiter(this, void 0, void 0, function* () {
+                if (uploadInput.files !== null) {
+                    if (uploadInput.files.length > 0) {
+                        try {
+                            const file = uploadInput.files[0];
+                            const text = yield file.text();
+                            app.deserialize(text);
+                        }
+                        catch (err) {
+                            console.error(err);
+                        }
                     }
                 }
-            }
-        }));
-        let debugUICounter = 0;
-        const getUIid = () => {
-            debugUICounter++;
-            return `debug-ui-id-${debugUICounter}`;
-        };
-        const addSlider = (startingValue, min, max, step, labelText, onValueChange) => {
-            let debugUIdiv = document.getElementById('debug-ui-div');
-            if (debugUIdiv === null) {
-                return;
-            }
-            let div = document.createElement('div');
-            div.classList.add('debug-ui-container');
-            const id = getUIid();
-            let label = document.createElement('label');
-            label.innerText = `${labelText}: ${startingValue}`;
-            label.htmlFor = id;
-            let input = document.createElement('input');
-            input.type = 'range';
-            input.min = min.toString();
-            input.max = max.toString();
-            input.step = step.toString();
-            input.value = startingValue.toString();
-            input.id = id;
-            input.addEventListener('input', (ev) => __awaiter(this, void 0, void 0, function* () {
-                label.innerText = `${labelText}: ${input.value}`;
-                onValueChange(parseFloat(input.value));
             }));
-            div.appendChild(input);
-            div.appendChild(label);
-            debugUIdiv.appendChild(div);
-            onValueChange(startingValue);
-        };
-        const addCheckBox = (startingValue, labelText, onValueChange) => {
-            let debugUIdiv = document.getElementById('debug-ui-div');
-            if (debugUIdiv === null) {
-                return;
-            }
-            let div = document.createElement('div');
-            div.classList.add('debug-ui-container');
-            const id = getUIid();
-            let label = document.createElement('label');
-            label.innerText = `${labelText}`;
-            label.htmlFor = id;
-            let checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.checked = startingValue;
-            checkbox.id = id;
-            checkbox.addEventListener('input', (ev) => __awaiter(this, void 0, void 0, function* () {
+            let debugUICounter = 0;
+            const getUIid = () => {
+                debugUICounter++;
+                return `debug-ui-id-${debugUICounter}`;
+            };
+            const addSlider = (startingValue, min, max, step, labelText, onValueChange) => {
+                let debugUIdiv = document.getElementById('debug-ui-div');
+                if (debugUIdiv === null) {
+                    return;
+                }
+                let div = document.createElement('div');
+                div.classList.add('debug-ui-container');
+                const id = getUIid();
+                let label = document.createElement('label');
+                label.innerText = `${labelText}: ${startingValue}`;
+                label.htmlFor = id;
+                let input = document.createElement('input');
+                input.type = 'range';
+                input.min = min.toString();
+                input.max = max.toString();
+                input.step = step.toString();
+                input.value = startingValue.toString();
+                input.id = id;
+                input.addEventListener('input', (ev) => __awaiter(this, void 0, void 0, function* () {
+                    label.innerText = `${labelText}: ${input.value}`;
+                    onValueChange(parseFloat(input.value));
+                }));
+                div.appendChild(input);
+                div.appendChild(label);
+                debugUIdiv.appendChild(div);
+                onValueChange(startingValue);
+            };
+            const addCheckBox = (startingValue, labelText, onValueChange) => {
+                let debugUIdiv = document.getElementById('debug-ui-div');
+                if (debugUIdiv === null) {
+                    return;
+                }
+                let div = document.createElement('div');
+                div.classList.add('debug-ui-container');
+                const id = getUIid();
+                let label = document.createElement('label');
                 label.innerText = `${labelText}`;
-                onValueChange(checkbox.checked);
-            }));
-            div.appendChild(checkbox);
-            div.appendChild(label);
-            debugUIdiv.appendChild(div);
-        };
-        const addButton = (text, onclick) => {
-            let debugUIdiv = document.getElementById('debug-ui-div');
-            if (debugUIdiv === null) {
-                return;
-            }
-            let div = document.createElement('div');
-            div.classList.add('debug-ui-container');
-            let button = document.createElement('button');
-            button.innerText = text;
-            button.onclick = onclick;
-            div.appendChild(button);
-            debugUIdiv.appendChild(div);
-        };
-        addButton('reset', () => { app.reset(true); });
-        addSlider(10, 0, 10, 0.01, "nodeMinDist", (value) => { app.simParam.nodeMinDist = value; });
-        addSlider(7000, 0, 10000, 1, "repulsion", (value) => { app.simParam.repulsion = value; });
-        addSlider(5, 0, 20, 0.0001, "spring", (value) => { app.simParam.spring = value; });
-        addSlider(600, 1, 1000, 1, "springDist", (value) => { app.simParam.springDist = value; });
-    }
-    let prevTime;
-    const onFrame = (timestamp) => {
-        //clearDebugPrint()
-        if (prevTime === undefined) {
-            prevTime = timestamp;
+                label.htmlFor = id;
+                let checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = startingValue;
+                checkbox.id = id;
+                checkbox.addEventListener('input', (ev) => __awaiter(this, void 0, void 0, function* () {
+                    label.innerText = `${labelText}`;
+                    onValueChange(checkbox.checked);
+                }));
+                div.appendChild(checkbox);
+                div.appendChild(label);
+                debugUIdiv.appendChild(div);
+            };
+            const addButton = (text, onclick) => {
+                let debugUIdiv = document.getElementById('debug-ui-div');
+                if (debugUIdiv === null) {
+                    return;
+                }
+                let div = document.createElement('div');
+                div.classList.add('debug-ui-container');
+                let button = document.createElement('button');
+                button.innerText = text;
+                button.onclick = onclick;
+                div.appendChild(button);
+                debugUIdiv.appendChild(div);
+            };
+            addButton('reset', () => { app.reset(true); });
+            addSlider(10, 0, 10, 0.01, "nodeMinDist", (value) => { app.simParam.nodeMinDist = value; });
+            addSlider(7000, 0, 10000, 1, "repulsion", (value) => { app.simParam.repulsion = value; });
+            addSlider(5, 0, 20, 0.0001, "spring", (value) => { app.simParam.spring = value; });
+            addSlider(600, 1, 1000, 1, "springDist", (value) => { app.simParam.springDist = value; });
         }
-        const deltaTime = timestamp - prevTime;
-        prevTime = timestamp;
-        app.update(deltaTime);
-        app.draw(deltaTime);
-        renderDebugPrint();
+        let prevTime;
+        const onFrame = (timestamp) => {
+            //clearDebugPrint()
+            if (prevTime === undefined) {
+                prevTime = timestamp;
+            }
+            const deltaTime = timestamp - prevTime;
+            prevTime = timestamp;
+            app.update(deltaTime);
+            app.draw(deltaTime);
+            renderDebugPrint();
+            requestAnimationFrame(onFrame);
+            /*
+            // TODO: very bad way of keeping a 60 frames per second
+            setTimeout(() => {
+            requestAnimationFrame(onFrame)
+            }, 1000 / 60)
+            */
+        };
         requestAnimationFrame(onFrame);
-        /*
-        // TODO: very bad way of keeping a 60 frames per second
-        setTimeout(() => {
-        requestAnimationFrame(onFrame)
-        }, 1000 / 60)
-        */
-    };
-    requestAnimationFrame(onFrame);
+    });
 }
 main();

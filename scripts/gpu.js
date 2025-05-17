@@ -8,6 +8,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 import * as math from "./math.js";
+import * as assets from "./assets.js";
 // NOTE:
 // !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
 // cpu also needs to figure out raidus from a mass
@@ -258,10 +259,12 @@ vec2 world_to_viewport(vec2 pos) {
 `;
 const drawNodeVShaderSrc = `#version 300 es
 in vec4 a_vertex;
+in vec2 a_uv;
 
 uniform highp usampler2D u_node_infos_tex;
 
 out vec4 v_color;
+out vec2 v_uv;
 
 ${worldToViewport}
 
@@ -295,17 +298,22 @@ void main() {
     );
 
     v_color = vec4(175.0f/255.0f, 238.0f/255.0f, 238.0f/255.0f, 1);
+    v_uv = a_uv;
 }
 `;
 const drawNodeFShaderSrc = `#version 300 es
 precision highp float;
 
 in vec4 v_color;
+in vec2 v_uv;
+
+uniform sampler2D u_node_tex;
 
 out vec4 out_color;
 
 void main() {
-  out_color = v_color;
+    vec4 tex_color = texture(u_node_tex, v_uv);
+    out_color = v_color * tex_color;
 }
 `;
 const drawConVSahderSrc = `#version 300 es
@@ -606,8 +614,13 @@ export class GpuComputeRenderer {
         false, // normalize
         0, // stride
         0);
+        bindBufferToVAO(this.rectUVBuf, this.drawNodeUnit, 'a_uv', 2, // size
+        this.gl.FLOAT, // type
+        false, // normalize
+        0, // stride
+        0);
         // =========================
-        // create texture
+        // create textures
         // =========================
         const createDataTexture = () => {
             const texture = this.gl.createTexture();
@@ -650,6 +663,61 @@ export class GpuComputeRenderer {
         // create textures to hold connection informations
         this.conInfosTex = createDataTexture();
         setDataTextureSize(this.conInfosTex, texInitSize, texInitSize);
+        // create dummy texture
+        let dummyTexture;
+        {
+            const texture = this.gl.createTexture();
+            this.textureUnitMax += 1;
+            let unit = this.textureUnitMax;
+            this.gl.activeTexture(this.gl.TEXTURE0 + unit);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
+            this.gl.RGBA8, // internal format
+            2, 2, // width, height
+            0, // border
+            this.gl.RGBA, // format
+            this.gl.UNSIGNED_BYTE, // type
+            new Uint8Array([
+                255, 0, 255, 255,
+                0, 0, 0, 255,
+                0, 0, 0, 255,
+                255, 0, 255, 255,
+            ]));
+            // set the filtering so we don't need mips
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.REPEAT);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.REPEAT);
+            dummyTexture = {
+                texture: texture,
+                unit: unit,
+                width: 2, height: 2
+            };
+        }
+        const createImageTexture = (image) => {
+            if (image === null) {
+                return dummyTexture;
+            }
+            const texture = this.gl.createTexture();
+            this.textureUnitMax += 1;
+            let unit = this.textureUnitMax;
+            this.gl.activeTexture(this.gl.TEXTURE0 + unit);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, // taget
+            0, // level
+            this.gl.RGBA, // internal format
+            this.gl.RGBA, // format
+            this.gl.UNSIGNED_BYTE, // type
+            image // source
+            );
+            this.gl.generateMipmap(this.gl.TEXTURE_2D);
+            return {
+                texture: texture,
+                unit: unit,
+                width: image.width, height: image.height
+            };
+        };
+        this.circleTex = createImageTexture(assets.circleImage);
         // ========================
         // create frame buffers
         // ========================
@@ -745,6 +813,9 @@ export class GpuComputeRenderer {
             this.gl.activeTexture(this.gl.TEXTURE0 + infoTex.unit);
             this.gl.bindTexture(this.gl.TEXTURE_2D, infoTex.texture);
             this.gl.uniform1i(this.drawNodeUnit.locs.uLoc('u_node_infos_tex'), infoTex.unit);
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.circleTex.unit);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.circleTex.texture);
+            this.gl.uniform1i(this.drawNodeUnit.locs.uLoc('u_node_tex'), this.circleTex.unit);
             this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
             this.gl.uniform1f(this.drawNodeUnit.locs.uLoc('u_zoom'), this.zoom);
             this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_offset'), this.offset.x, this.offset.y);

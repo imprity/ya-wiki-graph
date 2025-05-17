@@ -2,6 +2,7 @@ import * as cd from "./canvas.js"
 import * as wiki from "./wiki.js"
 import * as util from "./util.js"
 import * as math from "./math.js"
+import * as assets from "./assets.js"
 import { GpuComputeRenderer, SimulationParameter } from "./gpu.js"
 import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js'
 
@@ -1146,7 +1147,7 @@ function isSerializationContainer(obj: any): boolean {
     return true
 }
 
-function main() {
+async function main() {
     const mainCanvas = document.getElementById('main-canvas') as HTMLCanvasElement
     if (mainCanvas === null) {
         throw new Error("failed to get main-canvas")
@@ -1155,6 +1156,8 @@ function main() {
     if (overlayCanvas === null) {
         throw new Error("failed to get overlay-canvas")
     }
+
+    await assets.loadAssets()
 
     const app = new App(mainCanvas, overlayCanvas)
 
