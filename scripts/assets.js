@@ -18,6 +18,6 @@ export function loadAssets() {
             const blob = yield body.blob();
             return yield createImageBitmap(blob);
         });
-        circleImage = yield loadImage('circle.png');
+        circleImage = yield loadImage('assets/circle.png');
     });
 }

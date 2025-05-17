@@ -10,5 +10,5 @@ export async function loadAssets() {
         return await createImageBitmap(blob)
     }
 
-    circleImage = await loadImage('circle.png')
+    circleImage = await loadImage('assets/circle.png')
 }
