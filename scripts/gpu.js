@@ -8,18 +8,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 import * as math from "./math.js";
+import { DocNode } from "./graph_objects.js";
 import * as assets from "./assets.js";
-// NOTE:
-// !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
-// cpu also needs to figure out raidus from a mass
-// so if you are going to change this code,
-// change the code in in main.ts as well
-// !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
-const nodeMassToRadiusGLSL = `
-float node_mass_to_radius(float m) {
-    return 8.0f + m * 0.1;
-}
-`;
 const forceCalcVShaderSrc = `#version 300 es
 in vec4 a_vertex;
 
@@ -44,7 +34,7 @@ uniform float u_spring_dist;
 
 out uvec4 out_color;
 
-${nodeMassToRadiusGLSL}
+${DocNode.nodeMassToRadiusGLSL}
 
 /*
 vec2 get_node_position_at(int x, int y) {
@@ -268,7 +258,7 @@ out vec2 v_uv;
 
 ${worldToViewport}
 
-${nodeMassToRadiusGLSL}
+${DocNode.nodeMassToRadiusGLSL}
 
 void main() {
     float x = a_vertex.x;
@@ -712,7 +702,6 @@ export class GpuComputeRenderer {
             );
             this.gl.generateMipmap(this.gl.TEXTURE_2D);
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR_MIPMAP_NEAREST);
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR_MIPMAP_NEAREST);
             return {
                 texture: texture,
                 unit: unit,
@@ -829,16 +818,16 @@ export class GpuComputeRenderer {
         this.useNodeInfosTex0 = !this.useNodeInfosTex0;
     }
     submitNodeManager(manager) {
-        this.nodeLength = manager.length();
-        this.connectionLength = manager.getConnections().length;
+        this.nodeLength = manager.nodes.length;
+        this.connectionLength = manager.connections.length;
         // supply texture with node infos
         {
             let nodeDataTexSize = this.capacityToEdge(this.nodeLength);
             nodeDataTexSize = Math.max(nodeDataTexSize, 128); // prevent creating empty texture
             let data = new Float32Array(nodeDataTexSize * nodeDataTexSize * 4);
             let offset = 0;
-            for (let i = 0; i < manager.length(); i++) {
-                const node = manager.getNodeAt(i);
+            for (let i = 0; i < manager.nodes.length; i++) {
+                const node = manager.nodes[i];
                 data[offset] = node.posX;
                 data[offset + 1] = node.posY;
                 data[offset + 2] = node.mass;
@@ -872,13 +861,14 @@ export class GpuComputeRenderer {
             conDataTexSize = Math.max(conDataTexSize, 128); // prevent creating empty texture
             let data = new Uint32Array(conDataTexSize * conDataTexSize * 4);
             let offset = 0;
-            manager.getConnections().forEach((con) => {
+            for (let i = 0; i < this.connectionLength; i++) {
+                const con = manager.connections[i];
                 data[offset] = con.nodeIndexA;
                 data[offset + 1] = con.nodeIndexB;
                 data[offset + 2] = 0; // reserved
                 data[offset + 3] = 0; // reserved
                 offset += 4;
-            });
+            }
             this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit);
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture);
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
@@ -893,17 +883,17 @@ export class GpuComputeRenderer {
     }
     updateNodePositionsAndTempsToNodeManager(manager) {
         return __awaiter(this, void 0, void 0, function* () {
-            if (this.nodeLength !== manager.length()) {
-                console.error(`node length is different : ${this.nodeLength}, ${manager.length()}`);
+            if (this.nodeLength !== manager.nodes.length) {
+                console.error(`node length is different : ${this.nodeLength}, ${manager.nodes.length}`);
             }
-            const nodeLength = Math.min(this.nodeLength, manager.length());
+            const nodeLength = Math.min(this.nodeLength, manager.nodes.length);
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodeInfosFB1);
             let nodeInfos = new Uint32Array(this.nodeInfosTex0.width * this.nodeInfosTex0.height * 4);
             yield readPixelsAsync(this.gl, 0, 0, this.nodeInfosTex0.width, this.nodeInfosTex0.height, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT, nodeInfos);
             nodeInfos = new Float32Array(nodeInfos.buffer);
             let offset = 0;
             for (let i = 0; i < nodeLength; i++) {
-                const node = manager.getNodeAt(i);
+                const node = manager.nodes[i];
                 node.posX = nodeInfos[offset];
                 node.posY = nodeInfos[offset + 1];
                 // we skip 2, which is mass

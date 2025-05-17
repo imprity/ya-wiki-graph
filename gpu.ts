@@ -1,19 +1,7 @@
 import * as math from "./math.js"
-import { NodeManager, DocNode } from "./main.js"
+import { NodeManager, DocNode } from "./graph_objects.js"
 import * as assets from "./assets.js"
 import { debugPrint } from './debug_print.js'
-
-// NOTE:
-// !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
-// cpu also needs to figure out raidus from a mass
-// so if you are going to change this code,
-// change the code in in main.ts as well
-// !!!!!!!!!!!   IMPORTANT   !!!!!!!!!!!!!!!!!!!!!!!
-const nodeMassToRadiusGLSL = `
-float node_mass_to_radius(float m) {
-    return 8.0f + m * 0.1;
-}
-`
 
 const forceCalcVShaderSrc = `#version 300 es
 in vec4 a_vertex;
@@ -39,7 +27,7 @@ uniform float u_spring_dist;
 
 out uvec4 out_color;
 
-${nodeMassToRadiusGLSL}
+${DocNode.nodeMassToRadiusGLSL}
 
 /*
 vec2 get_node_position_at(int x, int y) {
@@ -265,7 +253,7 @@ out vec2 v_uv;
 
 ${worldToViewport}
 
-${nodeMassToRadiusGLSL}
+${DocNode.nodeMassToRadiusGLSL}
 
 void main() {
     float x = a_vertex.x;
@@ -848,7 +836,6 @@ export class GpuComputeRenderer {
 
             this.gl.generateMipmap(this.gl.TEXTURE_2D)
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR_MIPMAP_NEAREST)
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR_MIPMAP_NEAREST)
 
             return {
                 texture: texture,
@@ -1017,8 +1004,8 @@ export class GpuComputeRenderer {
     }
 
     submitNodeManager(manager: NodeManager) {
-        this.nodeLength = manager.length()
-        this.connectionLength = manager.getConnections().length
+        this.nodeLength = manager.nodes.length
+        this.connectionLength = manager.connections.length
 
         // supply texture with node infos
         {
@@ -1028,8 +1015,8 @@ export class GpuComputeRenderer {
             let data = new Float32Array(nodeDataTexSize * nodeDataTexSize * 4)
 
             let offset = 0
-            for (let i = 0; i < manager.length(); i++) {
-                const node = manager.getNodeAt(i)
+            for (let i = 0; i < manager.nodes.length; i++) {
+                const node = manager.nodes[i]
                 data[offset] = node.posX
                 data[offset + 1] = node.posY
                 data[offset + 2] = node.mass
@@ -1073,14 +1060,16 @@ export class GpuComputeRenderer {
             let data = new Uint32Array(conDataTexSize * conDataTexSize * 4)
             let offset = 0
 
-            manager.getConnections().forEach((con) => {
+            for (let i = 0; i < this.connectionLength; i++) {
+                const con = manager.connections[i]
+
                 data[offset] = con.nodeIndexA
                 data[offset + 1] = con.nodeIndexB
                 data[offset + 2] = 0 // reserved
                 data[offset + 3] = 0 // reserved
 
                 offset += 4
-            })
+            }
 
             this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit)
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture)
@@ -1098,11 +1087,11 @@ export class GpuComputeRenderer {
     }
 
     async updateNodePositionsAndTempsToNodeManager(manager: NodeManager) {
-        if (this.nodeLength !== manager.length()) {
-            console.error(`node length is different : ${this.nodeLength}, ${manager.length()}`)
+        if (this.nodeLength !== manager.nodes.length) {
+            console.error(`node length is different : ${this.nodeLength}, ${manager.nodes.length}`)
         }
 
-        const nodeLength = Math.min(this.nodeLength, manager.length())
+        const nodeLength = Math.min(this.nodeLength, manager.nodes.length)
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodeInfosFB1)
 
@@ -1122,7 +1111,7 @@ export class GpuComputeRenderer {
         let offset = 0
 
         for (let i = 0; i < nodeLength; i++) {
-            const node = manager.getNodeAt(i)
+            const node = manager.nodes[i]
             node.posX = nodeInfos[offset]
             node.posY = nodeInfos[offset + 1]
             // we skip 2, which is mass
