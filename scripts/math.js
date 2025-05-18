@@ -39,6 +39,10 @@ export function distSquared(x, y) {
 export function dist(x, y) {
     return Math.sqrt(distSquared(x, y));
 }
+export function posInBox(posX, posY, minX, minY, maxX, maxY) {
+    return minX < posX && posX < maxX &&
+        minY < posY && posY < maxY;
+}
 export function posInCircle(posX, posY, circleX, circleY, radius) {
     const dx = posX - circleX;
     const dy = posY - circleY;

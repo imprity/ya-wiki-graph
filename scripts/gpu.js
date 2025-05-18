@@ -881,16 +881,17 @@ export class GpuComputeRenderer {
             );
         }
     }
-    updateNodePositionsAndTempsToNodeManager(manager) {
+    updateNodeInfosToNodeManager(manager) {
         return __awaiter(this, void 0, void 0, function* () {
             if (this.nodeLength !== manager.nodes.length) {
                 console.error(`node length is different : ${this.nodeLength}, ${manager.nodes.length}`);
             }
-            const nodeLength = Math.min(this.nodeLength, manager.nodes.length);
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodeInfosFB1);
             let nodeInfos = new Uint32Array(this.nodeInfosTex0.width * this.nodeInfosTex0.height * 4);
             yield readPixelsAsync(this.gl, 0, 0, this.nodeInfosTex0.width, this.nodeInfosTex0.height, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT, nodeInfos);
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
             nodeInfos = new Float32Array(nodeInfos.buffer);
+            const nodeLength = Math.min(this.nodeLength, manager.nodes.length);
             let offset = 0;
             for (let i = 0; i < nodeLength; i++) {
                 const node = manager.nodes[i];
@@ -900,7 +901,6 @@ export class GpuComputeRenderer {
                 node.temp = nodeInfos[offset + 3];
                 offset += 4;
             }
-            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         });
     }
     capacityToEdge(cap) {

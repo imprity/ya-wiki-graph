@@ -1086,12 +1086,10 @@ export class GpuComputeRenderer {
         }
     }
 
-    async updateNodePositionsAndTempsToNodeManager(manager: NodeManager) {
+    async updateNodeInfosToNodeManager(manager: NodeManager) {
         if (this.nodeLength !== manager.nodes.length) {
             console.error(`node length is different : ${this.nodeLength}, ${manager.nodes.length}`)
         }
-
-        const nodeLength = Math.min(this.nodeLength, manager.nodes.length)
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodeInfosFB1)
 
@@ -1106,7 +1104,11 @@ export class GpuComputeRenderer {
             nodeInfos
         )
 
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null)
+
         nodeInfos = new Float32Array(nodeInfos.buffer)
+
+        const nodeLength = Math.min(this.nodeLength, manager.nodes.length)
 
         let offset = 0
 
@@ -1119,8 +1121,6 @@ export class GpuComputeRenderer {
 
             offset += 4
         }
-
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null)
     }
 
     capacityToEdge(cap: number): number {

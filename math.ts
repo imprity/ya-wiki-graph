@@ -59,6 +59,14 @@ export function dist(x: number, y: number): number {
     return Math.sqrt(distSquared(x, y))
 }
 
+export function posInBox(
+    posX: number, posY: number,
+    minX: number, minY: number, maxX: number, maxY: number,
+): boolean {
+    return minX < posX && posX < maxX &&
+        minY < posY && posY < maxY
+}
+
 export function posInCircle(
     posX: number, posY: number,
     circleX: number, circleY: number,

@@ -5,10 +5,16 @@ import * as math from "./math.js"
 import * as assets from "./assets.js"
 import { GpuComputeRenderer, SimulationParameter } from "./gpu.js"
 import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js'
-import { NodeManager, DocNode, QuadTree, QuadTreeBuilder, NodeConnection } from "./graph_objects.js"
+import { NodeManager, DocNode, NodeConnection } from "./graph_objects.js"
 
 const FirstTitle = "English language"
 //const FirstTitle = "Miss Meyers"
+
+interface ExpandRequest {
+    node: DocNode
+    links: Array<string> | null
+    gotLinks: boolean
+}
 
 class App {
     mainCanvas: HTMLCanvasElement
@@ -20,20 +26,18 @@ class App {
     zoom: number = 1
     offset: math.Vector2 = new math.Vector2(0, 0)
 
-    isRequesting: boolean = false
-    requestingNodeIndex: number = -1
-
-    // quadTreeRoot: QuadTree = new QuadTree()
-    treeBuilder: QuadTreeBuilder = new QuadTreeBuilder()
-
     gpu: GpuComputeRenderer
 
     nodeManager: NodeManager
 
     overlayCtx: CanvasRenderingContext2D
 
-    nodePositionsUpdated: boolean = false
-    updatingNodePositions: boolean = false
+    _doUpdateNodePositions: boolean = false
+    _nodePositionsUpdated: boolean = false
+    _updatingNodePositions: boolean = false
+    _onNodePostionsUpdated: Array<() => void> = []
+
+    _expandRequests: Array<ExpandRequest> = []
 
     // ========================
     // input states
@@ -179,7 +183,7 @@ class App {
 
         const handlePointerUp = () => {
             if (this.readyToExpandNodeOnRelease) {
-                this.gpu.updateNodePositionsAndTempsToNodeManager(this.nodeManager).then(() => {
+                this.updateNodePositions(() => {
                     // check if we clicked on node
                     let clickedOnNode = false
                     let nodeIndex = -1
@@ -370,75 +374,31 @@ class App {
     }
 
     expandNode = async (nodeIndex: number) => {
-        if (this.isRequesting) {
-            console.log("busy")
-            return
-        }
-
         if (!(0 <= nodeIndex && nodeIndex < this.nodeManager.nodes.length)) {
             console.error(`node id ${nodeIndex} out of bound`)
             return
         }
 
-        this.requestingNodeIndex = nodeIndex
         const node = this.nodeManager.nodes[nodeIndex]
 
         console.log(`requesting ${node.title}`)
 
-        this.isRequesting = true
+        const request: ExpandRequest = {
+            node: node,
+            links: null,
+            gotLinks: false
+        }
+
+        this._expandRequests.push(request)
 
         try {
             const regex = / /g
             const links = await wiki.retrieveAllLiks(node.title.replace(regex, "_"))
 
-            if (links.length > 0) {
-
-                const angle: number = Math.PI * 2 / links.length
-
-                // not an accurate mass of node that will expand
-                // but good enough
-                const offsetV = { x: 0, y: - (100 + DocNode.nodeMassToRadius(links.length)) }
-
-                if (links.length > 0) {
-                    await this.gpu.updateNodePositionsAndTempsToNodeManager(this.nodeManager)
-
-                    //for (const link of links) {
-                    for (let i = 0; i < links.length; i++) {
-                        const link = links[i]
-
-                        const otherNodeIndex = this.nodeManager.findNodeFromTitle(link)
-
-                        if (otherNodeIndex < 0) {
-                            const newNode = new DocNode()
-                            const newNodeId = this.nodeManager.nodes.length
-                            newNode.title = link
-
-                            const v = math.vector2Rotate(offsetV, angle * i)
-                            newNode.posX = node.posX + v.x //
-                            newNode.posY = node.posY + v.y //
-
-                            this.nodeManager.pushNode(newNode)
-                            this.nodeManager.setConnected(nodeIndex, newNodeId, true)
-
-                            node.mass += 1
-                            newNode.mass += 1
-                        } else {
-                            if (!this.nodeManager.isConnected(nodeIndex, otherNodeIndex)) {
-                                const otherNode = this.nodeManager.nodes[otherNodeIndex]
-                                this.nodeManager.setConnected(nodeIndex, otherNodeIndex, true)
-                                node.mass += 1
-                                otherNode.mass += 1
-                            }
-                        }
-                    }
-
-                    this.gpu.submitNodeManager(this.nodeManager)
-                }
-            }
+            request.links = links
+            request.gotLinks = true
         } catch (err) {
             console.error(err)
-        } finally {
-            this.isRequesting = false
         }
     }
 
@@ -453,6 +413,95 @@ class App {
         debugPrint('node count', this.nodeManager.nodes.length.toString())
         debugPrint('connection count', this.nodeManager.connections.length.toString())
         debugPrint('zoom', this.zoom.toFixed(2))
+
+        // ================================
+        // node position updating
+        // ================================
+        if (this._doUpdateNodePositions) {
+            if (!this._updatingNodePositions) {
+                this._updatingNodePositions = true
+                this.gpu.updateNodeInfosToNodeManager(this.nodeManager).then(() => {
+                    this._updatingNodePositions = false
+                    this._nodePositionsUpdated = true
+                })
+            }
+        } else {
+            this._nodePositionsUpdated = false
+        }
+        this._doUpdateNodePositions = false
+
+        // ================================
+        // handle callbacks
+        // ================================
+        if (this._nodePositionsUpdated) {
+            for (const cb of this._onNodePostionsUpdated) {
+                cb()
+            }
+            this._onNodePostionsUpdated.length = 0
+        }
+
+        // ================================
+        // handle expand requests
+        // ================================
+        {
+            let finished: Array<ExpandRequest> = []
+            let unfinished: Array<ExpandRequest> = []
+
+            for (const req of this._expandRequests) {
+                if (req.gotLinks) {
+                    finished.push(req)
+                } else {
+                    unfinished.push(req)
+                }
+            }
+
+            for (const req of finished) {
+                this.updateNodePositions(() => {
+                    if (req.links === null) {
+                        return
+                    }
+
+                    const angle: number = Math.PI * 2 / req.links.length
+
+                    // not an accurate mass of node that will expand
+                    // but good enough
+                    const offsetV = { x: 0, y: - (100 + DocNode.nodeMassToRadius(req.links.length)) }
+
+                    let index = this.nodeManager.getIndexFromId(req.node.id)
+
+                    for (let i = 0; i < req.links.length; i++) {
+                        const link = req.links[i]
+
+                        const otherIndex = this.nodeManager.findNodeFromTitle(link)
+
+                        if (otherIndex < 0) { // we have to make a new node
+                            const newNode = new DocNode()
+                            const newNodeIndex = this.nodeManager.nodes.length
+                            newNode.title = link
+
+                            const v = math.vector2Rotate(offsetV, angle * i)
+                            newNode.posX = req.node.posX + v.x
+                            newNode.posY = req.node.posY + v.y
+
+                            this.nodeManager.pushNode(newNode)
+                            this.nodeManager.setConnected(index, newNodeIndex, true)
+
+                            req.node.mass += 1
+                            newNode.mass += 1
+                        } else if (!this.nodeManager.isConnected(index, otherIndex)) { // we have to make a new connection
+                            const otherNode = this.nodeManager.nodes[otherIndex]
+                            this.nodeManager.setConnected(index, otherIndex, true)
+                            req.node.mass += 1
+                            otherNode.mass += 1
+                        }
+                    }
+
+                    this.gpu.submitNodeManager(this.nodeManager)
+                })
+            }
+
+            this._expandRequests = unfinished
+        }
 
         this.gpu.zoom = this.zoom
         this.gpu.offset.x = this.offset.x
@@ -469,7 +518,10 @@ class App {
         // =========================
         // TODO: text is jittery because node position update is delayed
         if (this.zoom > 0.3) {
-            if (this.nodePositionsUpdated) {
+
+            this.updateNodePositions()
+
+            if (this.nodePositionsUpdated()) {
                 this.overlayCtx.font = `${this.zoom * 12}px sans-serif`
                 this.overlayCtx.fillStyle = "blue"
                 this.overlayCtx.textAlign = "center"
@@ -477,8 +529,7 @@ class App {
                 this.overlayCtx.textBaseline = "bottom"
 
                 // drawing text for every node is too expensive
-                // use QuadTree to filter nodes that are not visible
-                const root = this.treeBuilder.buildTree(this.nodeManager)
+                // draw nodes that are only visible
 
                 const viewMin = this.viewportToWorld(0, 0)
                 const viewMax = this.viewportToWorld(this.width, this.height)
@@ -492,39 +543,19 @@ class App {
                 viewMin.y -= vy * 0.1
                 viewMax.y += vy * 0.1
 
-                const toRecurse = (tree: QuadTree) => {
-                    if (math.boxIntersects(
-                        viewMin.x, viewMin.y, viewMax.x, viewMax.y,
-                        tree.minX, tree.minY, tree.maxX, tree.maxY
+                for (const node of this.nodeManager.nodes) {
+                    if (math.posInBox(
+                        node.posX, node.posY,
+                        viewMin.x, viewMin.y, viewMax.x, viewMax.y
                     )) {
-                        if (tree.node !== null) {
-                            const pos = this.worldToViewport(tree.node.posX, tree.node.posY)
-                            this.overlayCtx.fillText(
-                                tree.node.title,
-                                pos.x, pos.y - (tree.node.getRadius() + 5.0) * this.zoom
-                            )
-                        } else {
-                            for (const childTree of tree.childrenTrees) {
-                                if (childTree !== null) {
-                                    toRecurse(childTree)
-                                }
-                            }
-                        }
+                        const pos = this.worldToViewport(node.posX, node.posY)
+                        this.overlayCtx.fillText(
+                            node.title,
+                            pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom
+                        )
                     }
                 }
-
-                toRecurse(root)
             }
-
-            if (!this.updatingNodePositions) {
-                this.updatingNodePositions = true
-                this.gpu.updateNodePositionsAndTempsToNodeManager(this.nodeManager).then(() => {
-                    this.updatingNodePositions = false
-                    this.nodePositionsUpdated = true
-                })
-            }
-        } else {
-            this.nodePositionsUpdated = false
         }
     }
 
@@ -619,13 +650,33 @@ class App {
         }
     }
 
+    updateNodePositions(cb: (() => void) | null = null) {
+        this._doUpdateNodePositions = true
+        if (cb !== null) {
+            this._onNodePostionsUpdated.push(cb)
+        }
+    }
+
+    nodePositionsUpdated(): boolean {
+        return this._nodePositionsUpdated
+    }
+
+    updatingNodePositions(): boolean {
+        return this._updatingNodePositions
+    }
+
     reset(addStartingNode: boolean) {
+        this._onNodePostionsUpdated.length = 0
+        this._expandRequests.length = 0
+
         this.offset.x = 0
         this.offset.y = 0
 
         this.zoom = 1
 
         this.nodeManager.reset()
+
+        this.readyToExpandNodeOnRelease = false
 
         if (addStartingNode) {
             // TEST TEST TEST TEST
@@ -636,6 +687,8 @@ class App {
             this.nodeManager.pushNode(testNode)
             // TEST TEST TEST TEST
         }
+
+        this.gpu.submitNodeManager(this.nodeManager)
     }
 }
 
