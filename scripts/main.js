@@ -11,6 +11,7 @@ import * as wiki from "./wiki.js";
 import * as util from "./util.js";
 import * as math from "./math.js";
 import * as assets from "./assets.js";
+import * as color from "./color.js";
 import { GpuComputeRenderer, SimulationParameter } from "./gpu.js";
 import { debugPrint, renderDebugPrint } from './debug_print.js';
 import { NodeManager, DocNode, NodeConnection } from "./graph_objects.js";
@@ -107,6 +108,8 @@ class App {
         testNode.posX = this.width / 2;
         testNode.posY = this.height / 2;
         testNode.title = FirstTitle;
+        testNode.color = color.getRandomColor();
+        testNode.color.a = 255;
         this.nodeManager.pushNode(testNode);
         // TEST TEST TEST TEST
         this.gpu.submitNodeManager(this.nodeManager);
@@ -377,6 +380,10 @@ class App {
                             this.nodeManager.setConnected(index, newNodeIndex, true);
                             req.node.mass += 1;
                             newNode.mass += 1;
+                            // TEST TEST TEST TEST TEST
+                            newNode.color = color.getRandomColor();
+                            newNode.color.a = 255;
+                            // TEST TEST TEST TEST TEST
                         }
                         else if (!this.nodeManager.isConnected(index, otherIndex)) { // we have to make a new connection
                             const otherNode = this.nodeManager.nodes[otherIndex];
@@ -518,6 +525,8 @@ class App {
             testNode.posX = this.width / 2;
             testNode.posY = this.height / 2;
             testNode.title = FirstTitle;
+            testNode.color = color.getRandomColor();
+            testNode.color.a = 255;
             this.nodeManager.pushNode(testNode);
             // TEST TEST TEST TEST
         }

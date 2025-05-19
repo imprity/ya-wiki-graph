@@ -3,6 +3,7 @@ import * as wiki from "./wiki.js"
 import * as util from "./util.js"
 import * as math from "./math.js"
 import * as assets from "./assets.js"
+import * as color from "./color.js"
 import { GpuComputeRenderer, SimulationParameter } from "./gpu.js"
 import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js'
 import { NodeManager, DocNode, NodeConnection } from "./graph_objects.js"
@@ -117,6 +118,8 @@ class App {
         testNode.posX = this.width / 2
         testNode.posY = this.height / 2
         testNode.title = FirstTitle
+        testNode.color = color.getRandomColor()
+        testNode.color.a = 255
         this.nodeManager.pushNode(testNode)
         // TEST TEST TEST TEST
 
@@ -373,35 +376,6 @@ class App {
         }
     }
 
-    expandNode = async (nodeIndex: number) => {
-        if (!(0 <= nodeIndex && nodeIndex < this.nodeManager.nodes.length)) {
-            console.error(`node id ${nodeIndex} out of bound`)
-            return
-        }
-
-        const node = this.nodeManager.nodes[nodeIndex]
-
-        console.log(`requesting ${node.title}`)
-
-        const request: ExpandRequest = {
-            node: node,
-            links: null,
-            gotLinks: false
-        }
-
-        this._expandRequests.push(request)
-
-        try {
-            const regex = / /g
-            const links = await wiki.retrieveAllLiks(node.title.replace(regex, "_"))
-
-            request.links = links
-            request.gotLinks = true
-        } catch (err) {
-            console.error(err)
-        }
-    }
-
     update(deltaTime: DOMHighResTimeStamp) {
         this.updateWidthAndHeight()
 
@@ -488,6 +462,11 @@ class App {
 
                             req.node.mass += 1
                             newNode.mass += 1
+
+                            // TEST TEST TEST TEST TEST
+                            newNode.color = color.getRandomColor()
+                            newNode.color.a = 255
+                            // TEST TEST TEST TEST TEST
                         } else if (!this.nodeManager.isConnected(index, otherIndex)) { // we have to make a new connection
                             const otherNode = this.nodeManager.nodes[otherIndex]
                             this.nodeManager.setConnected(index, otherIndex, true)
@@ -593,6 +572,35 @@ class App {
         return new math.Vector2(x, y)
     }
 
+    expandNode = async (nodeIndex: number) => {
+        if (!(0 <= nodeIndex && nodeIndex < this.nodeManager.nodes.length)) {
+            console.error(`node id ${nodeIndex} out of bound`)
+            return
+        }
+
+        const node = this.nodeManager.nodes[nodeIndex]
+
+        console.log(`requesting ${node.title}`)
+
+        const request: ExpandRequest = {
+            node: node,
+            links: null,
+            gotLinks: false
+        }
+
+        this._expandRequests.push(request)
+
+        try {
+            const regex = / /g
+            const links = await wiki.retrieveAllLiks(node.title.replace(regex, "_"))
+
+            request.links = links
+            request.gotLinks = true
+        } catch (err) {
+            console.error(err)
+        }
+    }
+
     serialize(): string {
         const container = new SerializationContainer()
 
@@ -684,6 +692,8 @@ class App {
             testNode.posX = this.width / 2
             testNode.posY = this.height / 2
             testNode.title = FirstTitle
+            testNode.color = color.getRandomColor()
+            testNode.color.a = 255
             this.nodeManager.pushNode(testNode)
             // TEST TEST TEST TEST
         }

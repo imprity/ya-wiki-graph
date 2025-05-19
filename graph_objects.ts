@@ -1,4 +1,5 @@
 import * as util from "./util.js"
+import * as color from "./color.js"
 
 export class DocNode {
     static nodeIdMax: number = 0
@@ -21,12 +22,11 @@ export class DocNode {
     posX: number = 0
     posY: number = 0
 
-    forceX: number = 0
-    forceY: number = 0
-
     temp: number = 1
 
     mass: number = 0
+
+    color: color.Color = new color.Color()
 
     id: number = 0
 

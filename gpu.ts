@@ -15,7 +15,7 @@ precision highp float;
 precision highp int;
 
 uniform int u_node_count;
-uniform highp usampler2D u_node_infos_tex;
+uniform highp usampler2D u_node_physics_tex;
 
 uniform int u_con_count;
 uniform highp usampler2D u_con_infos_tex;
@@ -31,11 +31,11 @@ ${DocNode.nodeMassToRadiusGLSL}
 
 /*
 vec2 get_node_position_at(int x, int y) {
-    return uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(x, y), 0).xy);
+    return uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(x, y), 0).xy);
 }
 
 float get_node_mass_at(int x, int y) {
-    return uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(x, y), 0).z);
+    return uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(x, y), 0).z);
 }
 */
 
@@ -98,7 +98,7 @@ vec2 calculate_spring(
 void main() {
     ivec2 texel_pos = ivec2(gl_FragCoord.xy);
 
-    ivec2 node_tex_size = textureSize(u_node_infos_tex, 0);
+    ivec2 node_tex_size = textureSize(u_node_physics_tex, 0);
 
     // node count out of bound
     if (texel_pos.x + texel_pos.y * node_tex_size.x >= u_node_count) {
@@ -108,7 +108,7 @@ void main() {
 
     ivec2 con_tex_size = textureSize(u_con_infos_tex, 0);
 
-    uvec4 node_info = texelFetch(u_node_infos_tex, texel_pos, 0);
+    uvec4 node_info = texelFetch(u_node_physics_tex, texel_pos, 0);
 
     vec2 node_pos = uintBitsToFloat(node_info.xy);
     float node_mass = uintBitsToFloat(node_info.z);
@@ -117,7 +117,7 @@ void main() {
 
      // mass is too small
     if (node_mass < 0.001f) {
-        out_color = texelFetch(u_node_infos_tex, texel_pos, 0);
+        out_color = texelFetch(u_node_physics_tex, texel_pos, 0);
         return;
     }
 
@@ -140,7 +140,7 @@ void main() {
                 break;
             }
 
-            uvec4 other_node_info = texelFetch(u_node_infos_tex, ivec2(x, y), 0);
+            uvec4 other_node_info = texelFetch(u_node_physics_tex, ivec2(x, y), 0);
             vec2 other_node_pos = uintBitsToFloat(other_node_info.xy);
             float other_node_mass = uintBitsToFloat(other_node_info.z);
 
@@ -179,7 +179,7 @@ void main() {
                 int other_x = other_node_index % node_tex_size.x;
                 int other_y = other_node_index / node_tex_size.x;
 
-                uvec4 other_node_info = texelFetch(u_node_infos_tex, ivec2(other_x, other_y), 0);
+                uvec4 other_node_info = texelFetch(u_node_physics_tex, ivec2(other_x, other_y), 0);
                 vec2 other_node_pos = uintBitsToFloat(other_node_info.xy);
                 float other_node_mass = uintBitsToFloat(other_node_info.z);
 
@@ -246,7 +246,8 @@ const drawNodeVShaderSrc = `#version 300 es
 in vec4 a_vertex;
 in vec2 a_uv;
 
-uniform highp usampler2D u_node_infos_tex;
+uniform highp usampler2D u_node_physics_tex;
+uniform sampler2D u_node_colors_tex;
 
 out vec4 v_color;
 out vec2 v_uv;
@@ -259,15 +260,17 @@ void main() {
     float x = a_vertex.x;
     float y = a_vertex.y;
 
-    ivec2 texture_size = textureSize(u_node_infos_tex, 0);
+    ivec2 texture_size = textureSize(u_node_physics_tex, 0);
 
     int info_x = gl_InstanceID % texture_size.x;
     int info_y = gl_InstanceID / texture_size.x;
 
-    vec2 node_pos = uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(info_x, info_y), 0).xy);
-    float node_mass = uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(info_x, info_y), 0).z);
+    vec2 node_pos = uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(info_x, info_y), 0).xy);
+    float node_mass = uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(info_x, info_y), 0).z);
 
     float node_raidus = node_mass_to_radius(node_mass);
+
+    vec4 node_color = texelFetch(u_node_colors_tex, ivec2(info_x, info_y), 0);
 
     x *= node_raidus * 2.0f;
     y *= node_raidus * 2.0f;
@@ -282,7 +285,8 @@ void main() {
         pos.x, pos.y, 0, 1
     );
 
-    v_color = vec4(175.0f/255.0f, 238.0f/255.0f, 238.0f/255.0f, 1);
+    //v_color = vec4(175.0f/255.0f, 238.0f/255.0f, 238.0f/255.0f, 1);
+    v_color = node_color;
     v_uv = a_uv;
 }
 `
@@ -309,8 +313,10 @@ const drawConVSahderSrc = `#version 300 es
 in vec4 a_vertex;
 in vec2 a_uv;
 
-uniform highp usampler2D u_node_infos_tex;
 uniform highp usampler2D u_con_infos_tex;
+
+uniform highp usampler2D u_node_physics_tex;
+uniform sampler2D u_node_colors_tex;
 
 ${worldToViewport}
 
@@ -318,11 +324,19 @@ out vec4 v_color;
 out vec2 v_uv;
 
 vec2 get_node_pos(int node_index) {
-    ivec2 node_tex_size = textureSize(u_node_infos_tex, 0);
+    ivec2 node_tex_size = textureSize(u_node_physics_tex, 0);
 
     int x = node_index % node_tex_size.x;
     int y = node_index / node_tex_size.x;
-    return uintBitsToFloat(texelFetch(u_node_infos_tex, ivec2(x, y), 0).xy);
+    return uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(x, y), 0).xy);
+}
+
+vec4 get_node_color(int node_index) {
+    ivec2 node_tex_size = textureSize(u_node_colors_tex, 0);
+
+    int x = node_index % node_tex_size.x;
+    int y = node_index / node_tex_size.x;
+    return texelFetch(u_node_colors_tex, ivec2(x, y), 0);
 }
 
 void main() {
@@ -384,19 +398,22 @@ void main() {
         x, y, 0, 1
     );
 
-    // switch (gl_VertexID){
-    //     case 0:
-    //     case 3:
-    //     case 5:
-    //         color = color_a;
-    //         break;
-    //     case 1:
-    //     case 2:
-    //     case 4:
-    //         color = color_b;
-    //         break;
+    vec4 color_a = get_node_color(int(con_info.x));
+    vec4 color_b = get_node_color(int(con_info.y));
 
-    v_color = vec4(0.5, 0.5, 0.5, 1.0) * line_alpha;
+    switch (gl_VertexID){
+        case 0:
+        case 3:
+        case 5:
+            v_color = color_a  * line_alpha;
+            break;
+        case 1:
+        case 2:
+        case 4:
+            v_color = color_b  * line_alpha;
+            break;
+    }
+
     v_uv = a_uv;
 }`
 
@@ -498,12 +515,14 @@ export class GpuComputeRenderer {
 
     rectUVBuf: WebGLBuffer
 
-    nodeInfosTex0: Texture
-    nodeInfosTex1: Texture
-    useNodeInfosTex0: boolean = false
+    nodePhysicsTex0: Texture
+    nodePhysicsTex1: Texture
+    useNodePhysicsTex0: boolean = false
 
-    nodeInfosFB0: WebGLFramebuffer
-    nodeInfosFB1: WebGLFramebuffer
+    nodeColorsTex: Texture
+
+    nodePhysicsFB0: WebGLFramebuffer
+    nodePhysicsFB1: WebGLFramebuffer
 
     conInfosTex: Texture
 
@@ -720,8 +739,7 @@ export class GpuComputeRenderer {
         const createDataTexture = (): Texture => {
             const texture = this.gl.createTexture()
 
-            this.textureUnitMax += 1
-            let unit = this.textureUnitMax
+            let unit = this.getNewTextureUnitNumber()
 
             // set up texture parameters
             // set the filtering so we don't need mips
@@ -765,11 +783,48 @@ export class GpuComputeRenderer {
 
         // create textures to hold node informations
 
-        this.nodeInfosTex0 = createDataTexture()
-        this.nodeInfosTex1 = createDataTexture()
+        this.nodePhysicsTex0 = createDataTexture()
+        this.nodePhysicsTex1 = createDataTexture()
 
-        setDataTextureSize(this.nodeInfosTex0, texInitSize, texInitSize)
-        setDataTextureSize(this.nodeInfosTex1, texInitSize, texInitSize)
+        setDataTextureSize(this.nodePhysicsTex0, texInitSize, texInitSize)
+        setDataTextureSize(this.nodePhysicsTex1, texInitSize, texInitSize)
+
+        // create texture to hold node colors
+        {
+            const texture = this.gl.createTexture()
+
+            let unit = this.getNewTextureUnitNumber()
+
+            const w = texInitSize
+            const h = texInitSize
+
+            // set up texture parameters
+            // set the filtering so we don't need mips
+            this.gl.activeTexture(this.gl.TEXTURE0 + unit)
+            this.gl.bindTexture(this.gl.TEXTURE_2D, texture)
+
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+
+            this.gl.texImage2D(
+                this.gl.TEXTURE_2D,
+                0, // level
+                this.gl.RGBA8, // internal format
+                w, h, // width, height
+                0, // border
+                this.gl.RGBA, // format
+                this.gl.UNSIGNED_BYTE, // type
+                null // data
+            )
+
+            this.nodeColorsTex = {
+                texture: texture,
+                unit: unit,
+                width: w, height: h
+            }
+        }
 
         // create textures to hold connection informations
         this.conInfosTex = createDataTexture()
@@ -780,8 +835,7 @@ export class GpuComputeRenderer {
         {
             const texture = this.gl.createTexture()
 
-            this.textureUnitMax += 1
-            let unit = this.textureUnitMax
+            let unit = this.getNewTextureUnitNumber()
 
             this.gl.activeTexture(this.gl.TEXTURE0 + unit)
             this.gl.bindTexture(this.gl.TEXTURE_2D, texture)
@@ -820,8 +874,7 @@ export class GpuComputeRenderer {
             }
             const texture = this.gl.createTexture()
 
-            this.textureUnitMax += 1
-            let unit = this.textureUnitMax
+            let unit = this.getNewTextureUnitNumber()
 
             this.gl.activeTexture(this.gl.TEXTURE0 + unit)
             this.gl.bindTexture(this.gl.TEXTURE_2D, texture)
@@ -862,11 +915,28 @@ export class GpuComputeRenderer {
             return fb;
         }
 
-        this.nodeInfosFB0 = createFramebuffer(this.nodeInfosTex0)
-        this.nodeInfosFB1 = createFramebuffer(this.nodeInfosTex1)
+        this.nodePhysicsFB0 = createFramebuffer(this.nodePhysicsTex0)
+        this.nodePhysicsFB1 = createFramebuffer(this.nodePhysicsTex1)
+
+        console.log(`max texture unit: ${this.textureUnitMax}`)
+    }
+
+    getNewTextureUnitNumber(): number {
+        this.textureUnitMax += 1
+        return this.textureUnitMax
     }
 
     render() {
+        const useTexture = (
+            renderUnit: RenderUnit,
+            tex: Texture,
+            name: string
+        ) => {
+            this.gl.activeTexture(this.gl.TEXTURE0 + tex.unit)
+            this.gl.bindTexture(this.gl.TEXTURE_2D, tex.texture)
+            this.gl.uniform1i(renderUnit.locs.uLoc(name), tex.unit)
+        }
+
         // match canvas width and height to
         // canvas element width and height
         {
@@ -885,26 +955,21 @@ export class GpuComputeRenderer {
             this.gl.useProgram(this.forceCalcUnit.program)
             this.gl.bindVertexArray(this.forceCalcUnit.vao)
 
-            let fb = this.nodeInfosFB1
-            if (!this.useNodeInfosTex0) {
-                fb = this.nodeInfosFB0
+            let fb = this.nodePhysicsFB1
+            if (!this.useNodePhysicsTex0) {
+                fb = this.nodePhysicsFB0
             }
 
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, fb)
-            this.gl.viewport(0, 0, this.nodeInfosTex0.width, this.nodeInfosTex0.height)
+            this.gl.viewport(0, 0, this.nodePhysicsTex0.width, this.nodePhysicsTex0.height)
 
-            let infoTex = this.nodeInfosTex0
-            if (!this.useNodeInfosTex0) {
-                infoTex = this.nodeInfosTex1
+            let physicsTex = this.nodePhysicsTex0
+            if (!this.useNodePhysicsTex0) {
+                physicsTex = this.nodePhysicsTex1
             }
 
-            this.gl.activeTexture(this.gl.TEXTURE0 + infoTex.unit)
-            this.gl.bindTexture(this.gl.TEXTURE_2D, infoTex.texture)
-            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_node_infos_tex'), infoTex.unit)
-
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit)
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture)
-            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_con_infos_tex'), this.conInfosTex.unit)
+            useTexture(this.forceCalcUnit, physicsTex, 'u_node_physics_tex')
+            useTexture(this.forceCalcUnit, this.conInfosTex, 'u_con_infos_tex')
 
             this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_node_count'), this.nodeLength)
             this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_con_count'), this.connectionLength)
@@ -936,18 +1001,14 @@ export class GpuComputeRenderer {
 
             this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
 
-            let infoTex = this.nodeInfosTex1
-            if (!this.useNodeInfosTex0) {
-                infoTex = this.nodeInfosTex0
+            let physicsTex = this.nodePhysicsTex1
+            if (!this.useNodePhysicsTex0) {
+                physicsTex = this.nodePhysicsTex0
             }
 
-            this.gl.activeTexture(this.gl.TEXTURE0 + infoTex.unit)
-            this.gl.bindTexture(this.gl.TEXTURE_2D, infoTex.texture)
-            this.gl.uniform1i(this.drawConUint.locs.uLoc('u_node_infos_tex'), infoTex.unit)
-
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit)
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture)
-            this.gl.uniform1i(this.drawConUint.locs.uLoc('u_con_infos_tex'), this.conInfosTex.unit)
+            useTexture(this.drawConUint, physicsTex, 'u_node_physics_tex')
+            useTexture(this.drawConUint, this.nodeColorsTex, 'u_node_colors_tex')
+            useTexture(this.drawConUint, this.conInfosTex, 'u_con_infos_tex')
 
             this.gl.uniform2f(
                 this.drawConUint.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height)
@@ -972,18 +1033,14 @@ export class GpuComputeRenderer {
 
             this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
 
-            let infoTex = this.nodeInfosTex1
-            if (!this.useNodeInfosTex0) {
-                infoTex = this.nodeInfosTex0
+            let physicsTex = this.nodePhysicsTex1
+            if (!this.useNodePhysicsTex0) {
+                physicsTex = this.nodePhysicsTex0
             }
 
-            this.gl.activeTexture(this.gl.TEXTURE0 + infoTex.unit)
-            this.gl.bindTexture(this.gl.TEXTURE_2D, infoTex.texture)
-            this.gl.uniform1i(this.drawNodeUnit.locs.uLoc('u_node_infos_tex'), infoTex.unit)
-
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.circleTex.unit)
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.circleTex.texture)
-            this.gl.uniform1i(this.drawNodeUnit.locs.uLoc('u_node_tex'), this.circleTex.unit)
+            useTexture(this.drawNodeUnit, physicsTex, 'u_node_physics_tex')
+            useTexture(this.drawNodeUnit, this.circleTex, 'u_node_tex')
+            useTexture(this.drawNodeUnit, this.nodeColorsTex, 'u_node_colors_tex')
 
             this.gl.uniform2f(
                 this.drawNodeUnit.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height)
@@ -1000,7 +1057,7 @@ export class GpuComputeRenderer {
             )
         }
 
-        this.useNodeInfosTex0 = !this.useNodeInfosTex0
+        this.useNodePhysicsTex0 = !this.useNodePhysicsTex0
     }
 
     submitNodeManager(manager: NodeManager) {
@@ -1025,8 +1082,8 @@ export class GpuComputeRenderer {
                 offset += 4
             }
 
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeInfosTex0.unit)
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeInfosTex0.texture)
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodePhysicsTex0.unit)
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodePhysicsTex0.texture)
             this.gl.texImage2D(
                 this.gl.TEXTURE_2D,
                 0, // level
@@ -1038,8 +1095,8 @@ export class GpuComputeRenderer {
                 new Uint32Array(data.buffer) // data
             )
 
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeInfosTex1.unit)
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeInfosTex1.texture)
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodePhysicsTex1.unit)
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodePhysicsTex1.texture)
             this.gl.texImage2D(
                 this.gl.TEXTURE_2D,
                 0, // level
@@ -1049,6 +1106,37 @@ export class GpuComputeRenderer {
                 this.gl.RGBA_INTEGER, // format
                 this.gl.UNSIGNED_INT, // type
                 new Uint32Array(data.buffer) // data
+            )
+        }
+        // supply texture with node colors
+        {
+            let nodeColorsTexSize = this.capacityToEdge(this.nodeLength)
+            nodeColorsTexSize = Math.max(nodeColorsTexSize, 128) // prevent creating empty texture
+
+            let data = new Uint8Array(nodeColorsTexSize * nodeColorsTexSize * 4)
+
+            let offset = 0
+            for (let i = 0; i < manager.nodes.length; i++) {
+                const node = manager.nodes[i]
+                data[offset + 0] = node.color.r
+                data[offset + 1] = node.color.g
+                data[offset + 2] = node.color.b
+                data[offset + 3] = node.color.a
+
+                offset += 4
+            }
+
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeColorsTex.unit)
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeColorsTex.texture)
+            this.gl.texImage2D(
+                this.gl.TEXTURE_2D,
+                0, // level
+                this.gl.RGBA8, // internal format
+                nodeColorsTexSize, nodeColorsTexSize, // width, height
+                0, // border
+                this.gl.RGBA, // format
+                this.gl.UNSIGNED_BYTE, // type
+                data // data
             )
         }
 
@@ -1091,14 +1179,14 @@ export class GpuComputeRenderer {
             console.error(`node length is different : ${this.nodeLength}, ${manager.nodes.length}`)
         }
 
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodeInfosFB1)
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodePhysicsFB1)
 
         let nodeInfos: any = new Uint32Array(
-            this.nodeInfosTex0.width * this.nodeInfosTex0.height * 4);
+            this.nodePhysicsTex0.width * this.nodePhysicsTex0.height * 4);
 
         await readPixelsAsync(
             this.gl,
-            0, 0, this.nodeInfosTex0.width, this.nodeInfosTex0.height,
+            0, 0, this.nodePhysicsTex0.width, this.nodePhysicsTex0.height,
             this.gl.RGBA_INTEGER,
             this.gl.UNSIGNED_INT,
             nodeInfos

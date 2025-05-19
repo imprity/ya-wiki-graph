@@ -1,4 +1,5 @@
 import * as util from "./util.js";
+import * as color from "./color.js";
 export class DocNode {
     static getNewNodeId() {
         const id = DocNode.nodeIdMax + 1;
@@ -11,10 +12,9 @@ export class DocNode {
     constructor() {
         this.posX = 0;
         this.posY = 0;
-        this.forceX = 0;
-        this.forceY = 0;
         this.temp = 1;
         this.mass = 0;
+        this.color = new color.Color();
         this.id = 0;
         this.title = "";
         this.id = DocNode.getNewNodeId();
