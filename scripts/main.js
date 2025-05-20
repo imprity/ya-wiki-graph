@@ -348,11 +348,14 @@ class App {
                     const angle = Math.PI * 2 / req.links.length;
                     // not an accurate mass of node that will expand
                     // but good enough
-                    const offsetV = { x: 0, y: -(100 + DocNode.nodeMassToRadius(req.links.length)) };
+                    const offsetV = { x: 0, y: -(100 + DocNode.nodeMassToRadius(req.node.mass + req.links.length)) };
                     let index = this.nodeManager.getIndexFromId(req.node.id);
                     for (let i = 0; i < req.links.length; i++) {
                         const link = req.links[i];
                         const otherIndex = this.nodeManager.findNodeFromTitle(link);
+                        if (index === otherIndex) {
+                            continue;
+                        }
                         if (otherIndex < 0) { // we have to make a new node
                             const newNode = new DocNode();
                             const newNodeIndex = this.nodeManager.nodes.length;
@@ -438,7 +441,9 @@ class App {
             this.updateNodePositions();
             if (this.nodePositionsUpdated()) {
                 this.overlayCtx.font = `${this.zoom * 12}px sans-serif`;
-                this.overlayCtx.fillStyle = "blue";
+                this.overlayCtx.fillStyle = "black";
+                this.overlayCtx.strokeStyle = "white";
+                this.overlayCtx.lineWidth = 3 * this.zoom;
                 this.overlayCtx.textAlign = "center";
                 this.overlayCtx.textRendering = "optimizeSpeed";
                 this.overlayCtx.textBaseline = "bottom";
@@ -455,6 +460,7 @@ class App {
                 for (const node of this.nodeManager.nodes) {
                     if (math.posInBox(node.posX, node.posY, viewMin.x, viewMin.y, viewMax.x, viewMax.y)) {
                         const pos = this.worldToViewport(node.posX, node.posY);
+                        this.overlayCtx.strokeText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
                         this.overlayCtx.fillText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
                     }
                 }

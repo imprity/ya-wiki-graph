@@ -275,6 +275,10 @@ uniform highp usampler2D u_node_infos_tex;
 
 uniform vec2 u_mouse;
 
+uniform bool u_draw_outline;
+uniform vec4 u_outline_color;
+uniform float u_outline_width;
+
 out vec4 v_color;
 out vec2 v_uv;
 flat out uvec4 v_node_info;
@@ -297,7 +301,15 @@ void main() {
 
     float node_raidus = node_mass_to_radius(node_mass);
 
+    if (u_draw_outline) {
+        node_raidus += u_outline_width;
+    }
+
     vec4 node_color = texelFetch(u_node_colors_tex, ivec2(tex_x, tex_y), 0);
+
+    if (u_draw_outline) {
+        node_color = u_outline_color;
+    }
 
     v_node_info = texelFetch(u_node_infos_tex, ivec2(tex_x, tex_y), 0);
 
@@ -320,7 +332,7 @@ void main() {
     // if mouse is being hovered, change to different color
     vec2 mouse = viewport_to_world(u_mouse);
 
-    if (distance(node_pos, mouse) < node_raidus) {
+    if (!u_draw_outline && distance(node_pos, mouse) < node_raidus) {
         v_color = vec4(0, 0, 0, 1);
     }
 }
@@ -338,6 +350,8 @@ uniform float u_tick;
 uniform sampler2D u_node_tex;
 uniform sampler2D u_loading_circle_tex;
 
+uniform bool u_draw_outline;
+
 out vec4 out_color;
 
 ${glslUtils}
@@ -345,7 +359,7 @@ ${glslUtils}
 void main() {
     vec4 node_c = texture(u_node_tex, v_uv) * v_color;
 
-    if (v_node_info.x > uint(0)) { // node is expanding
+    if (v_node_info.x > uint(0) && !u_draw_outline) { // draw loading circle
         vec2 loading_uv = rotate_v(v_uv - vec2(0.5, 0.5), -u_tick * 0.1) + vec2(0.5, 0.5);
         vec4 loading_c = texture(u_loading_circle_tex, loading_uv);
 
@@ -367,6 +381,8 @@ uniform highp usampler2D u_con_infos_tex;
 
 uniform highp usampler2D u_node_physics_tex;
 uniform sampler2D u_node_colors_tex;
+
+uniform float u_line_thickness;
 
 ${worldToViewport}
 
@@ -412,21 +428,23 @@ void main() {
 
     float pixel_height = 2.0 / u_screen_size.y;
 
-    float line_thickness = pixel_height * (2.0) * u_zoom; // line thickness TODO: parameterize
+    // NOTE: we multiply u_line_thickness by 2 because
+    // it'll be thinner because of antialiasing
+    float thickness = pixel_height * u_line_thickness * 2.0 * u_zoom;
     float line_alpha = 1.0;
     float line_limit = 2.0;
 
     // if line becomes thinnner than line_limit,
     // instead of making lines thinner,
     // reduce the line_alpha
-    if (line_thickness < pixel_height * line_limit) {
-        line_alpha =  line_thickness / (pixel_height * line_limit);
-        line_thickness = pixel_height * line_limit;
+    if (thickness < pixel_height * line_limit) {
+        line_alpha =  thickness / (pixel_height * line_limit);
+        thickness = pixel_height * line_limit;
     }
 
     // scale
     x *= len;
-    y *= line_thickness;
+    y *= thickness;
 
     // rotate
     {
@@ -1091,6 +1109,9 @@ export class GpuComputeRenderer {
             this.gl.uniform2f(
                 this.drawConUint.locs.uLoc('u_offset'), this.offset.x, this.offset.y)
 
+            this.gl.uniform1f(
+                this.drawConUint.locs.uLoc('u_line_thickness'), 1.2)
+
             this.gl.drawArraysInstanced(
                 this.gl.TRIANGLES,
                 0, // offset
@@ -1100,7 +1121,7 @@ export class GpuComputeRenderer {
         }
 
         // draw nodes
-        {
+        const drawNodes = (drawOutline: boolean) => {
             this.gl.useProgram(this.drawNodeUnit.program)
             this.gl.bindVertexArray(this.drawNodeUnit.vao)
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null)
@@ -1131,6 +1152,21 @@ export class GpuComputeRenderer {
             this.gl.uniform1f(
                 this.drawNodeUnit.locs.uLoc('u_tick'), this.globalTick)
 
+            if (drawOutline) {
+                // TODO: parameterize
+                this.gl.uniform1i(
+                    this.drawNodeUnit.locs.uLoc('u_draw_outline'), 1)
+                this.gl.uniform4f(
+                    this.drawNodeUnit.locs.uLoc('u_outline_color'),
+                    1, 1, 1, 1
+                )
+                this.gl.uniform1f(
+                    this.drawNodeUnit.locs.uLoc('u_outline_width'), 2)
+            } else {
+                this.gl.uniform1i(
+                    this.drawNodeUnit.locs.uLoc('u_draw_outline'), 0)
+            }
+
             this.gl.drawArraysInstanced(
                 this.gl.TRIANGLES,
                 0, // offset
@@ -1138,6 +1174,9 @@ export class GpuComputeRenderer {
                 this.nodeLength // num instances
             )
         }
+
+        drawNodes(true)
+        drawNodes(false)
 
         this.useNodePhysicsTex0 = !this.useNodePhysicsTex0
     }

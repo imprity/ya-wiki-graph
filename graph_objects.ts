@@ -10,12 +10,12 @@ export class DocNode {
         return id
     }
     static nodeMassToRadius(mass: number): number {
-        return 8 + mass * 0.1
+        return 15 + mass * 0.5
     }
 
     static nodeMassToRadiusGLSL: string =
         'float node_mass_to_radius(float m) {\n' +
-        '    return 8.0f + m * 0.1;\n' +
+        '    return 15.0f + m * 0.5;\n' +
         '}\n'
 
 

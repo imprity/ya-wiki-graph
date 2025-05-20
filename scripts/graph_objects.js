@@ -7,7 +7,7 @@ export class DocNode {
         return id;
     }
     static nodeMassToRadius(mass) {
-        return 8 + mass * 0.1;
+        return 15 + mass * 0.5;
     }
     constructor() {
         this.posX = 0;
@@ -26,7 +26,7 @@ export class DocNode {
 }
 DocNode.nodeIdMax = 0;
 DocNode.nodeMassToRadiusGLSL = 'float node_mass_to_radius(float m) {\n' +
-    '    return 8.0f + m * 0.1;\n' +
+    '    return 15.0f + m * 0.5;\n' +
     '}\n';
 export class NodeConnection {
     constructor(nodeIndexA, nodeIndexB) {
