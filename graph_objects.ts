@@ -28,6 +28,8 @@ export class DocNode {
 
     color: color.Color = new color.Color()
 
+    isExpanding: boolean = false
+
     id: number = 0
 
     title: string = ""

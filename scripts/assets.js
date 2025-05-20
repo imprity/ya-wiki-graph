@@ -8,6 +8,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 export let circleImage = null;
+export let loadingCircleImage = null;
 export function loadAssets() {
     return __awaiter(this, void 0, void 0, function* () {
         const loadImage = (url) => __awaiter(this, void 0, void 0, function* () {
@@ -19,5 +20,6 @@ export function loadAssets() {
             return yield createImageBitmap(blob);
         });
         circleImage = yield loadImage('assets/circle.png');
+        loadingCircleImage = yield loadImage('assets/loading-circle.png');
     });
 }

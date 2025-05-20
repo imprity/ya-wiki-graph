@@ -12,7 +12,7 @@ import * as util from "./util.js";
 import * as math from "./math.js";
 import * as assets from "./assets.js";
 import * as color from "./color.js";
-import { GpuComputeRenderer, SimulationParameter } from "./gpu.js";
+import { GpuComputeRenderer, SimulationParameter, DataSyncFlags } from "./gpu.js";
 import { debugPrint, renderDebugPrint } from './debug_print.js';
 import { NodeManager, DocNode, NodeConnection } from "./graph_objects.js";
 const FirstTitle = "English language";
@@ -22,6 +22,7 @@ class App {
         this.height = 0;
         this.zoom = 1;
         this.offset = new math.Vector2(0, 0);
+        this.globalTick = 0;
         this._doUpdateNodePositions = false;
         this._nodePositionsUpdated = false;
         this._updatingNodePositions = false;
@@ -55,17 +56,21 @@ class App {
             const request = {
                 node: node,
                 links: null,
-                gotLinks: false
+                doneRequesting: false
             };
+            node.isExpanding = true;
             this._expandRequests.push(request);
+            this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeInfos);
             try {
                 const regex = / /g;
                 const links = yield wiki.retrieveAllLiks(node.title.replace(regex, "_"));
                 request.links = links;
-                request.gotLinks = true;
             }
             catch (err) {
                 console.error(err);
+            }
+            finally {
+                request.doneRequesting = true;
             }
         });
         this.mainCanvas = mainCanvas;
@@ -112,7 +117,7 @@ class App {
         testNode.color.a = 255;
         this.nodeManager.pushNode(testNode);
         // TEST TEST TEST TEST
-        this.gpu.submitNodeManager(this.nodeManager);
+        this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
     }
     handleEvent(e) {
         const focusLoseDist = 100;
@@ -309,6 +314,7 @@ class App {
     }
     update(deltaTime) {
         this.updateWidthAndHeight();
+        this.globalTick++;
         // debug print stuff
         {
             let estimate = 1000.0 / deltaTime;
@@ -323,7 +329,7 @@ class App {
         if (this._doUpdateNodePositions) {
             if (!this._updatingNodePositions) {
                 this._updatingNodePositions = true;
-                this.gpu.updateNodeInfosToNodeManager(this.nodeManager).then(() => {
+                this.gpu.updateNodePhysicsToNodeManager(this.nodeManager).then(() => {
                     this._updatingNodePositions = false;
                     this._nodePositionsUpdated = true;
                 });
@@ -349,13 +355,16 @@ class App {
             let finished = [];
             let unfinished = [];
             for (const req of this._expandRequests) {
-                if (req.gotLinks) {
+                if (req.doneRequesting) {
                     finished.push(req);
                 }
                 else {
                     unfinished.push(req);
                 }
             }
+            // =======================================
+            // actually add nodes from links we got
+            // =======================================
             for (const req of finished) {
                 this.updateNodePositions(() => {
                     if (req.links === null) {
@@ -392,14 +401,26 @@ class App {
                             otherNode.mass += 1;
                         }
                     }
-                    this.gpu.submitNodeManager(this.nodeManager);
+                    this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
                 });
+            }
+            // =====================================================
+            // nodes with finished request are no longer expanding
+            // =====================================================
+            for (const req of finished) {
+                req.node.isExpanding = false;
+            }
+            if (finished.length > 0) {
+                this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
             }
             this._expandRequests = unfinished;
         }
         this.gpu.zoom = this.zoom;
         this.gpu.offset.x = this.offset.x;
         this.gpu.offset.y = this.offset.y;
+        this.gpu.mouse.x = this.mouse.x;
+        this.gpu.mouse.y = this.mouse.y;
+        this.gpu.globalTick = this.globalTick;
     }
     draw(deltaTime) {
         this.gpu.render();
@@ -530,7 +551,7 @@ class App {
             this.nodeManager.pushNode(testNode);
             // TEST TEST TEST TEST
         }
-        this.gpu.submitNodeManager(this.nodeManager);
+        this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
     }
 }
 class SerializationContainer {

@@ -1,4 +1,5 @@
 export let circleImage: ImageBitmap | null = null
+export let loadingCircleImage: ImageBitmap | null = null
 
 export async function loadAssets() {
     const loadImage = async (url: string): Promise<ImageBitmap> => {
@@ -11,4 +12,5 @@ export async function loadAssets() {
     }
 
     circleImage = await loadImage('assets/circle.png')
+    loadingCircleImage = await loadImage('assets/loading-circle.png')
 }

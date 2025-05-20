@@ -240,6 +240,29 @@ vec2 world_to_viewport(vec2 pos) {
 
     return pos;
 }
+
+vec2 viewport_to_world(vec2 pos) {
+    pos /= u_zoom;
+    pos -= u_offset;
+
+    return pos;
+}
+
+`
+
+const glslUtils = `
+vec2 rotate_v(vec2 v, float angle) {
+    float sinv = sin(angle);
+    float cosv = cos(angle);
+
+    float x2 = v.x * cosv - v.y * sinv;
+    float y2 = v.x * sinv + v.y * cosv;
+
+    v.x = x2;
+    v.y = y2;
+
+    return v;
+}
 `
 
 const drawNodeVShaderSrc = `#version 300 es
@@ -248,9 +271,13 @@ in vec2 a_uv;
 
 uniform highp usampler2D u_node_physics_tex;
 uniform sampler2D u_node_colors_tex;
+uniform highp usampler2D u_node_infos_tex;
+
+uniform vec2 u_mouse;
 
 out vec4 v_color;
 out vec2 v_uv;
+flat out uvec4 v_node_info;
 
 ${worldToViewport}
 
@@ -262,15 +289,17 @@ void main() {
 
     ivec2 texture_size = textureSize(u_node_physics_tex, 0);
 
-    int info_x = gl_InstanceID % texture_size.x;
-    int info_y = gl_InstanceID / texture_size.x;
+    int tex_x = gl_InstanceID % texture_size.x;
+    int tex_y = gl_InstanceID / texture_size.x;
 
-    vec2 node_pos = uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(info_x, info_y), 0).xy);
-    float node_mass = uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(info_x, info_y), 0).z);
+    vec2 node_pos = uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(tex_x, tex_y), 0).xy);
+    float node_mass = uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(tex_x, tex_y), 0).z);
 
     float node_raidus = node_mass_to_radius(node_mass);
 
-    vec4 node_color = texelFetch(u_node_colors_tex, ivec2(info_x, info_y), 0);
+    vec4 node_color = texelFetch(u_node_colors_tex, ivec2(tex_x, tex_y), 0);
+
+    v_node_info = texelFetch(u_node_infos_tex, ivec2(tex_x, tex_y), 0);
 
     x *= node_raidus * 2.0f;
     y *= node_raidus * 2.0f;
@@ -285,9 +314,15 @@ void main() {
         pos.x, pos.y, 0, 1
     );
 
-    //v_color = vec4(175.0f/255.0f, 238.0f/255.0f, 238.0f/255.0f, 1);
     v_color = node_color;
     v_uv = a_uv;
+
+    // if mouse is being hovered, change to different color
+    vec2 mouse = viewport_to_world(u_mouse);
+
+    if (distance(node_pos, mouse) < node_raidus) {
+        v_color = vec4(0, 0, 0, 1);
+    }
 }
 `
 
@@ -296,14 +331,29 @@ precision highp float;
 
 in vec4 v_color;
 in vec2 v_uv;
+flat in uvec4 v_node_info;
+
+uniform float u_tick;
 
 uniform sampler2D u_node_tex;
+uniform sampler2D u_loading_circle_tex;
 
 out vec4 out_color;
 
+${glslUtils}
+
 void main() {
-    vec4 tex_color = texture(u_node_tex, v_uv);
-    out_color = v_color * tex_color;
+    vec4 node_c = texture(u_node_tex, v_uv) * v_color;
+
+    if (v_node_info.x > uint(0)) { // node is expanding
+        vec2 loading_uv = rotate_v(v_uv - vec2(0.5, 0.5), -u_tick * 0.1) + vec2(0.5, 0.5);
+        vec4 loading_c = texture(u_loading_circle_tex, loading_uv);
+
+        // blend colors
+        node_c = loading_c + node_c * (1.0 - loading_c.a);
+    }
+
+    out_color = node_c;
 }
 `;
 
@@ -443,6 +493,15 @@ export class SimulationParameter {
     springDist: number = 600
 }
 
+// controls what data to sync with gpu
+export enum DataSyncFlags {
+    Connections = 1 << 0, // connections
+    NodePhysics = 1 << 1, // nodes' position, mass, temp
+    NodeColors = 1 << 2, // nodes' colors
+    NodeInfos = 1 << 3, // other node infos
+    Everything = ~0
+}
+
 class LocationGroup {
     gl: WebGL2RenderingContext
     program: WebGLProgram
@@ -504,6 +563,10 @@ export class GpuComputeRenderer {
     zoom: number = 1
     offset: math.Vector2 = new math.Vector2(0, 0)
 
+    mouse: math.Vector2 = new math.Vector2(0, 0)
+
+    globalTick: number = 0
+
     simParam: SimulationParameter = new SimulationParameter()
 
     forceCalcUnit: RenderUnit
@@ -519,6 +582,8 @@ export class GpuComputeRenderer {
     nodePhysicsTex1: Texture
     useNodePhysicsTex0: boolean = false
 
+    nodeInfosTex: Texture
+
     nodeColorsTex: Texture
 
     nodePhysicsFB0: WebGLFramebuffer
@@ -527,6 +592,7 @@ export class GpuComputeRenderer {
     conInfosTex: Texture
 
     circleTex: Texture
+    loadingCircleTex: Texture
 
     textureUnitMax: number = -1
 
@@ -736,6 +802,13 @@ export class GpuComputeRenderer {
         // =========================
         // create textures
         // =========================
+        const disableMips = () => {
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        }
+
         const createDataTexture = (): Texture => {
             const texture = this.gl.createTexture()
 
@@ -746,10 +819,7 @@ export class GpuComputeRenderer {
             this.gl.activeTexture(this.gl.TEXTURE0 + unit)
             this.gl.bindTexture(this.gl.TEXTURE_2D, texture)
 
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+            disableMips()
 
             return {
                 texture: texture,
@@ -803,10 +873,7 @@ export class GpuComputeRenderer {
             this.gl.activeTexture(this.gl.TEXTURE0 + unit)
             this.gl.bindTexture(this.gl.TEXTURE_2D, texture)
 
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+            disableMips()
 
             this.gl.texImage2D(
                 this.gl.TEXTURE_2D,
@@ -825,6 +892,9 @@ export class GpuComputeRenderer {
                 width: w, height: h
             }
         }
+
+        // create texture to hold node informations
+        this.nodeInfosTex = createDataTexture()
 
         // create textures to hold connection informations
         this.conInfosTex = createDataTexture()
@@ -898,6 +968,10 @@ export class GpuComputeRenderer {
         }
 
         this.circleTex = createImageTexture(assets.circleImage)
+
+        this.loadingCircleTex = createImageTexture(assets.loadingCircleImage)
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
 
         // ========================
         // create frame buffers
@@ -1039,8 +1113,11 @@ export class GpuComputeRenderer {
             }
 
             useTexture(this.drawNodeUnit, physicsTex, 'u_node_physics_tex')
-            useTexture(this.drawNodeUnit, this.circleTex, 'u_node_tex')
             useTexture(this.drawNodeUnit, this.nodeColorsTex, 'u_node_colors_tex')
+            useTexture(this.drawNodeUnit, this.nodeInfosTex, 'u_node_infos_tex')
+
+            useTexture(this.drawNodeUnit, this.circleTex, 'u_node_tex')
+            useTexture(this.drawNodeUnit, this.loadingCircleTex, 'u_loading_circle_tex')
 
             this.gl.uniform2f(
                 this.drawNodeUnit.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height)
@@ -1048,6 +1125,11 @@ export class GpuComputeRenderer {
                 this.drawNodeUnit.locs.uLoc('u_zoom'), this.zoom)
             this.gl.uniform2f(
                 this.drawNodeUnit.locs.uLoc('u_offset'), this.offset.x, this.offset.y)
+            this.gl.uniform2f(
+                this.drawNodeUnit.locs.uLoc('u_mouse'), this.mouse.x, this.mouse.y)
+
+            this.gl.uniform1f(
+                this.drawNodeUnit.locs.uLoc('u_tick'), this.globalTick)
 
             this.gl.drawArraysInstanced(
                 this.gl.TRIANGLES,
@@ -1060,16 +1142,19 @@ export class GpuComputeRenderer {
         this.useNodePhysicsTex0 = !this.useNodePhysicsTex0
     }
 
-    submitNodeManager(manager: NodeManager) {
+    submitNodeManager(
+        manager: NodeManager,
+        flag: DataSyncFlags
+    ) {
         this.nodeLength = manager.nodes.length
         this.connectionLength = manager.connections.length
 
-        // supply texture with node infos
-        {
-            let nodeDataTexSize = this.capacityToEdge(this.nodeLength)
-            nodeDataTexSize = Math.max(nodeDataTexSize, 128) // prevent creating empty texture
+        let nodeTexSize = this.capacityToEdge(this.nodeLength)
+        nodeTexSize = Math.max(nodeTexSize, 128) // prevent creating empty texture
 
-            let data = new Float32Array(nodeDataTexSize * nodeDataTexSize * 4)
+        // supply texture with node physics
+        if ((flag & DataSyncFlags.NodePhysics) > 0) {
+            let data = new Float32Array(nodeTexSize * nodeTexSize * 4)
 
             let offset = 0
             for (let i = 0; i < manager.nodes.length; i++) {
@@ -1088,7 +1173,7 @@ export class GpuComputeRenderer {
                 this.gl.TEXTURE_2D,
                 0, // level
                 this.gl.RGBA32UI, // internal format
-                nodeDataTexSize, nodeDataTexSize, // width, height
+                nodeTexSize, nodeTexSize, // width, height
                 0, // border
                 this.gl.RGBA_INTEGER, // format
                 this.gl.UNSIGNED_INT, // type
@@ -1101,19 +1186,17 @@ export class GpuComputeRenderer {
                 this.gl.TEXTURE_2D,
                 0, // level
                 this.gl.RGBA32UI, // internal format
-                nodeDataTexSize, nodeDataTexSize, // width, height
+                nodeTexSize, nodeTexSize, // width, height
                 0, // border
                 this.gl.RGBA_INTEGER, // format
                 this.gl.UNSIGNED_INT, // type
                 new Uint32Array(data.buffer) // data
             )
         }
-        // supply texture with node colors
-        {
-            let nodeColorsTexSize = this.capacityToEdge(this.nodeLength)
-            nodeColorsTexSize = Math.max(nodeColorsTexSize, 128) // prevent creating empty texture
 
-            let data = new Uint8Array(nodeColorsTexSize * nodeColorsTexSize * 4)
+        // supply texture with node colors
+        if ((flag & DataSyncFlags.NodeColors) > 0) {
+            let data = new Uint8Array(nodeTexSize * nodeTexSize * 4)
 
             let offset = 0
             for (let i = 0; i < manager.nodes.length; i++) {
@@ -1132,7 +1215,7 @@ export class GpuComputeRenderer {
                 this.gl.TEXTURE_2D,
                 0, // level
                 this.gl.RGBA8, // internal format
-                nodeColorsTexSize, nodeColorsTexSize, // width, height
+                nodeTexSize, nodeTexSize, // width, height
                 0, // border
                 this.gl.RGBA, // format
                 this.gl.UNSIGNED_BYTE, // type
@@ -1140,8 +1223,37 @@ export class GpuComputeRenderer {
             )
         }
 
+        // supply texture with node infos
+        if ((flag & DataSyncFlags.NodeInfos) > 0) {
+            let data = new Uint32Array(nodeTexSize * nodeTexSize * 4)
+
+            let offset = 0
+            for (let i = 0; i < manager.nodes.length; i++) {
+                const node = manager.nodes[i]
+                data[offset + 0] = node.isExpanding ? 1 : 0;
+                data[offset + 1] = 0 // reserved
+                data[offset + 2] = 0 // reserved
+                data[offset + 3] = 0 // reserved
+
+                offset += 4
+            }
+
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeInfosTex.unit)
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeInfosTex.texture)
+            this.gl.texImage2D(
+                this.gl.TEXTURE_2D,
+                0, // level
+                this.gl.RGBA32UI, // internal format
+                nodeTexSize, nodeTexSize, // width, height
+                0, // border
+                this.gl.RGBA_INTEGER, // format
+                this.gl.UNSIGNED_INT, // type
+                data // data
+            )
+        }
+
         // supply texture with connection infos
-        {
+        if ((flag & DataSyncFlags.Connections) > 0) {
             let conDataTexSize = this.capacityToEdge(this.connectionLength)
             conDataTexSize = Math.max(conDataTexSize, 128) // prevent creating empty texture
 
@@ -1174,7 +1286,7 @@ export class GpuComputeRenderer {
         }
     }
 
-    async updateNodeInfosToNodeManager(manager: NodeManager) {
+    async updateNodePhysicsToNodeManager(manager: NodeManager) {
         if (this.nodeLength !== manager.nodes.length) {
             console.error(`node length is different : ${this.nodeLength}, ${manager.nodes.length}`)
         }
@@ -1202,10 +1314,15 @@ export class GpuComputeRenderer {
 
         for (let i = 0; i < nodeLength; i++) {
             const node = manager.nodes[i]
-            node.posX = nodeInfos[offset]
+            node.posX = nodeInfos[offset + 0]
             node.posY = nodeInfos[offset + 1]
             // we skip 2, which is mass
             node.temp = nodeInfos[offset + 3]
+
+            // NOTE: yes, we are lying and skipping mass
+            // even though function name says updateNodePhysicsToNodeManager
+            // because node manager already knows what mass is
+            // and gpu doesn't touch it
 
             offset += 4
         }

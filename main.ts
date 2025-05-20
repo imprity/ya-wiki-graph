@@ -4,7 +4,7 @@ import * as util from "./util.js"
 import * as math from "./math.js"
 import * as assets from "./assets.js"
 import * as color from "./color.js"
-import { GpuComputeRenderer, SimulationParameter } from "./gpu.js"
+import { GpuComputeRenderer, SimulationParameter, DataSyncFlags } from "./gpu.js"
 import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js'
 import { NodeManager, DocNode, NodeConnection } from "./graph_objects.js"
 
@@ -14,7 +14,7 @@ const FirstTitle = "English language"
 interface ExpandRequest {
     node: DocNode
     links: Array<string> | null
-    gotLinks: boolean
+    doneRequesting: boolean
 }
 
 class App {
@@ -26,6 +26,8 @@ class App {
 
     zoom: number = 1
     offset: math.Vector2 = new math.Vector2(0, 0)
+
+    globalTick: number = 0
 
     gpu: GpuComputeRenderer
 
@@ -123,7 +125,10 @@ class App {
         this.nodeManager.pushNode(testNode)
         // TEST TEST TEST TEST
 
-        this.gpu.submitNodeManager(this.nodeManager)
+        this.gpu.submitNodeManager(
+            this.nodeManager,
+            DataSyncFlags.Everything
+        )
     }
 
     handleEvent(e: Event) {
@@ -378,6 +383,7 @@ class App {
 
     update(deltaTime: DOMHighResTimeStamp) {
         this.updateWidthAndHeight()
+        this.globalTick++
 
         // debug print stuff
         {
@@ -394,7 +400,7 @@ class App {
         if (this._doUpdateNodePositions) {
             if (!this._updatingNodePositions) {
                 this._updatingNodePositions = true
-                this.gpu.updateNodeInfosToNodeManager(this.nodeManager).then(() => {
+                this.gpu.updateNodePhysicsToNodeManager(this.nodeManager).then(() => {
                     this._updatingNodePositions = false
                     this._nodePositionsUpdated = true
                 })
@@ -422,13 +428,16 @@ class App {
             let unfinished: Array<ExpandRequest> = []
 
             for (const req of this._expandRequests) {
-                if (req.gotLinks) {
+                if (req.doneRequesting) {
                     finished.push(req)
                 } else {
                     unfinished.push(req)
                 }
             }
 
+            // =======================================
+            // actually add nodes from links we got
+            // =======================================
             for (const req of finished) {
                 this.updateNodePositions(() => {
                     if (req.links === null) {
@@ -475,8 +484,24 @@ class App {
                         }
                     }
 
-                    this.gpu.submitNodeManager(this.nodeManager)
+                    this.gpu.submitNodeManager(
+                        this.nodeManager,
+                        DataSyncFlags.Everything
+                    )
                 })
+            }
+
+            // =====================================================
+            // nodes with finished request are no longer expanding
+            // =====================================================
+            for (const req of finished) {
+                req.node.isExpanding = false
+            }
+            if (finished.length > 0) {
+                this.gpu.submitNodeManager(
+                    this.nodeManager,
+                    DataSyncFlags.Everything
+                )
             }
 
             this._expandRequests = unfinished
@@ -485,6 +510,9 @@ class App {
         this.gpu.zoom = this.zoom
         this.gpu.offset.x = this.offset.x
         this.gpu.offset.y = this.offset.y
+        this.gpu.mouse.x = this.mouse.x
+        this.gpu.mouse.y = this.mouse.y
+        this.gpu.globalTick = this.globalTick
     }
 
     draw(deltaTime: DOMHighResTimeStamp) {
@@ -585,19 +613,27 @@ class App {
         const request: ExpandRequest = {
             node: node,
             links: null,
-            gotLinks: false
+            doneRequesting: false
         }
 
+        node.isExpanding = true
+
         this._expandRequests.push(request)
+
+        this.gpu.submitNodeManager(
+            this.nodeManager,
+            DataSyncFlags.NodeInfos
+        )
 
         try {
             const regex = / /g
             const links = await wiki.retrieveAllLiks(node.title.replace(regex, "_"))
 
             request.links = links
-            request.gotLinks = true
         } catch (err) {
             console.error(err)
+        } finally {
+            request.doneRequesting = true
         }
     }
 
@@ -698,7 +734,10 @@ class App {
             // TEST TEST TEST TEST
         }
 
-        this.gpu.submitNodeManager(this.nodeManager)
+        this.gpu.submitNodeManager(
+            this.nodeManager,
+            DataSyncFlags.Everything
+        )
     }
 }
 
