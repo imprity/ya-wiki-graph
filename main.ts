@@ -395,32 +395,6 @@ class App {
         debugPrint('zoom', this.zoom.toFixed(2))
 
         // ================================
-        // node position updating
-        // ================================
-        if (this._doUpdateNodePositions) {
-            if (!this._updatingNodePositions) {
-                this._updatingNodePositions = true
-                this.gpu.updateNodePhysicsToNodeManager(this.nodeManager).then(() => {
-                    this._updatingNodePositions = false
-                    this._nodePositionsUpdated = true
-                })
-            }
-        } else {
-            this._nodePositionsUpdated = false
-        }
-        this._doUpdateNodePositions = false
-
-        // ================================
-        // handle callbacks
-        // ================================
-        if (this._nodePositionsUpdated) {
-            for (const cb of this._onNodePostionsUpdated) {
-                cb()
-            }
-            this._onNodePostionsUpdated.length = 0
-        }
-
-        // ================================
         // handle expand requests
         // ================================
         {
@@ -498,13 +472,45 @@ class App {
                 req.node.isExpanding = false
             }
             if (finished.length > 0) {
+                // tell gpu that nodes aren't expanding
                 this.gpu.submitNodeManager(
                     this.nodeManager,
-                    DataSyncFlags.Everything
+                    DataSyncFlags.NodeInfos
                 )
             }
 
             this._expandRequests = unfinished
+        }
+
+        // ================================
+        // node position updating
+        // ================================
+        if (this._doUpdateNodePositions) {
+            if (!this._updatingNodePositions) {
+                this._updatingNodePositions = true
+                this.gpu.updateNodePhysicsToNodeManager(this.nodeManager).then(() => {
+                    this._updatingNodePositions = false
+                    this._nodePositionsUpdated = true
+
+                    for (const cb of this._onNodePostionsUpdated) {
+                        cb()
+                    }
+                    this._onNodePostionsUpdated.length = 0
+                })
+            }
+        } else {
+            this._nodePositionsUpdated = false
+        }
+        this._doUpdateNodePositions = false
+
+        // ================================
+        // handle callbacks on updates
+        // ================================
+        if (this._nodePositionsUpdated) {
+            for (const cb of this._onNodePostionsUpdated) {
+                cb()
+            }
+            this._onNodePostionsUpdated.length = 0
         }
 
         this.gpu.zoom = this.zoom
