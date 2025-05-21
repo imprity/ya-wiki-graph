@@ -1205,9 +1205,9 @@ export class GpuComputeRenderer {
             let data = new Float32Array(nodeTexSize * nodeTexSize * 4)
 
             let offset = 0
-            for (let i = 0; i < manager.nodes.length; i++) {
+            for (let i = 0; i < this.nodeLength; i++) {
                 const node = manager.nodes[i]
-                data[offset] = node.posX
+                data[offset + 0] = node.posX
                 data[offset + 1] = node.posY
                 data[offset + 2] = node.mass
                 data[offset + 3] = node.temp
@@ -1247,7 +1247,7 @@ export class GpuComputeRenderer {
             let data = new Uint8Array(nodeTexSize * nodeTexSize * 4)
 
             let offset = 0
-            for (let i = 0; i < manager.nodes.length; i++) {
+            for (let i = 0; i < this.nodeLength; i++) {
                 const node = manager.nodes[i]
                 data[offset + 0] = node.color.r
                 data[offset + 1] = node.color.g
@@ -1276,7 +1276,7 @@ export class GpuComputeRenderer {
             let data = new Uint32Array(nodeTexSize * nodeTexSize * 4)
 
             let offset = 0
-            for (let i = 0; i < manager.nodes.length; i++) {
+            for (let i = 0; i < this.nodeLength; i++) {
                 const node = manager.nodes[i]
                 data[offset + 0] = node.isExpanding ? 1 : 0;
                 data[offset + 1] = 0 // reserved
