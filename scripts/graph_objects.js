@@ -12,7 +12,7 @@ export class DocNode {
     constructor() {
         this.posX = 0;
         this.posY = 0;
-        this.temp = 1;
+        this.temp = 0;
         this.mass = 0;
         this.color = new color.Color();
         this.isExpanding = false;

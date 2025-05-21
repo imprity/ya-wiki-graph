@@ -729,6 +729,7 @@ function main() {
             addSlider(7000, 0, 10000, 1, "repulsion", (value) => { app.simParam.repulsion = value; });
             addSlider(5, 0, 20, 0.0001, "spring", (value) => { app.simParam.spring = value; });
             addSlider(600, 1, 1000, 1, "springDist", (value) => { app.simParam.springDist = value; });
+            addSlider(100, 1, 1000, 1, "forceCap", (value) => { app.simParam.forceCap = value; });
         }
         let prevTime;
         const onFrame = (timestamp) => {

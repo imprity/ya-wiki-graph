@@ -22,7 +22,7 @@ export class DocNode {
     posX: number = 0
     posY: number = 0
 
-    temp: number = 1
+    temp: number = 0
 
     mass: number = 0
 

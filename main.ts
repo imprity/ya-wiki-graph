@@ -1000,6 +1000,13 @@ async function main() {
             "springDist",
             (value) => { app.simParam.springDist = value }
         )
+        addSlider(
+            100,
+            1, 1000,
+            1,
+            "forceCap",
+            (value) => { app.simParam.forceCap = value }
+        )
     }
 
     let prevTime: DOMHighResTimeStamp | undefined

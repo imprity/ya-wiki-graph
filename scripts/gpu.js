@@ -31,6 +31,7 @@ uniform float u_node_min_dist;
 uniform float u_repulsion;
 uniform float u_spring;
 uniform float u_spring_dist;
+uniform float u_force_cap;
 
 out uvec4 out_color;
 
@@ -218,7 +219,12 @@ void main() {
 
         node_temp = clamp(node_temp, 0.0f, 1.0f);
 
-        node_pos += force_sum * node_temp / node_mass;
+        vec2 fv = force_sum * node_temp / node_mass;
+        float fvl = length(fv);
+        if (fvl > u_force_cap) {
+            fv = normalize(fv) * u_force_cap;
+        }
+        node_pos += fv;
     }
 
     uvec2 pos_u = floatBitsToUint(node_pos);
@@ -508,6 +514,7 @@ export class SimulationParameter {
         this.repulsion = 7000;
         this.spring = 5;
         this.springDist = 600;
+        this.forceCap = 200;
     }
 }
 // controls what data to sync with gpu
@@ -889,6 +896,7 @@ export class GpuComputeRenderer {
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_repulsion'), this.simParam.repulsion);
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring'), this.simParam.spring);
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring_dist'), this.simParam.springDist);
+            this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_force_cap'), this.simParam.forceCap);
             this.gl.drawArrays(this.gl.TRIANGLES, 0, 6); // draw 2 triangles (6 vertices)
         }
         // enable alpha blending
