@@ -23,8 +23,6 @@ class App {
         this.zoom = 1;
         this.offset = new math.Vector2(0, 0);
         this.globalTick = 0;
-        this._doUpdateNodePositions = false;
-        this._nodePositionsUpdated = false;
         this._updatingNodePositions = false;
         this._onNodePostionsUpdated = [];
         this._expandRequests = [];
@@ -112,6 +110,8 @@ class App {
         const testNode = new DocNode();
         testNode.posX = this.width / 2;
         testNode.posY = this.height / 2;
+        testNode.renderX = this.width / 2;
+        testNode.renderY = this.height / 2;
         testNode.title = FirstTitle;
         testNode.color = color.getRandomColor();
         testNode.color.a = 255;
@@ -164,24 +164,22 @@ class App {
         };
         const handlePointerUp = () => {
             if (this.readyToExpandNodeOnRelease) {
-                this.updateNodePositions(() => {
-                    // check if we clicked on node
-                    let clickedOnNode = false;
-                    let nodeIndex = -1;
-                    const pos = this.viewportToWorld(this.lastPosBeforeRelease.x, this.lastPosBeforeRelease.y);
-                    for (let i = 0; i < this.nodeManager.nodes.length; i++) {
-                        const node = this.nodeManager.nodes[i];
-                        if (math.posInCircle(pos.x, pos.y, node.posX, node.posY, node.getRadius())) {
-                            clickedOnNode = true;
-                            nodeIndex = i;
-                            break;
-                        }
+                // check if we clicked on node
+                let clickedOnNode = false;
+                let nodeIndex = -1;
+                const pos = this.viewportToWorld(this.lastPosBeforeRelease.x, this.lastPosBeforeRelease.y);
+                for (let i = 0; i < this.nodeManager.nodes.length; i++) {
+                    const node = this.nodeManager.nodes[i];
+                    if (math.posInCircle(pos.x, pos.y, node.renderX, node.renderY, node.getRadius())) {
+                        clickedOnNode = true;
+                        nodeIndex = i;
+                        break;
                     }
-                    // if we clicked on node, expand it
-                    if (clickedOnNode) {
-                        this.expandNode(nodeIndex);
-                    }
-                });
+                }
+                // if we clicked on node, expand it
+                if (clickedOnNode) {
+                    this.expandNode(nodeIndex);
+                }
             }
             this.readyToExpandNodeOnRelease = false;
             this.draggingCanvas = false;
@@ -341,7 +339,7 @@ class App {
             // actually add nodes from links we got
             // =======================================
             for (const req of finished) {
-                this.updateNodePositions(() => {
+                this.onNodePositionUpdated(() => {
                     if (req.links === null) {
                         return;
                     }
@@ -363,6 +361,8 @@ class App {
                             const v = math.vector2Rotate(offsetV, angle * i);
                             newNode.posX = req.node.posX + v.x;
                             newNode.posY = req.node.posY + v.y;
+                            newNode.renderX = newNode.posX;
+                            newNode.renderY = newNode.posY;
                             this.nodeManager.pushNode(newNode);
                             this.nodeManager.setConnected(index, newNodeIndex, true);
                             req.node.mass += 1;
@@ -397,32 +397,30 @@ class App {
         // ================================
         // node position updating
         // ================================
-        if (this._doUpdateNodePositions) {
-            if (!this._updatingNodePositions) {
-                this._updatingNodePositions = true;
-                this.gpu.updateNodePhysicsToNodeManager(this.nodeManager).then(() => {
-                    this._updatingNodePositions = false;
-                    this._nodePositionsUpdated = true;
-                    for (const cb of this._onNodePostionsUpdated) {
-                        cb();
-                    }
-                    this._onNodePostionsUpdated.length = 0;
-                });
-            }
+        if (!this._updatingNodePositions) {
+            this._updatingNodePositions = true;
+            this.gpu.updateNodePhysicsToNodeManager(this.nodeManager).then(() => {
+                this._updatingNodePositions = false;
+                for (const cb of this._onNodePostionsUpdated) {
+                    cb();
+                }
+                this._onNodePostionsUpdated.length = 0;
+            });
         }
-        else {
-            this._nodePositionsUpdated = false;
-        }
-        this._doUpdateNodePositions = false;
         // ================================
-        // handle callbacks on updates
+        // update node render positions
         // ================================
-        if (this._nodePositionsUpdated) {
-            for (const cb of this._onNodePostionsUpdated) {
-                cb();
-            }
-            this._onNodePostionsUpdated.length = 0;
+        for (let i = 0; i < this.nodeManager.nodes.length; i++) {
+            const node = this.nodeManager.nodes[i];
+            let t1 = math.distSquared(node.renderX - node.posX, node.renderY - node.posY);
+            let t2 = t1 / 50000.0;
+            t2 = math.clamp(t2, 0, 0.2);
+            const x = math.lerp(node.renderX, node.posX, t2);
+            const y = math.lerp(node.renderY, node.posY, t2);
+            node.renderX = x;
+            node.renderY = y;
         }
+        this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeRenderPos);
         this.gpu.zoom = this.zoom;
         this.gpu.offset.x = this.offset.x;
         this.gpu.offset.y = this.offset.y;
@@ -438,31 +436,30 @@ class App {
         // =========================
         // TODO: text is jittery because node position update is delayed
         if (this.zoom > 0.3) {
-            this.updateNodePositions();
-            if (this.nodePositionsUpdated()) {
-                this.overlayCtx.font = `${this.zoom * 12}px sans-serif`;
-                this.overlayCtx.fillStyle = "black";
-                this.overlayCtx.strokeStyle = "white";
-                this.overlayCtx.lineWidth = 3 * this.zoom;
-                this.overlayCtx.textAlign = "center";
-                this.overlayCtx.textRendering = "optimizeSpeed";
-                this.overlayCtx.textBaseline = "bottom";
-                // drawing text for every node is too expensive
-                // draw nodes that are only visible
-                const viewMin = this.viewportToWorld(0, 0);
-                const viewMax = this.viewportToWorld(this.width, this.height);
-                const vx = viewMax.x - viewMin.x;
-                const vy = viewMax.y - viewMin.y;
-                viewMin.x -= vx * 0.25;
-                viewMax.x += vx * 0.25;
-                viewMin.y -= vy * 0.1;
-                viewMax.y += vy * 0.1;
-                for (const node of this.nodeManager.nodes) {
-                    if (math.posInBox(node.posX, node.posY, viewMin.x, viewMin.y, viewMax.x, viewMax.y)) {
-                        const pos = this.worldToViewport(node.posX, node.posY);
-                        this.overlayCtx.strokeText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
-                        this.overlayCtx.fillText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
-                    }
+            this.overlayCtx.font = `${this.zoom * 12}px sans-serif`;
+            this.overlayCtx.fillStyle = "black";
+            this.overlayCtx.strokeStyle = "white";
+            this.overlayCtx.lineWidth = 3 * this.zoom;
+            this.overlayCtx.textAlign = "center";
+            //this.overlayCtx.textRendering = "optimizeSpeed"
+            this.overlayCtx.textBaseline = "bottom";
+            // drawing text for every node is too expensive
+            // draw nodes that are only visible
+            const viewMin = this.viewportToWorld(0, 0);
+            const viewMax = this.viewportToWorld(this.width, this.height);
+            const vx = viewMax.x - viewMin.x;
+            const vy = viewMax.y - viewMin.y;
+            viewMin.x -= vx * 0.25;
+            viewMax.x += vx * 0.25;
+            viewMin.y -= vy * 0.1;
+            viewMax.y += vy * 0.1;
+            //for (const node of this.nodeManager.nodes) {
+            for (let i = 0; i < this.nodeManager.nodes.length; i++) {
+                const node = this.nodeManager.nodes[i];
+                if (math.posInBox(node.posX, node.posY, viewMin.x, viewMin.y, viewMax.x, viewMax.y)) {
+                    const pos = this.worldToViewport(node.renderX, node.renderY);
+                    this.overlayCtx.strokeText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
+                    this.overlayCtx.fillText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
                 }
             }
         }
@@ -518,6 +515,8 @@ class App {
                 const nodeCopy = new DocNode();
                 nodeCopy.posX = node.posX;
                 nodeCopy.posY = node.posY;
+                nodeCopy.renderX = node.posX;
+                nodeCopy.renderY = node.posY;
                 nodeCopy.title = node.title;
                 nodeCopy.mass = 1;
                 // TEST TEST TEST TEST TEST
@@ -545,17 +544,8 @@ class App {
             console.error(err);
         }
     }
-    updateNodePositions(cb = null) {
-        this._doUpdateNodePositions = true;
-        if (cb !== null) {
-            this._onNodePostionsUpdated.push(cb);
-        }
-    }
-    nodePositionsUpdated() {
-        return this._nodePositionsUpdated;
-    }
-    updatingNodePositions() {
-        return this._updatingNodePositions;
+    onNodePositionUpdated(cb) {
+        this._onNodePostionsUpdated.push(cb);
     }
     reset(addStartingNode) {
         this._onNodePostionsUpdated.length = 0;
@@ -570,6 +560,8 @@ class App {
             const testNode = new DocNode();
             testNode.posX = this.width / 2;
             testNode.posY = this.height / 2;
+            testNode.renderX = this.width / 2;
+            testNode.renderY = this.height / 2;
             testNode.title = FirstTitle;
             testNode.color = color.getRandomColor();
             testNode.color.a = 255;

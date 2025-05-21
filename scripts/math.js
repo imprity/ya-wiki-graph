@@ -65,3 +65,6 @@ export function clampAbs(n, abs) {
 export function closeToZero(n) {
     return Math.abs(n) < 0.00001;
 }
+export function lerp(a, b, t) {
+    return a + (b - a) * t;
+}

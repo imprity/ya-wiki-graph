@@ -282,6 +282,7 @@ in vec2 a_uv;
 uniform highp usampler2D u_node_physics_tex;
 uniform sampler2D u_node_colors_tex;
 uniform highp usampler2D u_node_infos_tex;
+uniform highp usampler2D u_node_render_pos_tex;
 
 uniform vec2 u_mouse;
 
@@ -301,12 +302,16 @@ void main() {
     float x = a_vertex.x;
     float y = a_vertex.y;
 
-    ivec2 texture_size = textureSize(u_node_physics_tex, 0);
+    ivec2 tex_size = textureSize(u_node_physics_tex, 0);
+    ivec2 render_pos_tex_size = textureSize(u_node_render_pos_tex, 0);
 
-    int tex_x = gl_InstanceID % texture_size.x;
-    int tex_y = gl_InstanceID / texture_size.x;
+    int tex_x = gl_InstanceID % tex_size.x;
+    int tex_y = gl_InstanceID / tex_size.x;
 
-    vec2 node_pos = uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(tex_x, tex_y), 0).xy);
+    int pos_tex_x = gl_InstanceID % render_pos_tex_size.x;
+    int pos_tex_y = gl_InstanceID / render_pos_tex_size.x;
+
+    vec2 node_pos = uintBitsToFloat(texelFetch(u_node_render_pos_tex, ivec2(pos_tex_x, pos_tex_y), 0).xy);
     float node_mass = uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(tex_x, tex_y), 0).z);
 
     float node_raidus = node_mass_to_radius(node_mass);
@@ -389,6 +394,7 @@ uniform highp usampler2D u_con_infos_tex;
 
 uniform highp usampler2D u_node_physics_tex;
 uniform sampler2D u_node_colors_tex;
+uniform highp usampler2D u_node_render_pos_tex;
 
 uniform float u_line_thickness;
 
@@ -398,11 +404,11 @@ out vec4 v_color;
 out vec2 v_uv;
 
 vec2 get_node_pos(int node_index) {
-    ivec2 node_tex_size = textureSize(u_node_physics_tex, 0);
+    ivec2 node_tex_size = textureSize(u_node_render_pos_tex, 0);
 
     int x = node_index % node_tex_size.x;
     int y = node_index / node_tex_size.x;
-    return uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(x, y), 0).xy);
+    return uintBitsToFloat(texelFetch(u_node_render_pos_tex, ivec2(x, y), 0).xy);
 }
 
 vec4 get_node_color(int node_index) {
@@ -524,6 +530,7 @@ export var DataSyncFlags;
     DataSyncFlags[DataSyncFlags["NodePhysics"] = 2] = "NodePhysics";
     DataSyncFlags[DataSyncFlags["NodeColors"] = 4] = "NodeColors";
     DataSyncFlags[DataSyncFlags["NodeInfos"] = 8] = "NodeInfos";
+    DataSyncFlags[DataSyncFlags["NodeRenderPos"] = 16] = "NodeRenderPos";
     DataSyncFlags[DataSyncFlags["Everything"] = -1] = "Everything";
 })(DataSyncFlags || (DataSyncFlags = {}));
 class LocationGroup {
@@ -556,6 +563,7 @@ export class GpuComputeRenderer {
     constructor(canvas) {
         this.nodeLength = 0;
         this.connectionLength = 0;
+        this.nodeRenderLength = 0;
         this.zoom = 1;
         this.offset = new math.Vector2(0, 0);
         this.mouse = new math.Vector2(0, 0);
@@ -781,6 +789,10 @@ export class GpuComputeRenderer {
         }
         // create texture to hold node informations
         this.nodeInfosTex = createDataTexture();
+        setDataTextureSize(this.nodeInfosTex, texInitSize, texInitSize);
+        // create texture to hold node render poses
+        this.nodeRenderPosTex = createDataTexture();
+        setDataTextureSize(this.nodeRenderPosTex, texInitSize, texInitSize);
         // create textures to hold connection informations
         this.conInfosTex = createDataTexture();
         setDataTextureSize(this.conInfosTex, texInitSize, texInitSize);
@@ -918,6 +930,7 @@ export class GpuComputeRenderer {
             }
             useTexture(this.drawConUint, physicsTex, 'u_node_physics_tex');
             useTexture(this.drawConUint, this.nodeColorsTex, 'u_node_colors_tex');
+            useTexture(this.drawConUint, this.nodeRenderPosTex, 'u_node_render_pos_tex');
             useTexture(this.drawConUint, this.conInfosTex, 'u_con_infos_tex');
             this.gl.uniform2f(this.drawConUint.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
             this.gl.uniform1f(this.drawConUint.locs.uLoc('u_zoom'), this.zoom);
@@ -940,6 +953,7 @@ export class GpuComputeRenderer {
             }
             useTexture(this.drawNodeUnit, physicsTex, 'u_node_physics_tex');
             useTexture(this.drawNodeUnit, this.nodeColorsTex, 'u_node_colors_tex');
+            useTexture(this.drawNodeUnit, this.nodeRenderPosTex, 'u_node_render_pos_tex');
             useTexture(this.drawNodeUnit, this.nodeInfosTex, 'u_node_infos_tex');
             useTexture(this.drawNodeUnit, this.circleTex, 'u_node_tex');
             useTexture(this.drawNodeUnit, this.loadingCircleTex, 'u_loading_circle_tex');
@@ -1048,6 +1062,29 @@ export class GpuComputeRenderer {
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
             data // data
+            );
+        }
+        // supply texture with node render positions
+        if ((flag & DataSyncFlags.NodeRenderPos) > 0) {
+            let data = new Float32Array(nodeTexSize * nodeTexSize * 4);
+            let offset = 0;
+            for (let i = 0; i < this.nodeLength; i++) {
+                const node = manager.nodes[i];
+                data[offset + 0] = node.renderX;
+                data[offset + 1] = node.renderY;
+                data[offset + 2] = 0;
+                data[offset + 3] = 0;
+                offset += 4;
+            }
+            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeRenderPosTex.unit);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeRenderPosTex.texture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
+            this.gl.RGBA32UI, // internal format
+            nodeTexSize, nodeTexSize, // width, height
+            0, // border
+            this.gl.RGBA_INTEGER, // format
+            this.gl.UNSIGNED_INT, // type
+            new Uint32Array(data.buffer) // data
             );
         }
         // supply texture with connection infos

@@ -96,3 +96,7 @@ export function clampAbs(n: number, abs: number): number {
 export function closeToZero(n: number): boolean {
     return Math.abs(n) < 0.00001
 }
+
+export function lerp(a: number, b: number, t: number): number {
+    return a + (b - a) * t
+}

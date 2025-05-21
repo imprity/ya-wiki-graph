@@ -15,6 +15,8 @@ export class DocNode {
         this.temp = 0;
         this.mass = 0;
         this.color = new color.Color();
+        this.renderX = 0;
+        this.renderY = 0;
         this.isExpanding = false;
         this.id = 0;
         this.title = "";
