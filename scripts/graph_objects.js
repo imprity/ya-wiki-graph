@@ -135,3 +135,73 @@ export class NodeManager {
         return index;
     }
 }
+export class DocNodeContainer {
+    constructor() {
+        this.posX = 0;
+        this.posY = 0;
+        this.title = "";
+    }
+}
+export class NodeConnectionContainer {
+    constructor() {
+        this.nodeIndexA = 0;
+        this.nodeIndexB = 0;
+    }
+}
+export class SerializationContainer {
+    constructor() {
+        this.nodes = [];
+        this.connections = [];
+        this.offsetX = 0;
+        this.offsetY = 0;
+        this.zoom = 0;
+    }
+}
+export function isSerializationContainer(obj) {
+    if (typeof obj !== 'object') {
+        return false;
+    }
+    function objHasMatchingKeys(obj, instance) {
+        const keys = Reflect.ownKeys(instance);
+        for (const key of keys) {
+            const instanceType = typeof instance[key];
+            const objType = typeof obj[key];
+            if (instanceType !== objType) {
+                return false;
+            }
+            if (instanceType == "object") {
+                if (Array.isArray(instance[key])) {
+                    if (!Array.isArray(obj[key])) {
+                        return false;
+                    }
+                }
+                else {
+                    if (!objHasMatchingKeys(instance[key], obj[key])) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+    if (!objHasMatchingKeys(obj, new SerializationContainer())) {
+        return false;
+    }
+    if (obj.nodes.length > 0) {
+        const dummyNode = new DocNodeContainer();
+        for (const objNode of obj.nodes) {
+            if (!objHasMatchingKeys(objNode, dummyNode)) {
+                return false;
+            }
+        }
+    }
+    if (obj.connections.length > 0) {
+        const dummyCon = new NodeConnectionContainer();
+        for (const objCon of obj.connections) {
+            if (!objHasMatchingKeys(objCon, dummyCon)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}

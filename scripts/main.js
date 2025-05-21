@@ -14,7 +14,7 @@ import * as assets from "./assets.js";
 import * as color from "./color.js";
 import { GpuComputeRenderer, SimulationParameter, DataSyncFlags } from "./gpu.js";
 import { debugPrint, renderDebugPrint } from './debug_print.js';
-import { NodeManager, DocNode, NodeConnection } from "./graph_objects.js";
+import { NodeManager, DocNode, SerializationContainer, isSerializationContainer, } from "./graph_objects.js";
 const FirstTitle = "English language";
 class App {
     constructor(mainCanvas, overlayCanvas) {
@@ -491,17 +491,20 @@ class App {
         return new math.Vector2(x, y);
     }
     serialize() {
-        const container = new SerializationContainer();
-        for (let i = 0; i < this.nodeManager.nodes.length; i++) {
-            container.nodes.push(this.nodeManager.nodes[i]);
-        }
-        for (let i = 0; i < this.nodeManager.connections.length; i++) {
-            container.connections.push(this.nodeManager.connections[i]);
-        }
-        container.offsetX = this.offset.x;
-        container.offsetY = this.offset.y;
-        container.zoom = this.zoom;
-        return JSON.stringify(container);
+        return __awaiter(this, void 0, void 0, function* () {
+            yield this.gpu.updateNodePhysicsToNodeManager(this.nodeManager);
+            const container = new SerializationContainer();
+            for (let i = 0; i < this.nodeManager.nodes.length; i++) {
+                container.nodes.push(this.nodeManager.nodes[i]);
+            }
+            for (let i = 0; i < this.nodeManager.connections.length; i++) {
+                container.connections.push(this.nodeManager.connections[i]);
+            }
+            container.offsetX = this.offset.x;
+            container.offsetY = this.offset.y;
+            container.zoom = this.zoom;
+            return JSON.stringify(container);
+        });
     }
     deserialize(jsonString) {
         try {
@@ -515,10 +518,20 @@ class App {
                 const nodeCopy = new DocNode();
                 nodeCopy.posX = node.posX;
                 nodeCopy.posY = node.posY;
-                // we don't need to deserialize force
-                // it will be handled by at later tick
                 nodeCopy.title = node.title;
+                nodeCopy.mass = 1;
+                // TEST TEST TEST TEST TEST
+                nodeCopy.color = color.getRandomColor();
+                nodeCopy.color.a = 255;
+                // TEST TEST TEST TEST TEST
                 this.nodeManager.pushNode(nodeCopy);
+            }
+            // add mass to node if connected
+            for (const con of container.connections) {
+                const nodeA = this.nodeManager.nodes[con.nodeIndexA];
+                const nodeB = this.nodeManager.nodes[con.nodeIndexB];
+                nodeA.mass += 1;
+                nodeB.mass += 1;
             }
             for (const con of container.connections) {
                 this.nodeManager.setConnected(con.nodeIndexA, con.nodeIndexB, true);
@@ -526,6 +539,7 @@ class App {
             this.offset.x = container.offsetX;
             this.offset.y = container.offsetY;
             this.zoom = container.zoom;
+            this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
         }
         catch (err) {
             console.error(err);
@@ -565,63 +579,6 @@ class App {
         this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
     }
 }
-class SerializationContainer {
-    constructor() {
-        this.nodes = [];
-        this.connections = [];
-        this.offsetX = 0;
-        this.offsetY = 0;
-        this.zoom = 0;
-    }
-}
-function isSerializationContainer(obj) {
-    if (typeof obj !== 'object') {
-        return false;
-    }
-    function objHasMatchingKeys(obj, instance) {
-        const keys = Reflect.ownKeys(instance);
-        for (const key of keys) {
-            const instanceType = typeof instance[key];
-            const objType = typeof obj[key];
-            if (instanceType !== objType) {
-                return false;
-            }
-            if (instanceType == "object") {
-                if (Array.isArray(instance[key])) {
-                    if (!Array.isArray(obj[key])) {
-                        return false;
-                    }
-                }
-                else {
-                    if (!objHasMatchingKeys(instance[key], obj[key])) {
-                        return false;
-                    }
-                }
-            }
-        }
-        return true;
-    }
-    if (!objHasMatchingKeys(obj, new SerializationContainer())) {
-        return false;
-    }
-    if (obj.nodes.length > 0) {
-        const dummyNode = new DocNode();
-        for (const objNode of obj.nodes) {
-            if (!objHasMatchingKeys(objNode, dummyNode)) {
-                return false;
-            }
-        }
-    }
-    if (obj.connections.length > 0) {
-        const dummyCon = new NodeConnection(0, 0);
-        for (const objCon of obj.connections) {
-            if (!objHasMatchingKeys(objCon, dummyCon)) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
 function main() {
     return __awaiter(this, void 0, void 0, function* () {
         const mainCanvas = document.getElementById('main-canvas');
@@ -637,12 +594,15 @@ function main() {
         // set up debug UI elements
         {
             const downloadButton = document.getElementById('download-button');
-            downloadButton.onclick = () => {
-                const jsonString = app.serialize();
+            downloadButton.onclick = () => __awaiter(this, void 0, void 0, function* () {
+                const jsonString = yield app.serialize();
                 util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.json');
-            };
+            });
             const uploadInput = document.getElementById('upload-input');
-            uploadInput.addEventListener('change', (ev) => __awaiter(this, void 0, void 0, function* () {
+            uploadInput.onclick = () => {
+                uploadInput.value = "";
+            };
+            uploadInput.addEventListener('input', (ev) => __awaiter(this, void 0, void 0, function* () {
                 if (uploadInput.files !== null) {
                     if (uploadInput.files.length > 0) {
                         try {

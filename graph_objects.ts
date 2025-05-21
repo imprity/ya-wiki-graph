@@ -189,3 +189,83 @@ export class NodeManager {
     }
 }
 
+export class DocNodeContainer {
+    posX: number = 0
+    posY: number = 0
+
+    title: string = ""
+}
+
+export class NodeConnectionContainer {
+    nodeIndexA: number = 0
+    nodeIndexB: number = 0
+}
+
+export class SerializationContainer {
+    nodes: Array<DocNodeContainer> = []
+    connections: Array<NodeConnectionContainer> = []
+
+    offsetX: number = 0
+    offsetY: number = 0
+
+    zoom: number = 0
+}
+
+export function isSerializationContainer(obj: any): boolean {
+    if (typeof obj !== 'object') {
+        return false
+    }
+
+    function objHasMatchingKeys(obj: any, instance: any): boolean {
+        const keys = Reflect.ownKeys(instance)
+
+        for (const key of keys) {
+            const instanceType = typeof instance[key]
+            const objType = typeof obj[key]
+
+            if (instanceType !== objType) {
+                return false
+            }
+
+            if (instanceType == "object") {
+                if (Array.isArray(instance[key])) {
+                    if (!Array.isArray(obj[key])) {
+                        return false
+                    }
+                } else {
+                    if (!objHasMatchingKeys(instance[key], obj[key])) {
+                        return false
+                    }
+                }
+            }
+        }
+
+        return true
+    }
+
+    if (!objHasMatchingKeys(obj, new SerializationContainer())) {
+        return false
+    }
+
+    if (obj.nodes.length > 0) {
+        const dummyNode = new DocNodeContainer()
+
+        for (const objNode of obj.nodes) {
+            if (!objHasMatchingKeys(objNode, dummyNode)) {
+                return false
+            }
+        }
+    }
+
+    if (obj.connections.length > 0) {
+        const dummyCon = new NodeConnectionContainer()
+
+        for (const objCon of obj.connections) {
+            if (!objHasMatchingKeys(objCon, dummyCon)) {
+                return false
+            }
+        }
+    }
+
+    return true
+}
