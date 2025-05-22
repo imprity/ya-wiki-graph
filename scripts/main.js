@@ -434,33 +434,36 @@ class App {
         // =========================
         // draw texts
         // =========================
-        // TODO: text is jittery because node position update is delayed
-        if (this.zoom > 0.3) {
-            this.overlayCtx.font = `${this.zoom * 12}px sans-serif`;
-            this.overlayCtx.fillStyle = "black";
-            this.overlayCtx.strokeStyle = "white";
-            this.overlayCtx.lineWidth = 3 * this.zoom;
-            this.overlayCtx.textAlign = "center";
-            //this.overlayCtx.textRendering = "optimizeSpeed"
-            this.overlayCtx.textBaseline = "bottom";
-            // drawing text for every node is too expensive
-            // draw nodes that are only visible
-            const viewMin = this.viewportToWorld(0, 0);
-            const viewMax = this.viewportToWorld(this.width, this.height);
-            const vx = viewMax.x - viewMin.x;
-            const vy = viewMax.y - viewMin.y;
-            viewMin.x -= vx * 0.25;
-            viewMax.x += vx * 0.25;
-            viewMin.y -= vy * 0.1;
-            viewMax.y += vy * 0.1;
-            //for (const node of this.nodeManager.nodes) {
-            for (let i = 0; i < this.nodeManager.nodes.length; i++) {
-                const node = this.nodeManager.nodes[i];
-                if (math.posInBox(node.posX, node.posY, viewMin.x, viewMin.y, viewMax.x, viewMax.y)) {
-                    const pos = this.worldToViewport(node.renderX, node.renderY);
-                    this.overlayCtx.strokeText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
-                    this.overlayCtx.fillText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
-                }
+        this.overlayCtx.fillStyle = "black";
+        this.overlayCtx.strokeStyle = "white";
+        this.overlayCtx.lineWidth = 3 * this.zoom;
+        this.overlayCtx.textAlign = "center";
+        //this.overlayCtx.textRendering = "optimizeSpeed"
+        this.overlayCtx.textBaseline = "bottom";
+        // drawing text for every node is too expensive
+        // draw nodes that are only visible
+        const viewMin = this.viewportToWorld(0, 0);
+        const viewMax = this.viewportToWorld(this.width, this.height);
+        const vx = viewMax.x - viewMin.x;
+        const vy = viewMax.y - viewMin.y;
+        viewMin.x -= vx * 0.25;
+        viewMax.x += vx * 0.25;
+        viewMin.y -= vy * 0.1;
+        viewMax.y += vy * 0.1;
+        //for (const node of this.nodeManager.nodes) {
+        for (let i = 0; i < this.nodeManager.nodes.length; i++) {
+            const node = this.nodeManager.nodes[i];
+            let doDraw = math.posInBox(node.posX, node.posY, viewMin.x, viewMin.y, viewMax.x, viewMax.y);
+            doDraw = doDraw && (this.zoom > 0.3 || node.mass > 20);
+            let fontSize = this.zoom * 12;
+            if (node.mass > 20) {
+                fontSize = 12;
+            }
+            if (doDraw) {
+                this.overlayCtx.font = `${fontSize}px sans-serif`;
+                const pos = this.worldToViewport(node.renderX, node.renderY);
+                this.overlayCtx.strokeText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
+                this.overlayCtx.fillText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
             }
         }
     }
