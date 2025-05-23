@@ -62,13 +62,17 @@ class App {
 
     isMouseDown: boolean = false
 
-    readyToExpandNodeOnRelease: boolean = false
     tappedPos: math.Vector2 = new math.Vector2(0, 0)
-    lastPosBeforeRelease: math.Vector2 = new math.Vector2(0, 0)
 
     isPinching: boolean = false
     pinch: number = 0
     pinchPos: math.Vector2 = new math.Vector2(0, 0)
+
+    pinnedNode: DocNode | null = null
+
+    // TEST TEST TEST TEST TEST TEST
+    draggingNode: DocNode | null = null
+    // TEST TEST TEST TEST TEST TEST
 
     // ========================
     // simulation parameters
@@ -144,6 +148,17 @@ class App {
     handleEvent(e: Event) {
         const focusLoseDist = 100
 
+        const unpinNode = () => {
+            if (this.pinnedNode === null) {
+                return
+            }
+            this.pinnedNode.isPinned = false
+            this.gpu.submitNodeManager(
+                this.nodeManager, DataSyncFlags.NodeInfos
+            )
+            this.pinnedNode = null
+        }
+
         const startDragging = (x: number, y: number) => {
             this.draggingCanvas = true
             this.pDrag.x = x
@@ -172,11 +187,21 @@ class App {
 
         const handlePointerDown = (x: number, y: number) => {
             startDragging(x, y)
-            this.readyToExpandNodeOnRelease = true
+
             this.tappedPos.x = x
             this.tappedPos.y = y
-            this.lastPosBeforeRelease.x = x
-            this.lastPosBeforeRelease.y = y
+
+            // pin the node to cursor
+            this.pinnedNode = this.getNodeUnderCursor(x, y)
+            if (this.pinnedNode !== null) {
+                this.pinnedNode.isPinned = true
+                this.pinnedNode.pinnedX = this.pinnedNode.renderX
+                this.pinnedNode.pinnedY = this.pinnedNode.renderY
+
+                this.gpu.submitNodeManager(
+                    this.nodeManager, DataSyncFlags.NodeInfos | DataSyncFlags.NodeRenderPos
+                )
+            }
         }
 
         const handlePointerMove = (x: number, y: number) => {
@@ -184,52 +209,29 @@ class App {
                 doDrag(x, y)
             }
 
-            if (this.readyToExpandNodeOnRelease) {
-                this.lastPosBeforeRelease.x = x
-                this.lastPosBeforeRelease.y = y
-
+            if (this.pinnedNode !== null) {
+                // if user moved cursor too much
+                // unpin the node
                 const dist = math.dist(
                     x - this.tappedPos.x,
                     y - this.tappedPos.y,
                 )
 
                 if (dist > focusLoseDist) {
-                    this.readyToExpandNodeOnRelease = false
+                    unpinNode()
                 }
             }
         }
 
         const handlePointerUp = () => {
-            if (this.readyToExpandNodeOnRelease) {
-                // check if we clicked on node
-                let clickedOnNode = false
-                let nodeIndex = -1
+            if (this.pinnedNode !== null) {
+                // expand node
+                const nodeIndex = this.nodeManager.getIndexFromId(this.pinnedNode.id)
+                this.expandNode(nodeIndex)
 
-                const pos = this.viewportToWorld(
-                    this.lastPosBeforeRelease.x,
-                    this.lastPosBeforeRelease.y,
-                )
-
-                for (let i = 0; i < this.nodeManager.nodes.length; i++) {
-                    const node = this.nodeManager.nodes[i]
-                    if (math.posInCircle(
-                        pos.x, pos.y,
-                        node.renderX, node.renderY,
-                        node.getRadius()
-                    )) {
-                        clickedOnNode = true
-                        nodeIndex = i
-                        break
-                    }
-                }
-
-                // if we clicked on node, expand it
-                if (clickedOnNode) {
-                    this.expandNode(nodeIndex)
-                }
+                unpinNode()
             }
 
-            this.readyToExpandNodeOnRelease = false
             this.draggingCanvas = false
         }
 
@@ -277,6 +279,22 @@ class App {
 
             case "mousedown": {
                 const mouseEvent = e as MouseEvent
+                console.log(mouseEvent)
+
+                // TEST TEST TEST TEST
+                if (mouseEvent.button === 1) {
+                    if (this.draggingNode === null) {
+                        const node = this.getNodeUnderCursor(this.mouse.x, this.mouse.y)
+                        if (node !== null) {
+                            this.draggingNode = node
+                            this.draggingNode.isPinned = true
+                        }
+                    } else {
+                        this.draggingNode = null
+                    }
+                    break
+                }
+                // TEST TEST TEST TEST
 
                 this.isMouseDown = true
 
@@ -291,7 +309,7 @@ class App {
 
             case "mouseleave": {
                 endDragging()
-                this.readyToExpandNodeOnRelease = false
+                unpinNode()
             } break
 
             case "touchstart": {
@@ -302,7 +320,7 @@ class App {
                     const touch = touchPos(touches[0])
                     handlePointerDown(touch.x, touch.y)
                 } else {
-                    this.readyToExpandNodeOnRelease = false
+                    unpinNode()
                     endDragging()
                 }
 
@@ -334,7 +352,7 @@ class App {
 
                     handlePointerMove(touch.x, touch.y)
                 } else {
-                    this.readyToExpandNodeOnRelease = false
+                    unpinNode()
                     endDragging()
                 }
 
@@ -517,6 +535,12 @@ class App {
         for (let i = 0; i < this.nodeManager.nodes.length; i++) {
             const node = this.nodeManager.nodes[i]
 
+            if (node.isPinned) {
+                node.renderX = node.pinnedX
+                node.renderY = node.pinnedY
+                continue
+            }
+
             let t1 = math.distSquared(
                 node.renderX - node.posX, node.renderY - node.posY)
             let t2 = t1 / 50000.0
@@ -529,6 +553,21 @@ class App {
             node.renderX = x
             node.renderY = y
         }
+
+        // TEST TEST TEST TEST TEST
+        if (this.draggingNode !== null) {
+            const pos = this.viewportToWorld(this.mouse.x, this.mouse.y)
+            this.draggingNode.pinnedX = pos.x
+            this.draggingNode.pinnedY = pos.y
+            this.draggingNode.renderX = pos.x
+            this.draggingNode.renderY = pos.y
+
+            this.gpu.submitNodeManager(
+                this.nodeManager,
+                DataSyncFlags.NodeInfos
+            )
+        }
+        // TEST TEST TEST TEST TEST
 
         this.gpu.submitNodeManager(
             this.nodeManager,
@@ -675,6 +714,22 @@ class App {
         }
     }
 
+    getNodeUnderCursor(x: number, y: number): DocNode | null {
+        let pos = this.viewportToWorld(x, y)
+        for (let i = 0; i < this.nodeManager.nodes.length; i++) {
+            const node = this.nodeManager.nodes[i]
+            if (math.posInCircle(
+                pos.x, pos.y,
+                node.renderX, node.renderY,
+                node.getRadius()
+            )) {
+                return node
+            }
+        }
+
+        return null
+    }
+
     async serialize(): Promise<string> {
         await this.gpu.updateNodePhysicsToNodeManager(this.nodeManager)
 
@@ -769,7 +824,7 @@ class App {
 
         this.nodeManager.reset()
 
-        this.readyToExpandNodeOnRelease = false
+        this.pinnedNode = null
 
         if (addStartingNode) {
             // TEST TEST TEST TEST
@@ -957,7 +1012,7 @@ async function main() {
 
         addSlider(
             5,
-            0, 20,
+            0, 50,
             0.0001,
             "spring",
             (value) => { app.simParam.spring = value }

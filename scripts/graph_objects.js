@@ -18,6 +18,9 @@ export class DocNode {
         this.renderX = 0;
         this.renderY = 0;
         this.isExpanding = false;
+        this.isPinned = false;
+        this.pinnedX = 0;
+        this.pinnedY = 0;
         this.id = 0;
         this.title = "";
         this.id = DocNode.getNewNodeId();

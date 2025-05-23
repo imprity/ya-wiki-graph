@@ -33,6 +33,11 @@ export class DocNode {
 
     isExpanding: boolean = false
 
+    isPinned: boolean = false
+
+    pinnedX: number = 0
+    pinnedY: number = 0
+
     id: number = 0
 
     title: string = ""

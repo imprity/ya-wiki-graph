@@ -3,6 +3,135 @@ import { NodeManager, DocNode } from "./graph_objects.js"
 import * as assets from "./assets.js"
 import { debugPrint } from './debug_print.js'
 
+const glslCommon = `
+#ifndef _GLSL_COMMON_HEADER_GUARD_
+#define _GLSL_COMMON_HEADER_GUARD_
+
+#define SMALL_NUMBER 0.001f
+
+#define PI 3.14159265359
+
+vec2 rotate_v(vec2 v, float angle) {
+    float sinv = sin(angle);
+    float cosv = cos(angle);
+
+    float x2 = v.x * cosv - v.y * sinv;
+    float y2 = v.x * sinv + v.y * cosv;
+
+    v.x = x2;
+    v.y = y2;
+
+    return v;
+}
+
+uvec4 get_data_from_tex(highp usampler2D data_tex, int index) {
+    ivec2 tex_size = textureSize(data_tex, 0);
+    int x = index % tex_size.x;
+    int y = index / tex_size.x;
+
+    return texelFetch(data_tex, ivec2(x, y), 0);
+}
+
+#endif
+`
+
+const glslViewportTransform = `
+#ifndef _GLSL_VIEWPORT_HEADER_GUARD_
+#define _GLSL_VIEWPORT_HEADER_GUARD_
+
+uniform vec2 u_screen_size;
+uniform float u_zoom;
+uniform vec2 u_offset;
+
+vec2 world_to_viewport(vec2 pos) {
+    pos += u_offset;
+
+    pos *= u_zoom;
+
+    pos.x = ((pos.x / u_screen_size.x) - 0.5f) * 2.0f;
+    pos.y = -((pos.y / u_screen_size.y) - 0.5f) * 2.0f;
+
+    return pos;
+}
+
+vec2 viewport_to_world(vec2 pos) {
+    pos /= u_zoom;
+    pos -= u_offset;
+
+    return pos;
+}
+
+#endif
+`
+
+const glslNodeUtils = `
+#ifndef _GLSL_NODE_HEADER_GUARD_
+#define _GLSL_NODE_HEADER_GUARD_
+
+${glslCommon}
+
+uniform int u_node_count;
+
+uniform highp usampler2D u_node_physics_tex;
+uniform highp usampler2D u_node_render_pos_tex;
+uniform highp usampler2D u_node_infos_tex;
+uniform sampler2D u_node_colors_tex;
+
+vec2 get_node_physics_pos(int index) {
+    uvec4 infos = get_data_from_tex(u_node_infos_tex, index);
+    if (infos.y > uint(0)) {
+        return uintBitsToFloat(infos.zw);
+    }
+    uvec4 physics = get_data_from_tex(u_node_physics_tex, index);
+    return uintBitsToFloat(physics.xy);
+}
+
+float get_node_mass(int index) {
+    uvec4 physics = get_data_from_tex(u_node_physics_tex, index);
+    return uintBitsToFloat(physics.z);
+}
+
+float get_node_temp(int index) {
+    uvec4 physics = get_data_from_tex(u_node_physics_tex, index);
+    return uintBitsToFloat(physics.w);
+}
+
+vec2 get_node_render_pos(int index) {
+    uvec4 render = get_data_from_tex(u_node_render_pos_tex, index);
+    return uintBitsToFloat(render.xy);
+}
+
+vec4 get_node_color(int index) {
+    ivec2 tex_size = textureSize(u_node_colors_tex, 0);
+    int x = index % tex_size.x;
+    int y = index / tex_size.x;
+
+    return texelFetch(u_node_colors_tex, ivec2(x, y), 0);
+}
+
+${DocNode.nodeMassToRadiusGLSL}
+
+#endif
+`
+
+const glslConUtils = `
+#ifndef _GLSL_CONNECTION_HEADER_GUARD_
+#define _GLSL_CONNECTION_HEADER_GUARD_
+
+${glslCommon}
+
+uniform int u_con_count;
+
+uniform highp usampler2D u_con_infos_tex;
+
+ivec2 get_connected_nodes(int con_index) {
+    uvec4 con = get_data_from_tex(u_con_infos_tex, con_index);
+    return ivec2(con.xy);
+}
+
+#endif
+`
+
 const forceCalcVShaderSrc = `#version 300 es
 in vec4 a_vertex;
 
@@ -14,31 +143,17 @@ const forceCalcFShaderSrc = `#version 300 es
 precision highp float;
 precision highp int;
 
-uniform int u_node_count;
-uniform highp usampler2D u_node_physics_tex;
-
-uniform int u_con_count;
-uniform highp usampler2D u_con_infos_tex;
-
 uniform float u_node_min_dist;
 uniform float u_repulsion;
 uniform float u_spring;
 uniform float u_spring_dist;
 uniform float u_force_cap;
 
+${glslCommon}
+${glslNodeUtils}
+${glslConUtils}
+
 out uvec4 out_color;
-
-${DocNode.nodeMassToRadiusGLSL}
-
-/*
-vec2 get_node_position_at(int x, int y) {
-    return uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(x, y), 0).xy);
-}
-
-float get_node_mass_at(int x, int y) {
-    return uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(x, y), 0).z);
-}
-*/
 
 // returns force that A should recieve
 vec2 calculate_repulsion(
@@ -52,7 +167,7 @@ vec2 calculate_repulsion(
 
     float dist = length(atob);
 
-    if (dist < 0.001f) {
+    if (dist < SMALL_NUMBER) {
         return vec2(0.0f, 0.0f);
     }
 
@@ -80,7 +195,7 @@ vec2 calculate_spring(
 
     float dist = length(atob);
 
-    if (dist < 0.001f) {
+    if (dist < SMALL_NUMBER) {
         return vec2(0.0f, 0.0f);
     }
 
@@ -97,102 +212,85 @@ vec2 calculate_spring(
 }
 
 void main() {
-    ivec2 texel_pos = ivec2(gl_FragCoord.xy);
+    int node_index = 0;
 
-    ivec2 node_tex_size = textureSize(u_node_physics_tex, 0);
+    // get node_index
+    {
+        ivec2 tex_size = textureSize(u_node_physics_tex, 0);
+        ivec2 texel_pos = ivec2(gl_FragCoord.xy);
+        node_index = texel_pos.y * tex_size.x + texel_pos.x;
+    }
 
-    // node count out of bound
-    if (texel_pos.x + texel_pos.y * node_tex_size.x >= u_node_count) {
+    if (node_index >= u_node_count) {
         out_color = uvec4(0, 0, 0, 0);
         return;
     }
 
-    ivec2 con_tex_size = textureSize(u_con_infos_tex, 0);
+    vec2 node_pos = get_node_physics_pos(node_index);
+    float node_mass = get_node_mass(node_index);
+    float node_temp = get_node_temp(node_index);
 
-    uvec4 node_info = texelFetch(u_node_physics_tex, texel_pos, 0);
-
-    vec2 node_pos = uintBitsToFloat(node_info.xy);
-    float node_mass = uintBitsToFloat(node_info.z);
-    float node_temp = uintBitsToFloat(node_info.w);
-    int node_index = texel_pos.y * node_tex_size.x + texel_pos.x;
-
-     // mass is too small
-    if (node_mass < 0.001f) {
-        out_color = texelFetch(u_node_physics_tex, texel_pos, 0);
+    // mass is too small
+    if (node_mass < SMALL_NUMBER) {
+        out_color = texelFetch(u_node_physics_tex, ivec2(gl_FragCoord.xy), 0);
         return;
+    }
+
+    // if node is pinned
+    // we skip the calculation and just set the pos to pinned pos
+    {
+        uvec4 node_info = get_data_from_tex(u_node_infos_tex, node_index);
+        if (node_info.y > uint(0)) { // is pinned
+            uvec2 pos_u = node_info.zw;
+            uint mass_u = floatBitsToUint(node_mass);
+            uint temp_u = floatBitsToUint(node_temp);
+
+            out_color = uvec4(
+                pos_u.x, pos_u.y, mass_u, temp_u
+            );
+
+            return;
+        }
     }
 
     vec2 force_sum = vec2(0.0f , 0.0f);
 
-    int counter = 0;
-
     // =====================
     // calculate repulsions
     // =====================
-    for (int y=0; y<node_tex_size.y; y++) {
-        for (int x=0; x<node_tex_size.x; x++) {
-            counter++;
-            // skip if it's same node
-            if (node_index + 1 == counter) {
-                continue;
-            }
-            // break if we went past u_node_count
-            if (counter > u_node_count) {
-                break;
-            }
-
-            uvec4 other_node_info = texelFetch(u_node_physics_tex, ivec2(x, y), 0);
-            vec2 other_node_pos = uintBitsToFloat(other_node_info.xy);
-            float other_node_mass = uintBitsToFloat(other_node_info.z);
-
-            force_sum += calculate_repulsion(
-                node_pos, node_mass,
-                other_node_pos, other_node_mass
-            );
+    for (int i=0; i<u_node_count; i++) {
+        if (i == node_index) {
+            continue;
         }
-        // break if we went past u_node_count
-        if (counter > u_node_count) {
-            break;
-        }
+
+        vec2 other_node_pos = get_node_physics_pos(i);
+        float other_node_mass = get_node_mass(i);
+
+        force_sum += calculate_repulsion(
+            node_pos, node_mass,
+            other_node_pos, other_node_mass
+        );
     }
-
-    counter = 0;
 
     // =====================
     // calculate springs
     // =====================
-    for (int y=0; y<con_tex_size.y; y++) {
-        for (int x=0; x<con_tex_size.x; x++) {
-            counter++;
-            // break if we went past u_node_count
-            if (counter > u_con_count) {
-                break;
+    for (int i=0; i<u_con_count; i++) {
+        ivec2 index_ab = get_connected_nodes(i);
+
+        if (index_ab.x == node_index || index_ab.y == node_index) {
+            int other_node_index = index_ab.x;
+            if (other_node_index == node_index) {
+                other_node_index = index_ab.y;
             }
 
-            ivec2 index_ab = ivec2(texelFetch(u_con_infos_tex, ivec2(x, y), 0).xy);
+            vec2 other_node_pos = get_node_physics_pos(other_node_index);
+            float other_node_mass = get_node_mass(other_node_index);
 
-            if (index_ab.x == node_index || index_ab.y == node_index) {
-                int other_node_index = index_ab.x;
-                if (other_node_index == node_index) {
-                    other_node_index = index_ab.y;
-                }
-
-                int other_x = other_node_index % node_tex_size.x;
-                int other_y = other_node_index / node_tex_size.x;
-
-                uvec4 other_node_info = texelFetch(u_node_physics_tex, ivec2(other_x, other_y), 0);
-                vec2 other_node_pos = uintBitsToFloat(other_node_info.xy);
-                float other_node_mass = uintBitsToFloat(other_node_info.z);
-
-                force_sum += calculate_spring(
-                    node_pos, node_mass,
-                    other_node_pos, other_node_mass
-                );
-            }
-        }
-        // break if we went past u_node_count
-        if (counter > u_con_count) {
-            break;
+            force_sum += calculate_spring(
+                node_pos, node_mass,
+                other_node_pos, other_node_mass
+            );
         }
     }
 
@@ -221,64 +319,20 @@ void main() {
     }
 
     uvec2 pos_u = floatBitsToUint(node_pos);
+    uint mass_u = floatBitsToUint(node_mass);
     uint temp_u = floatBitsToUint(node_temp);
 
     out_color = uvec4(
-        pos_u.x, pos_u.y, node_info.z, temp_u
+        pos_u.x, pos_u.y, mass_u, temp_u
     );
 
     return;
-}
-`
+}`
 
-const worldToViewport = `
-uniform vec2 u_screen_size;
-uniform float u_zoom;
-uniform vec2 u_offset;
-
-vec2 world_to_viewport(vec2 pos) {
-    pos += u_offset;
-
-    pos *= u_zoom;
-
-    pos.x = ((pos.x / u_screen_size.x) - 0.5f) * 2.0f;
-    pos.y = -((pos.y / u_screen_size.y) - 0.5f) * 2.0f;
-
-    return pos;
-}
-
-vec2 viewport_to_world(vec2 pos) {
-    pos /= u_zoom;
-    pos -= u_offset;
-
-    return pos;
-}
-
-`
-
-const glslUtils = `
-vec2 rotate_v(vec2 v, float angle) {
-    float sinv = sin(angle);
-    float cosv = cos(angle);
-
-    float x2 = v.x * cosv - v.y * sinv;
-    float y2 = v.x * sinv + v.y * cosv;
-
-    v.x = x2;
-    v.y = y2;
-
-    return v;
-}
-`
 
 const drawNodeVShaderSrc = `#version 300 es
 in vec4 a_vertex;
 in vec2 a_uv;
-
-uniform highp usampler2D u_node_physics_tex;
-uniform sampler2D u_node_colors_tex;
-uniform highp usampler2D u_node_infos_tex;
-uniform highp usampler2D u_node_render_pos_tex;
 
 uniform vec2 u_mouse;
 
@@ -288,27 +342,19 @@ uniform float u_outline_width;
 
 out vec4 v_color;
 out vec2 v_uv;
-flat out uvec4 v_node_info;
+flat out highp uvec4 v_node_info;
 
-${worldToViewport}
-
-${DocNode.nodeMassToRadiusGLSL}
+${glslViewportTransform}
+${glslNodeUtils}
 
 void main() {
+    v_node_info = get_data_from_tex(u_node_infos_tex, gl_InstanceID);
+
     float x = a_vertex.x;
     float y = a_vertex.y;
 
-    ivec2 tex_size = textureSize(u_node_physics_tex, 0);
-    ivec2 render_pos_tex_size = textureSize(u_node_render_pos_tex, 0);
-
-    int tex_x = gl_InstanceID % tex_size.x;
-    int tex_y = gl_InstanceID / tex_size.x;
-
-    int pos_tex_x = gl_InstanceID % render_pos_tex_size.x;
-    int pos_tex_y = gl_InstanceID / render_pos_tex_size.x;
-
-    vec2 node_pos = uintBitsToFloat(texelFetch(u_node_render_pos_tex, ivec2(pos_tex_x, pos_tex_y), 0).xy);
-    float node_mass = uintBitsToFloat(texelFetch(u_node_physics_tex, ivec2(tex_x, tex_y), 0).z);
+    vec2 node_pos = get_node_render_pos(gl_InstanceID);
+    float node_mass = get_node_mass(gl_InstanceID);
 
     float node_raidus = node_mass_to_radius(node_mass);
 
@@ -316,13 +362,11 @@ void main() {
         node_raidus += u_outline_width;
     }
 
-    vec4 node_color = texelFetch(u_node_colors_tex, ivec2(tex_x, tex_y), 0);
+    vec4 node_color = get_node_color(gl_InstanceID);
 
     if (u_draw_outline) {
         node_color = u_outline_color;
     }
-
-    v_node_info = texelFetch(u_node_infos_tex, ivec2(tex_x, tex_y), 0);
 
     x *= node_raidus * 2.0f;
     y *= node_raidus * 2.0f;
@@ -354,7 +398,7 @@ precision highp float;
 
 in vec4 v_color;
 in vec2 v_uv;
-flat in uvec4 v_node_info;
+flat in highp uvec4 v_node_info;
 
 uniform float u_tick;
 
@@ -365,7 +409,7 @@ uniform bool u_draw_outline;
 
 out vec4 out_color;
 
-${glslUtils}
+${glslCommon}
 
 void main() {
     vec4 node_c = texture(u_node_tex, v_uv) * v_color;
@@ -383,51 +427,29 @@ void main() {
 `;
 
 const drawConVSahderSrc = `#version 300 es
-#define PI 3.14159265359
-
 in vec4 a_vertex;
 in vec2 a_uv;
 
-uniform highp usampler2D u_con_infos_tex;
-
-uniform highp usampler2D u_node_physics_tex;
-uniform sampler2D u_node_colors_tex;
-uniform highp usampler2D u_node_render_pos_tex;
-
 uniform float u_line_thickness;
 
-${worldToViewport}
+${glslCommon}
+
+${glslNodeUtils}
+${glslConUtils}
+
+${glslViewportTransform}
 
 out vec4 v_color;
 out vec2 v_uv;
-
-vec2 get_node_pos(int node_index) {
-    ivec2 node_tex_size = textureSize(u_node_render_pos_tex, 0);
-
-    int x = node_index % node_tex_size.x;
-    int y = node_index / node_tex_size.x;
-    return uintBitsToFloat(texelFetch(u_node_render_pos_tex, ivec2(x, y), 0).xy);
-}
-
-vec4 get_node_color(int node_index) {
-    ivec2 node_tex_size = textureSize(u_node_colors_tex, 0);
-
-    int x = node_index % node_tex_size.x;
-    int y = node_index / node_tex_size.x;
-    return texelFetch(u_node_colors_tex, ivec2(x, y), 0);
-}
 
 void main() {
     float x = a_vertex.x;
     float y = a_vertex.y;
 
-    ivec2 con_tex_size = textureSize(u_con_infos_tex, 0);
-    int con_x = gl_InstanceID % con_tex_size.x;
-    int con_y = gl_InstanceID / con_tex_size.x;
-    uvec4 con_info = texelFetch(u_con_infos_tex, ivec2(con_x, con_y), 0);
+    ivec2 node_ab = get_connected_nodes(gl_InstanceID);
 
-    vec2 pos_a = get_node_pos(int(con_info.x));
-    vec2 pos_b = get_node_pos(int(con_info.y));
+    vec2 pos_a = get_node_render_pos(node_ab.x);
+    vec2 pos_b = get_node_render_pos(node_ab.y);
 
     pos_a = world_to_viewport(pos_a);
     pos_b = world_to_viewport(pos_b);
@@ -478,8 +500,8 @@ void main() {
         x, y, 0, 1
     );
 
-    vec4 color_a = get_node_color(int(con_info.x));
-    vec4 color_b = get_node_color(int(con_info.y));
+    vec4 color_a = get_node_color(node_ab.x);
+    vec4 color_b = get_node_color(node_ab.y);
 
     switch (gl_VertexID){
         case 0:
@@ -1053,6 +1075,26 @@ export class GpuComputeRenderer {
             this.gl.uniform1i(renderUnit.locs.uLoc(name), tex.unit)
         }
 
+        const supplyNodeInfos = (
+            renderUnit: RenderUnit,
+            physicsTex: Texture
+        ) => {
+            useTexture(renderUnit, physicsTex, 'u_node_physics_tex')
+            useTexture(renderUnit, this.nodeRenderPosTex, 'u_node_render_pos_tex')
+            useTexture(renderUnit, this.nodeInfosTex, 'u_node_infos_tex')
+            useTexture(renderUnit, this.nodeColorsTex, 'u_node_colors_tex')
+
+            this.gl.uniform1i(renderUnit.locs.uLoc('u_node_count'), this.nodeLength)
+        }
+
+        const supplyConInfos = (
+            renderUnit: RenderUnit,
+        ) => {
+            useTexture(renderUnit, this.conInfosTex, 'u_con_infos_tex')
+
+            this.gl.uniform1i(renderUnit.locs.uLoc('u_con_count'), this.connectionLength)
+        }
+
         // match canvas width and height to
         // canvas element width and height
         {
@@ -1084,16 +1126,11 @@ export class GpuComputeRenderer {
                 physicsTex = this.nodePhysicsTex1
             }
 
-            useTexture(this.forceCalcUnit, physicsTex, 'u_node_physics_tex')
-            useTexture(this.forceCalcUnit, this.conInfosTex, 'u_con_infos_tex')
-
-            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_node_count'), this.nodeLength)
-            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_con_count'), this.connectionLength)
+            supplyNodeInfos(this.forceCalcUnit, physicsTex)
+            supplyConInfos(this.forceCalcUnit)
 
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_node_min_dist'), this.simParam.nodeMinDist)
-
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_repulsion'), this.simParam.repulsion)
-
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring'), this.simParam.spring)
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring_dist'), this.simParam.springDist)
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_force_cap'), this.simParam.forceCap)
@@ -1123,10 +1160,8 @@ export class GpuComputeRenderer {
                 physicsTex = this.nodePhysicsTex0
             }
 
-            useTexture(this.drawConUint, physicsTex, 'u_node_physics_tex')
-            useTexture(this.drawConUint, this.nodeColorsTex, 'u_node_colors_tex')
-            useTexture(this.drawConUint, this.nodeRenderPosTex, 'u_node_render_pos_tex')
-            useTexture(this.drawConUint, this.conInfosTex, 'u_con_infos_tex')
+            supplyNodeInfos(this.drawConUint, physicsTex)
+            supplyConInfos(this.drawConUint)
 
             this.gl.uniform2f(
                 this.drawConUint.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height)
@@ -1159,10 +1194,7 @@ export class GpuComputeRenderer {
                 physicsTex = this.nodePhysicsTex0
             }
 
-            useTexture(this.drawNodeUnit, physicsTex, 'u_node_physics_tex')
-            useTexture(this.drawNodeUnit, this.nodeColorsTex, 'u_node_colors_tex')
-            useTexture(this.drawNodeUnit, this.nodeRenderPosTex, 'u_node_render_pos_tex')
-            useTexture(this.drawNodeUnit, this.nodeInfosTex, 'u_node_infos_tex')
+            supplyNodeInfos(this.drawNodeUnit, physicsTex)
 
             useTexture(this.drawNodeUnit, this.circleTex, 'u_node_tex')
             useTexture(this.drawNodeUnit, this.loadingCircleTex, 'u_loading_circle_tex')
@@ -1245,6 +1277,8 @@ export class GpuComputeRenderer {
                 this.gl.UNSIGNED_INT, // type
                 new Uint32Array(data.buffer) // data
             )
+            this.nodePhysicsTex0.width = nodeTexSize
+            this.nodePhysicsTex0.height = nodeTexSize
 
             this.gl.activeTexture(this.gl.TEXTURE0 + this.nodePhysicsTex1.unit)
             this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodePhysicsTex1.texture)
@@ -1258,6 +1292,8 @@ export class GpuComputeRenderer {
                 this.gl.UNSIGNED_INT, // type
                 new Uint32Array(data.buffer) // data
             )
+            this.nodePhysicsTex1.width = nodeTexSize
+            this.nodePhysicsTex1.height = nodeTexSize
         }
 
         // supply texture with node colors
@@ -1287,19 +1323,21 @@ export class GpuComputeRenderer {
                 this.gl.UNSIGNED_BYTE, // type
                 data // data
             )
+            this.nodeColorsTex.width = nodeTexSize
+            this.nodeColorsTex.height = nodeTexSize
         }
 
         // supply texture with node infos
         if ((flag & DataSyncFlags.NodeInfos) > 0) {
-            let data = new Uint32Array(nodeTexSize * nodeTexSize * 4)
+            let data = new Float32Array(nodeTexSize * nodeTexSize * 4)
 
             let offset = 0
             for (let i = 0; i < this.nodeLength; i++) {
                 const node = manager.nodes[i]
                 data[offset + 0] = node.isExpanding ? 1 : 0;
-                data[offset + 1] = 0 // reserved
-                data[offset + 2] = 0 // reserved
-                data[offset + 3] = 0 // reserved
+                data[offset + 1] = node.isPinned ? 1 : 0;
+                data[offset + 2] = node.pinnedX
+                data[offset + 3] = node.pinnedY
 
                 offset += 4
             }
@@ -1314,8 +1352,10 @@ export class GpuComputeRenderer {
                 0, // border
                 this.gl.RGBA_INTEGER, // format
                 this.gl.UNSIGNED_INT, // type
-                data // data
+                new Uint32Array(data.buffer) // data
             )
+            this.nodeInfosTex.width = nodeTexSize
+            this.nodeInfosTex.height = nodeTexSize
         }
 
         // supply texture with node render positions
@@ -1345,6 +1385,8 @@ export class GpuComputeRenderer {
                 this.gl.UNSIGNED_INT, // type
                 new Uint32Array(data.buffer) // data
             )
+            this.nodeRenderPosTex.width = nodeTexSize
+            this.nodeRenderPosTex.height = nodeTexSize
         }
 
         // supply texture with connection infos
@@ -1378,6 +1420,8 @@ export class GpuComputeRenderer {
                 this.gl.UNSIGNED_INT, // type
                 data // data
             )
+            this.conInfosTex.width = conDataTexSize
+            this.conInfosTex.height = conDataTexSize
         }
     }
 
