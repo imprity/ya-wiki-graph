@@ -46,6 +46,7 @@ class App {
         // simulation parameters
         // ========================
         this.simParam = new SimulationParameter();
+        this._nodeVisibilityCache = [];
         this.expandNode = (nodeIndex) => __awaiter(this, void 0, void 0, function* () {
             if (!(0 <= nodeIndex && nodeIndex < this.nodeManager.nodes.length)) {
                 console.error(`node id ${nodeIndex} out of bound`);
@@ -127,7 +128,7 @@ class App {
             if (this.pinnedNode === null) {
                 return;
             }
-            this.pinnedNode.isPinned = false;
+            this.pinnedNode.syncedToRender = false;
             this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeInfos);
             this.pinnedNode = null;
         };
@@ -158,9 +159,7 @@ class App {
             // pin the node to cursor
             this.pinnedNode = this.getNodeUnderCursor(x, y);
             if (this.pinnedNode !== null) {
-                this.pinnedNode.isPinned = true;
-                this.pinnedNode.pinnedX = this.pinnedNode.renderX;
-                this.pinnedNode.pinnedY = this.pinnedNode.renderY;
+                this.pinnedNode.syncedToRender = true;
                 this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeInfos | DataSyncFlags.NodeRenderPos);
             }
         };
@@ -228,7 +227,7 @@ class App {
                             const node = this.getNodeUnderCursor(this.mouse.x, this.mouse.y);
                             if (node !== null) {
                                 this.draggingNode = node;
-                                this.draggingNode.isPinned = true;
+                                this.draggingNode.syncedToRender = true;
                             }
                         }
                         else {
@@ -430,9 +429,7 @@ class App {
         // ================================
         for (let i = 0; i < this.nodeManager.nodes.length; i++) {
             const node = this.nodeManager.nodes[i];
-            if (node.isPinned) {
-                node.renderX = node.pinnedX;
-                node.renderY = node.pinnedY;
+            if (node.syncedToRender) {
                 continue;
             }
             let t1 = math.distSquared(node.renderX - node.posX, node.renderY - node.posY);
@@ -446,11 +443,8 @@ class App {
         // TEST TEST TEST TEST TEST
         if (this.draggingNode !== null) {
             const pos = this.viewportToWorld(this.mouse.x, this.mouse.y);
-            this.draggingNode.pinnedX = pos.x;
-            this.draggingNode.pinnedY = pos.y;
             this.draggingNode.renderX = pos.x;
             this.draggingNode.renderY = pos.y;
-            this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeInfos);
         }
         // TEST TEST TEST TEST TEST
         this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeRenderPos);
@@ -463,7 +457,65 @@ class App {
     }
     draw(deltaTime) {
         this.gpu.render();
+        // =======================
+        // cache node visibility
+        // =======================
+        {
+            while (this._nodeVisibilityCache.length < this.nodeManager.nodes.length) {
+                this._nodeVisibilityCache.push(false);
+            }
+            const viewMin = this.viewportToWorld(0, 0);
+            const viewMax = this.viewportToWorld(this.width, this.height);
+            const vx = viewMax.x - viewMin.x;
+            const vy = viewMax.y - viewMin.y;
+            viewMin.x -= vx * 0.5;
+            viewMax.x += vx * 0.5;
+            viewMin.y -= vy * 0.5;
+            viewMax.y += vy * 0.5;
+            for (let i = 0; i < this.nodeManager.nodes.length; i++) {
+                const node = this.nodeManager.nodes[i];
+                const radius = node.getRadius();
+                const minX = node.posX - radius;
+                const maxX = node.posX + radius;
+                const minY = node.posY - radius;
+                const maxY = node.posY + radius;
+                if (math.boxIntersects(minX, minY, maxX, maxY, viewMin.x, viewMin.y, viewMax.x, viewMax.y)) {
+                    this._nodeVisibilityCache[i] = true;
+                }
+                else {
+                    this._nodeVisibilityCache[i] = false;
+                }
+            }
+        }
+        const forVisibleNodes = (f) => {
+            for (let i = 0; i < this.nodeManager.nodes.length; i++) {
+                if (this._nodeVisibilityCache[i]) {
+                    f(this.nodeManager.nodes[i]);
+                }
+            }
+        };
         this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
+        // =========================
+        // draw loading circle
+        // =========================
+        this.overlayCtx.resetTransform();
+        if (assets.loadingCircleImage !== null) {
+            this.overlayCtx.resetTransform();
+            forVisibleNodes((node) => {
+                if (node.isExpanding) {
+                    const image = assets.loadingCircleImage;
+                    this.overlayCtx.resetTransform();
+                    const pos = this.worldToViewport(node.renderX, node.renderY);
+                    this.overlayCtx.translate(pos.x, pos.y);
+                    let scaleX = node.getRadius() * this.zoom / (image.width * 0.5);
+                    let scaleY = node.getRadius() * this.zoom / (image.height * 0.5);
+                    this.overlayCtx.scale(scaleX, scaleY);
+                    this.overlayCtx.rotate(this.globalTick * 0.1);
+                    this.overlayCtx.drawImage(image, -image.width * 0.5, -image.height * 0.5);
+                }
+            });
+        }
+        this.overlayCtx.resetTransform();
         // =========================
         // draw texts
         // =========================
@@ -473,32 +525,18 @@ class App {
         this.overlayCtx.textAlign = "center";
         //this.overlayCtx.textRendering = "optimizeSpeed"
         this.overlayCtx.textBaseline = "bottom";
-        // drawing text for every node is too expensive
-        // draw nodes that are only visible
-        const viewMin = this.viewportToWorld(0, 0);
-        const viewMax = this.viewportToWorld(this.width, this.height);
-        const vx = viewMax.x - viewMin.x;
-        const vy = viewMax.y - viewMin.y;
-        viewMin.x -= vx * 0.25;
-        viewMax.x += vx * 0.25;
-        viewMin.y -= vy * 0.1;
-        viewMax.y += vy * 0.1;
-        //for (const node of this.nodeManager.nodes) {
-        for (let i = 0; i < this.nodeManager.nodes.length; i++) {
-            const node = this.nodeManager.nodes[i];
-            let doDraw = math.posInBox(node.posX, node.posY, viewMin.x, viewMin.y, viewMax.x, viewMax.y);
-            doDraw = doDraw && (this.zoom > 0.3 || node.mass > 20);
+        forVisibleNodes((node) => {
             let fontSize = this.zoom * 12;
             if (node.mass > 20) {
                 fontSize = 12;
             }
-            if (doDraw) {
+            if (this.zoom > 0.3 || node.mass > 20) {
                 this.overlayCtx.font = `${fontSize}px sans-serif`;
                 const pos = this.worldToViewport(node.renderX, node.renderY);
                 this.overlayCtx.strokeText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
                 this.overlayCtx.fillText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
             }
-        }
+        });
     }
     updateWidthAndHeight() {
         const rect = this.mainCanvas.getBoundingClientRect();
@@ -725,7 +763,7 @@ function main() {
             addButton('reset', () => { app.reset(true); });
             addSlider(10, 0, 10, 0.01, "nodeMinDist", (value) => { app.simParam.nodeMinDist = value; });
             addSlider(7000, 0, 10000, 1, "repulsion", (value) => { app.simParam.repulsion = value; });
-            addSlider(5, 0, 100, 0.0001, "spring", (value) => { app.simParam.spring = value; });
+            addSlider(5, 0, 50, 0.0001, "spring", (value) => { app.simParam.spring = value; });
             addSlider(600, 1, 1000, 1, "springDist", (value) => { app.simParam.springDist = value; });
             addSlider(100, 1, 1000, 1, "forceCap", (value) => { app.simParam.forceCap = value; });
         }

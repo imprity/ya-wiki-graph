@@ -74,30 +74,28 @@ uniform int u_node_count;
 
 uniform highp usampler2D u_node_physics_tex;
 uniform highp usampler2D u_node_render_pos_tex;
-uniform highp usampler2D u_node_infos_tex;
 uniform sampler2D u_node_colors_tex;
 
-vec2 get_node_physics_pos(int index) {
-    uvec4 infos = get_data_from_tex(u_node_infos_tex, index);
-    if (infos.y > uint(0)) {
-        return uintBitsToFloat(infos.zw);
+bool is_node_synced_to_rencer(uvec4 render) {
+    return render.z > uint(0);
+}
+
+vec2 get_node_physics_pos(uvec4 physics, uvec4 render) {
+    if (is_node_synced_to_rencer(render)) {
+        return uintBitsToFloat(render.xy);
     }
-    uvec4 physics = get_data_from_tex(u_node_physics_tex, index);
     return uintBitsToFloat(physics.xy);
 }
 
-float get_node_mass(int index) {
-    uvec4 physics = get_data_from_tex(u_node_physics_tex, index);
+float get_node_mass(uvec4 physics) {
     return uintBitsToFloat(physics.z);
 }
 
-float get_node_temp(int index) {
-    uvec4 physics = get_data_from_tex(u_node_physics_tex, index);
+float get_node_temp(uvec4 physics) {
     return uintBitsToFloat(physics.w);
 }
 
-vec2 get_node_render_pos(int index) {
-    uvec4 render = get_data_from_tex(u_node_render_pos_tex, index);
+vec2 get_node_render_pos(uvec4 render) {
     return uintBitsToFloat(render.xy);
 }
 
@@ -226,9 +224,11 @@ void main() {
         return;
     }
 
-    vec2 node_pos = get_node_physics_pos(node_index);
-    float node_mass = get_node_mass(node_index);
-    float node_temp = get_node_temp(node_index);
+    uvec4 node_physics = get_data_from_tex(u_node_physics_tex, node_index);
+    uvec4 node_render = get_data_from_tex(u_node_render_pos_tex, node_index);
+    vec2 node_pos = get_node_physics_pos(node_physics, node_render);
+    float node_mass = get_node_mass(node_physics);
+    float node_temp = get_node_temp(node_physics);
 
     // mass is too small
     if (node_mass < SMALL_NUMBER) {
@@ -236,17 +236,16 @@ void main() {
         return;
     }
 
-    // if node is pinned
-    // we skip the calculation and just set the pos to pinned pos
+    // if node is synced to render
+    // we skip the calculation and just set the pos to render pos
     {
-        uvec4 node_info = get_data_from_tex(u_node_infos_tex, node_index);
-        if (node_info.y > uint(0)) { // is pinned
-            uvec2 pos_u = node_info.zw;
+        if (is_node_synced_to_rencer(node_render)) {
+            uvec2 pos_u = node_render.xy;
             uint mass_u = floatBitsToUint(node_mass);
             uint temp_u = floatBitsToUint(node_temp);
 
             out_color = uvec4(
-                pos_u.x, pos_u.y, mass_u, temp_u
+                node_render.x, node_render.y, node_physics.z, node_physics.w
             );
 
             return;
@@ -263,8 +262,11 @@ void main() {
             continue;
         }
 
-        vec2 other_node_pos = get_node_physics_pos(i);
-        float other_node_mass = get_node_mass(i);
+        uvec4 other_node_physics = get_data_from_tex(u_node_physics_tex, i);
+        uvec4 other_node_render = get_data_from_tex(u_node_render_pos_tex, i);
+
+        vec2 other_node_pos = get_node_physics_pos(other_node_physics, other_node_render);
+        float other_node_mass = get_node_mass(other_node_physics);
 
         force_sum += calculate_repulsion(
             node_pos, node_mass,
@@ -284,8 +286,11 @@ void main() {
                 other_node_index = index_ab.y;
             }
 
-            vec2 other_node_pos = get_node_physics_pos(other_node_index);
-            float other_node_mass = get_node_mass(other_node_index);
+            uvec4 other_node_physics = get_data_from_tex(u_node_physics_tex, other_node_index);
+            uvec4 other_node_render = get_data_from_tex(u_node_render_pos_tex, other_node_index);
+
+            vec2 other_node_pos = get_node_physics_pos(other_node_physics, other_node_render);
+            float other_node_mass = get_node_mass(other_node_physics);
 
             force_sum += calculate_spring(
                 node_pos, node_mass,
@@ -342,19 +347,19 @@ uniform float u_outline_width;
 
 out vec4 v_color;
 out vec2 v_uv;
-flat out highp uvec4 v_node_info;
 
 ${glslViewportTransform}
 ${glslNodeUtils}
 
 void main() {
-    v_node_info = get_data_from_tex(u_node_infos_tex, gl_InstanceID);
-
     float x = a_vertex.x;
     float y = a_vertex.y;
 
-    vec2 node_pos = get_node_render_pos(gl_InstanceID);
-    float node_mass = get_node_mass(gl_InstanceID);
+    uvec4 node_physics = get_data_from_tex(u_node_physics_tex, gl_InstanceID);
+    uvec4 node_render = get_data_from_tex(u_node_render_pos_tex, gl_InstanceID);
+
+    vec2 node_pos = get_node_render_pos(node_render);
+    float node_mass = get_node_mass(node_physics);
 
     float node_raidus = node_mass_to_radius(node_mass);
 
@@ -398,7 +403,6 @@ precision highp float;
 
 in vec4 v_color;
 in vec2 v_uv;
-flat in highp uvec4 v_node_info;
 
 uniform float u_tick;
 
@@ -413,14 +417,6 @@ ${glslCommon}
 
 void main() {
     vec4 node_c = texture(u_node_tex, v_uv) * v_color;
-
-    if (v_node_info.x > uint(0) && !u_draw_outline) { // draw loading circle
-        vec2 loading_uv = rotate_v(v_uv - vec2(0.5, 0.5), -u_tick * 0.1) + vec2(0.5, 0.5);
-        vec4 loading_c = texture(u_loading_circle_tex, loading_uv);
-
-        // blend colors
-        node_c = loading_c + node_c * (1.0 - loading_c.a);
-    }
 
     out_color = node_c;
 }
@@ -448,8 +444,11 @@ void main() {
 
     ivec2 node_ab = get_connected_nodes(gl_InstanceID);
 
-    vec2 pos_a = get_node_render_pos(node_ab.x);
-    vec2 pos_b = get_node_render_pos(node_ab.y);
+    uvec4 render_a = get_data_from_tex(u_node_render_pos_tex, node_ab.x);
+    uvec4 render_b = get_data_from_tex(u_node_render_pos_tex, node_ab.y);
+
+    vec2 pos_a = get_node_render_pos(render_a);
+    vec2 pos_b = get_node_render_pos(render_b);
 
     pos_a = world_to_viewport(pos_a);
     pos_b = world_to_viewport(pos_b);
@@ -638,8 +637,6 @@ export class GpuComputeRenderer {
     nodePhysicsTex0: Texture
     nodePhysicsTex1: Texture
     useNodePhysicsTex0: boolean = false
-
-    nodeInfosTex: Texture
 
     nodeColorsTex: Texture
 
@@ -952,10 +949,6 @@ export class GpuComputeRenderer {
             }
         }
 
-        // create texture to hold node informations
-        this.nodeInfosTex = createDataTexture()
-        setDataTextureSize(this.nodeInfosTex, texInitSize, texInitSize)
-
         // create texture to hold node render poses
         this.nodeRenderPosTex = createDataTexture()
         setDataTextureSize(this.nodeRenderPosTex, texInitSize, texInitSize)
@@ -1081,7 +1074,6 @@ export class GpuComputeRenderer {
         ) => {
             useTexture(renderUnit, physicsTex, 'u_node_physics_tex')
             useTexture(renderUnit, this.nodeRenderPosTex, 'u_node_render_pos_tex')
-            useTexture(renderUnit, this.nodeInfosTex, 'u_node_infos_tex')
             useTexture(renderUnit, this.nodeColorsTex, 'u_node_colors_tex')
 
             this.gl.uniform1i(renderUnit.locs.uLoc('u_node_count'), this.nodeLength)
@@ -1327,37 +1319,6 @@ export class GpuComputeRenderer {
             this.nodeColorsTex.height = nodeTexSize
         }
 
-        // supply texture with node infos
-        if ((flag & DataSyncFlags.NodeInfos) > 0) {
-            let data = new Float32Array(nodeTexSize * nodeTexSize * 4)
-
-            let offset = 0
-            for (let i = 0; i < this.nodeLength; i++) {
-                const node = manager.nodes[i]
-                data[offset + 0] = node.isExpanding ? 1 : 0;
-                data[offset + 1] = node.isPinned ? 1 : 0;
-                data[offset + 2] = node.pinnedX
-                data[offset + 3] = node.pinnedY
-
-                offset += 4
-            }
-
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeInfosTex.unit)
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeInfosTex.texture)
-            this.gl.texImage2D(
-                this.gl.TEXTURE_2D,
-                0, // level
-                this.gl.RGBA32UI, // internal format
-                nodeTexSize, nodeTexSize, // width, height
-                0, // border
-                this.gl.RGBA_INTEGER, // format
-                this.gl.UNSIGNED_INT, // type
-                new Uint32Array(data.buffer) // data
-            )
-            this.nodeInfosTex.width = nodeTexSize
-            this.nodeInfosTex.height = nodeTexSize
-        }
-
         // supply texture with node render positions
         if ((flag & DataSyncFlags.NodeRenderPos) > 0) {
             let data = new Float32Array(nodeTexSize * nodeTexSize * 4)
@@ -1367,7 +1328,7 @@ export class GpuComputeRenderer {
                 const node = manager.nodes[i]
                 data[offset + 0] = node.renderX
                 data[offset + 1] = node.renderY
-                data[offset + 2] = 0
+                data[offset + 2] = node.syncedToRender ? 1 : 0
                 data[offset + 3] = 0
 
                 offset += 4
