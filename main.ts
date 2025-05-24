@@ -27,6 +27,12 @@ interface ExpandRequest {
     doneRequesting: boolean
 }
 
+interface Animation {
+    update: (deltaTime: number) => void
+    didEnd: () => boolean
+    skip: () => void
+}
+
 class App {
     mainCanvas: HTMLCanvasElement
     overlayCanvas: HTMLCanvasElement
@@ -50,6 +56,8 @@ class App {
 
     _expandRequests: Array<ExpandRequest> = []
 
+    _animations: Map<number, Animation> = new Map()
+
     // ========================
     // input states
     // ========================
@@ -68,11 +76,12 @@ class App {
     pinch: number = 0
     pinchPos: math.Vector2 = new math.Vector2(0, 0)
 
-    pinnedNode: DocNode | null = null
+    focusedNode: DocNode | null = null
+    focusedTick: number = 0
 
-    // TEST TEST TEST TEST TEST TEST
-    draggingNode: DocNode | null = null
-    // TEST TEST TEST TEST TEST TEST
+    // how long a user has to hold node
+    // before we open the wikipedia link
+    linkOpenDuration: number = 1000 // constant
 
     // ========================
     // simulation parameters
@@ -98,8 +107,9 @@ class App {
 
         this.nodeManager = new NodeManager()
         this.gpu = new GpuComputeRenderer(this.mainCanvas)
-
         this.gpu.simParam = this.simParam
+        this.gpu.nodeOutlineColor = new color.Color(255, 255, 255, 255)
+        this.gpu.nodeOutlineWidth = 2
 
         // NOTE: we have to add it to window because canvas
         // doesn't take keyboard input
@@ -146,17 +156,17 @@ class App {
     }
 
     handleEvent(e: Event) {
-        const focusLoseDist = 100
+        const focusLoseDist = 50
 
-        const unpinNode = () => {
-            if (this.pinnedNode === null) {
+        const unfocusNode = () => {
+            if (this.focusedNode === null) {
                 return
             }
-            this.pinnedNode.syncedToRender = false
+            this.focusedNode.syncedToRender = false
             this.gpu.submitNodeManager(
-                this.nodeManager, DataSyncFlags.NodeInfos
+                this.nodeManager, DataSyncFlags.NodeRenderPos
             )
-            this.pinnedNode = null
+            this.focusedNode = null
         }
 
         const startDragging = (x: number, y: number) => {
@@ -191,14 +201,75 @@ class App {
             this.tappedPos.x = x
             this.tappedPos.y = y
 
-            // pin the node to cursor
-            this.pinnedNode = this.getNodeUnderCursor(x, y)
-            if (this.pinnedNode !== null) {
-                this.pinnedNode.syncedToRender = true
+            // focus on node if we clicked
+            this.focusedNode = this.getNodeUnderCursor(x, y)
+            if (this.focusedNode !== null) {
+                this.focusedNode.syncedToRender = true
+                this.focusedTick = this.globalTick
 
                 this.gpu.submitNodeManager(
-                    this.nodeManager, DataSyncFlags.NodeInfos | DataSyncFlags.NodeRenderPos
+                    this.nodeManager, DataSyncFlags.NodeRenderPos
                 )
+
+                let quit = false
+
+                const node = this.focusedNode
+                const prevMass = node.mass
+                let ogRadius = node.getRadius()
+                let radius = node.getRadius()
+
+                // add node animation
+                const update = (deltaTime: number) => {
+                    const clickMinRadius = 50
+                    const expandMinRadius = 70
+
+                    let isFocused = true
+                    if (this.focusedNode === null) {
+                        isFocused = false
+                    } else if (this.focusedNode.id !== node.id) {
+                        isFocused = false
+                    }
+                    let isExpanding = node.isExpanding
+                    let gotBigger = node.mass > prevMass
+
+                    let targetRadius = ogRadius
+
+                    if (isFocused) {
+                        targetRadius = Math.max(clickMinRadius, ogRadius)
+                    }
+                    if (isExpanding) {
+                        targetRadius = Math.max(expandMinRadius, ogRadius)
+                    }
+                    if (gotBigger) {
+                        targetRadius = node.getRadius()
+                    }
+
+                    const newRadius = math.lerp(radius, targetRadius, 0.2)
+                    const scale = newRadius / node.getRadius()
+
+                    node.renderRadiusScale = scale
+
+                    radius = newRadius
+
+                    if (!isFocused && !isExpanding && math.prettySame(radius, node.getRadius())) {
+                        node.renderRadiusScale = 1
+                        quit = true
+                    }
+                }
+                const didEnd = (): boolean => {
+                    return quit
+                }
+                const skip = () => {
+                    node.renderRadiusScale = 1
+                }
+
+                let anim: Animation = {
+                    update: update,
+                    didEnd: didEnd,
+                    skip: skip
+                }
+
+                this.addNodeAnimation(this.focusedNode.id, anim)
             }
         }
 
@@ -207,7 +278,7 @@ class App {
                 doDrag(x, y)
             }
 
-            if (this.pinnedNode !== null) {
+            if (this.focusedNode !== null) {
                 // if user moved cursor too much
                 // unpin the node
                 const dist = math.dist(
@@ -216,18 +287,18 @@ class App {
                 )
 
                 if (dist > focusLoseDist) {
-                    unpinNode()
+                    unfocusNode()
                 }
             }
         }
 
         const handlePointerUp = () => {
-            if (this.pinnedNode !== null) {
+            if (this.focusedNode !== null) {
                 // expand node
-                const nodeIndex = this.nodeManager.getIndexFromId(this.pinnedNode.id)
+                const nodeIndex = this.nodeManager.getIndexFromId(this.focusedNode.id)
                 this.expandNode(nodeIndex)
 
-                unpinNode()
+                unfocusNode()
             }
 
             this.draggingCanvas = false
@@ -281,14 +352,20 @@ class App {
 
                 // TEST TEST TEST TEST
                 if (mouseEvent.button === 1) {
-                    if (this.draggingNode === null) {
-                        const node = this.getNodeUnderCursor(this.mouse.x, this.mouse.y)
-                        if (node !== null) {
-                            this.draggingNode = node
-                            this.draggingNode.syncedToRender = true
-                        }
-                    } else {
-                        this.draggingNode = null
+                    // if (this.draggingNode === null) {
+                    //     const node = this.getNodeUnderCursor(this.mouse.x, this.mouse.y)
+                    //     if (node !== null) {
+                    //         this.draggingNode = node
+                    //         this.draggingNode.syncedToRender = true
+                    //     }
+                    // } else {
+                    //     this.draggingNode = null
+                    // }
+                    // break
+
+                    const node = this.getNodeUnderCursor(this.mouse.x, this.mouse.y)
+                    if (node !== null) {
+                        wiki.openWikipedia(node.title)
                     }
                     break
                 }
@@ -307,7 +384,7 @@ class App {
 
             case "mouseleave": {
                 endDragging()
-                unpinNode()
+                unfocusNode()
             } break
 
             case "touchstart": {
@@ -318,7 +395,7 @@ class App {
                     const touch = touchPos(touches[0])
                     handlePointerDown(touch.x, touch.y)
                 } else {
-                    unpinNode()
+                    unfocusNode()
                     endDragging()
                 }
 
@@ -350,7 +427,7 @@ class App {
 
                     handlePointerMove(touch.x, touch.y)
                 } else {
-                    unpinNode()
+                    unfocusNode()
                     endDragging()
                 }
 
@@ -407,7 +484,7 @@ class App {
 
     update(deltaTime: DOMHighResTimeStamp) {
         this.updateWidthAndHeight()
-        this.globalTick++
+        this.globalTick += deltaTime
 
         // debug print stuff
         {
@@ -417,6 +494,7 @@ class App {
         debugPrint('node count', this.nodeManager.nodes.length.toString())
         debugPrint('connection count', this.nodeManager.connections.length.toString())
         debugPrint('zoom', this.zoom.toFixed(2))
+        debugPrint('animation count', this._animations.size.toString())
 
         // ================================
         // handle expand requests
@@ -501,13 +579,6 @@ class App {
             for (const req of finished) {
                 req.node.isExpanding = false
             }
-            if (finished.length > 0) {
-                // tell gpu that nodes aren't expanding
-                this.gpu.submitNodeManager(
-                    this.nodeManager,
-                    DataSyncFlags.NodeInfos
-                )
-            }
 
             this._expandRequests = unfinished
         }
@@ -550,18 +621,35 @@ class App {
             node.renderY = y
         }
 
-        // TEST TEST TEST TEST TEST
-        if (this.draggingNode !== null) {
-            const pos = this.viewportToWorld(this.mouse.x, this.mouse.y)
-            this.draggingNode.renderX = pos.x
-            this.draggingNode.renderY = pos.y
-        }
-        // TEST TEST TEST TEST TEST
+        // ================================
+        // update animations
+        // ================================
+        this._animations.forEach((anim: Animation, nodeId: number, _: any) => {
+            anim.update(deltaTime)
+            if (anim.didEnd()) {
+                this._animations.delete(nodeId)
+            }
+        })
 
+        // ================================
+        // submit to gpu
+        // ================================
         this.gpu.submitNodeManager(
             this.nodeManager,
             DataSyncFlags.NodeRenderPos
         )
+
+        // ======================================
+        // open wikipedia article
+        // if user held on to node long enough
+        // ======================================
+        if (
+            this.focusedNode !== null &&
+            this.globalTick - this.focusedTick > this.linkOpenDuration
+        ) {
+            wiki.openWikipedia(this.focusedNode.title)
+            this.focusedNode = null
+        }
 
         this.gpu.zoom = this.zoom
         this.gpu.offset.x = this.offset.x
@@ -598,7 +686,7 @@ class App {
 
             for (let i = 0; i < this.nodeManager.nodes.length; i++) {
                 const node = this.nodeManager.nodes[i]
-                const radius = node.getRadius()
+                const radius = node.getRenderRadius()
 
                 const minX = node.posX - radius
                 const maxX = node.posX + radius
@@ -631,7 +719,6 @@ class App {
         // =========================
         // draw loading circle
         // =========================
-
         this.overlayCtx.resetTransform()
         if (assets.loadingCircleImage !== null) {
             this.overlayCtx.resetTransform()
@@ -644,18 +731,42 @@ class App {
                     const pos = this.worldToViewport(node.renderX, node.renderY)
                     this.overlayCtx.translate(pos.x, pos.y)
 
-                    let scaleX = node.getRadius() * this.zoom / (image.width * 0.5)
-                    let scaleY = node.getRadius() * this.zoom / (image.height * 0.5)
+                    let scaleX = node.getRenderRadius() * this.zoom / (image.width * 0.5)
+                    let scaleY = node.getRenderRadius() * this.zoom / (image.height * 0.5)
 
                     this.overlayCtx.scale(scaleX, scaleY)
 
-                    this.overlayCtx.rotate(this.globalTick * 0.1)
+                    this.overlayCtx.rotate(this.globalTick * 0.008)
 
                     this.overlayCtx.drawImage(image, -image.width * 0.5, -image.height * 0.5)
                 }
             })
         }
         this.overlayCtx.resetTransform()
+
+        // =========================
+        // draw link open timer
+        // =========================
+        if (this.focusedNode !== null) {
+            let tickSinceFocused = this.globalTick - this.focusedTick
+            if (tickSinceFocused > this.linkOpenDuration * 0.1) {
+                tickSinceFocused -= this.linkOpenDuration * 0.1
+                this.overlayCtx.beginPath();
+                const pos = this.worldToViewport(this.focusedNode.renderX, this.focusedNode.renderY)
+                let lineWidth = this.focusedNode.getRenderRadius() * 0.4
+                this.overlayCtx.lineWidth = lineWidth * this.zoom
+                this.overlayCtx.lineCap = 'round'
+                this.overlayCtx.strokeStyle = 'black'
+
+                this.overlayCtx.arc(
+                    pos.x, pos.y,
+                    (this.focusedNode.getRenderRadius() + lineWidth * 0.5 + 2) * this.zoom,
+                    0 - Math.PI * 0.5,
+                    (tickSinceFocused / (this.linkOpenDuration * 0.9)) * Math.PI * 2 - Math.PI * 0.5
+                )
+                this.overlayCtx.stroke()
+            }
+        }
 
         // =========================
         // draw texts
@@ -680,14 +791,22 @@ class App {
 
                 this.overlayCtx.strokeText(
                     node.title,
-                    pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom
+                    pos.x, pos.y - (node.getRenderRadius() + 5.0) * this.zoom
                 )
                 this.overlayCtx.fillText(
                     node.title,
-                    pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom
+                    pos.x, pos.y - (node.getRenderRadius() + 5.0) * this.zoom
                 )
             }
         })
+    }
+
+    addNodeAnimation(nodeId: number, anim: Animation) {
+        if (this._animations.has(nodeId)) {
+            const anim = this._animations.get(nodeId) as Animation
+            anim.skip()
+        }
+        this._animations.set(nodeId, anim)
     }
 
     updateWidthAndHeight() {
@@ -744,11 +863,6 @@ class App {
 
         this._expandRequests.push(request)
 
-        this.gpu.submitNodeManager(
-            this.nodeManager,
-            DataSyncFlags.NodeInfos
-        )
-
         try {
             const regex = / /g
             const links = await wiki.retrieveAllLiks(node.title.replace(regex, "_"))
@@ -768,7 +882,7 @@ class App {
             if (math.posInCircle(
                 pos.x, pos.y,
                 node.renderX, node.renderY,
-                node.getRadius()
+                node.getRenderRadius()
             )) {
                 return node
             }
@@ -863,6 +977,7 @@ class App {
     reset(addStartingNode: boolean) {
         this._onNodePostionsUpdated.length = 0
         this._expandRequests.length = 0
+        this._animations.clear()
 
         this.offset.x = 0
         this.offset.y = 0
@@ -871,7 +986,7 @@ class App {
 
         this.nodeManager.reset()
 
-        this.pinnedNode = null
+        this.focusedNode = null
 
         if (addStartingNode) {
             // TEST TEST TEST TEST

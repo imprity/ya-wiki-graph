@@ -10,6 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 import * as math from "./math.js";
 import { DocNode } from "./graph_objects.js";
 import * as assets from "./assets.js";
+import * as color from "./color.js";
 const glslCommon = `
 #ifndef _GLSL_COMMON_HEADER_GUARD_
 #define _GLSL_COMMON_HEADER_GUARD_
@@ -113,6 +114,12 @@ vec4 get_node_color(int index) {
 }
 
 ${DocNode.nodeMassToRadiusGLSL}
+
+float get_node_render_radius(uvec4 physics, uvec4 render) {
+    float mass = get_node_mass(physics);
+    float node_render_radius_scale = uintBitsToFloat(render.w);
+    return node_mass_to_radius(mass) * node_render_radius_scale;
+}
 
 #endif
 `;
@@ -360,9 +367,8 @@ void main() {
     uvec4 node_render = get_data_from_tex(u_node_render_pos_tex, gl_InstanceID);
 
     vec2 node_pos = get_node_render_pos(node_render);
-    float node_mass = get_node_mass(node_physics);
 
-    float node_raidus = node_mass_to_radius(node_mass);
+    float node_raidus = get_node_render_radius(node_physics, node_render);
 
     if (u_draw_outline) {
         node_raidus += u_outline_width;
@@ -407,7 +413,6 @@ in vec2 v_uv;
 uniform float u_tick;
 
 uniform sampler2D u_node_tex;
-uniform sampler2D u_loading_circle_tex;
 
 uniform bool u_draw_outline;
 
@@ -547,8 +552,7 @@ export var DataSyncFlags;
     DataSyncFlags[DataSyncFlags["Connections"] = 1] = "Connections";
     DataSyncFlags[DataSyncFlags["NodePhysics"] = 2] = "NodePhysics";
     DataSyncFlags[DataSyncFlags["NodeColors"] = 4] = "NodeColors";
-    DataSyncFlags[DataSyncFlags["NodeInfos"] = 8] = "NodeInfos";
-    DataSyncFlags[DataSyncFlags["NodeRenderPos"] = 16] = "NodeRenderPos";
+    DataSyncFlags[DataSyncFlags["NodeRenderPos"] = 8] = "NodeRenderPos";
     DataSyncFlags[DataSyncFlags["Everything"] = -1] = "Everything";
 })(DataSyncFlags || (DataSyncFlags = {}));
 class LocationGroup {
@@ -582,13 +586,18 @@ export class GpuComputeRenderer {
         this.nodeLength = 0;
         this.connectionLength = 0;
         this.nodeRenderLength = 0;
+        this.useNodePhysicsTex0 = false;
+        this.textureUnitMax = -1;
+        // ==========================
+        // constrol parameters
+        // ==========================
         this.zoom = 1;
         this.offset = new math.Vector2(0, 0);
         this.mouse = new math.Vector2(0, 0);
         this.globalTick = 0;
         this.simParam = new SimulationParameter();
-        this.useNodePhysicsTex0 = false;
-        this.textureUnitMax = -1;
+        this.nodeOutlineColor = new color.Color();
+        this.nodeOutlineWidth = 0;
         // =========================
         // create opengl context
         // =========================
@@ -865,9 +874,6 @@ export class GpuComputeRenderer {
             };
         };
         this.circleTex = createImageTexture(assets.circleImage);
-        this.loadingCircleTex = createImageTexture(assets.loadingCircleImage);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         // ========================
         // create frame buffers
         // ========================
@@ -974,17 +980,15 @@ export class GpuComputeRenderer {
             }
             supplyNodeInfos(this.drawNodeUnit, physicsTex);
             useTexture(this.drawNodeUnit, this.circleTex, 'u_node_tex');
-            useTexture(this.drawNodeUnit, this.loadingCircleTex, 'u_loading_circle_tex');
             this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
             this.gl.uniform1f(this.drawNodeUnit.locs.uLoc('u_zoom'), this.zoom);
             this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_offset'), this.offset.x, this.offset.y);
             this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_mouse'), this.mouse.x, this.mouse.y);
             this.gl.uniform1f(this.drawNodeUnit.locs.uLoc('u_tick'), this.globalTick);
             if (drawOutline) {
-                // TODO: parameterize
                 this.gl.uniform1i(this.drawNodeUnit.locs.uLoc('u_draw_outline'), 1);
-                this.gl.uniform4f(this.drawNodeUnit.locs.uLoc('u_outline_color'), 1, 1, 1, 1);
-                this.gl.uniform1f(this.drawNodeUnit.locs.uLoc('u_outline_width'), 2);
+                this.gl.uniform4f(this.drawNodeUnit.locs.uLoc('u_outline_color'), this.nodeOutlineColor.r / 255.0, this.nodeOutlineColor.g / 255.0, this.nodeOutlineColor.b / 255.0, this.nodeOutlineColor.a / 255.0);
+                this.gl.uniform1f(this.drawNodeUnit.locs.uLoc('u_outline_width'), this.nodeOutlineWidth);
             }
             else {
                 this.gl.uniform1i(this.drawNodeUnit.locs.uLoc('u_draw_outline'), 0);
@@ -1074,7 +1078,7 @@ export class GpuComputeRenderer {
                 data[offset + 0] = node.renderX;
                 data[offset + 1] = node.renderY;
                 data[offset + 2] = node.syncedToRender ? 1 : 0;
-                data[offset + 3] = 0;
+                data[offset + 3] = node.renderRadiusScale;
                 offset += 4;
             }
             this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeRenderPosTex.unit);

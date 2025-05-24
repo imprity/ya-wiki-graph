@@ -31,6 +31,10 @@ export class DocNode {
     renderX: number = 0
     renderY: number = 0
 
+    renderRadiusScale: number = 1
+
+    doDraw: boolean = true
+
     isExpanding: boolean = false
 
     syncedToRender: boolean = false
@@ -45,6 +49,10 @@ export class DocNode {
 
     getRadius(): number {
         return DocNode.nodeMassToRadius(this.mass)
+    }
+
+    getRenderRadius(): number {
+        return this.getRadius() * this.renderRadiusScale
     }
 }
 

@@ -17,6 +17,8 @@ export class DocNode {
         this.color = new color.Color();
         this.renderX = 0;
         this.renderY = 0;
+        this.renderRadiusScale = 1;
+        this.doDraw = true;
         this.isExpanding = false;
         this.syncedToRender = false;
         this.id = 0;
@@ -25,6 +27,9 @@ export class DocNode {
     }
     getRadius() {
         return DocNode.nodeMassToRadius(this.mass);
+    }
+    getRenderRadius() {
+        return this.getRadius() * this.renderRadiusScale;
     }
 }
 DocNode.nodeIdMax = 0;

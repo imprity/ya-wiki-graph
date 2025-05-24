@@ -90,3 +90,9 @@ export async function retrieveAllLiks(title: string): Promise<Array<string>> {
 
     return results
 }
+
+export function openWikipedia(title: string) {
+    const regex = / /g
+    title = title.replace(regex, "_")
+    window.open(`https://en.wikipedia.org/wiki/${title}`)
+}

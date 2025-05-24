@@ -97,6 +97,10 @@ export function closeToZero(n: number): boolean {
     return Math.abs(n) < 0.00001
 }
 
+export function prettySame(a: number, b: number): boolean {
+    return Math.abs(a - b) < 0.00001
+}
+
 export function lerp(a: number, b: number, t: number): number {
     return a + (b - a) * t
 }

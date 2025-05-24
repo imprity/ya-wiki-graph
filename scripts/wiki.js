@@ -82,3 +82,8 @@ export function retrieveAllLiks(title) {
         return results;
     });
 }
+export function openWikipedia(title) {
+    const regex = / /g;
+    title = title.replace(regex, "_");
+    window.open(`https://en.wikipedia.org/wiki/${title}`);
+}

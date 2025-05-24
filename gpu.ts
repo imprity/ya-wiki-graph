@@ -1,6 +1,7 @@
 import * as math from "./math.js"
 import { NodeManager, DocNode } from "./graph_objects.js"
 import * as assets from "./assets.js"
+import * as color from "./color.js"
 import { debugPrint } from './debug_print.js'
 
 const glslCommon = `
@@ -108,6 +109,12 @@ vec4 get_node_color(int index) {
 }
 
 ${DocNode.nodeMassToRadiusGLSL}
+
+float get_node_render_radius(uvec4 physics, uvec4 render) {
+    float mass = get_node_mass(physics);
+    float node_render_radius_scale = uintBitsToFloat(render.w);
+    return node_mass_to_radius(mass) * node_render_radius_scale;
+}
 
 #endif
 `
@@ -359,9 +366,8 @@ void main() {
     uvec4 node_render = get_data_from_tex(u_node_render_pos_tex, gl_InstanceID);
 
     vec2 node_pos = get_node_render_pos(node_render);
-    float node_mass = get_node_mass(node_physics);
 
-    float node_raidus = node_mass_to_radius(node_mass);
+    float node_raidus = get_node_render_radius(node_physics, node_render);
 
     if (u_draw_outline) {
         node_raidus += u_outline_width;
@@ -407,7 +413,6 @@ in vec2 v_uv;
 uniform float u_tick;
 
 uniform sampler2D u_node_tex;
-uniform sampler2D u_loading_circle_tex;
 
 uniform bool u_draw_outline;
 
@@ -551,8 +556,7 @@ export enum DataSyncFlags {
     Connections = 1 << 0, // connections
     NodePhysics = 1 << 1, // nodes' position, mass, temp
     NodeColors = 1 << 2, // nodes' colors
-    NodeInfos = 1 << 3, // other node infos
-    NodeRenderPos = 1 << 4, // node render positions
+    NodeRenderPos = 1 << 3, // node render positions
     Everything = ~0
 }
 
@@ -616,15 +620,6 @@ export class GpuComputeRenderer {
     canvas: HTMLCanvasElement
     gl: WebGL2RenderingContext
 
-    zoom: number = 1
-    offset: math.Vector2 = new math.Vector2(0, 0)
-
-    mouse: math.Vector2 = new math.Vector2(0, 0)
-
-    globalTick: number = 0
-
-    simParam: SimulationParameter = new SimulationParameter()
-
     forceCalcUnit: RenderUnit
     drawNodeUnit: RenderUnit
     drawConUint: RenderUnit
@@ -648,9 +643,23 @@ export class GpuComputeRenderer {
     conInfosTex: Texture
 
     circleTex: Texture
-    loadingCircleTex: Texture
 
     textureUnitMax: number = -1
+
+    // ==========================
+    // constrol parameters
+    // ==========================
+    zoom: number = 1
+    offset: math.Vector2 = new math.Vector2(0, 0)
+
+    mouse: math.Vector2 = new math.Vector2(0, 0)
+
+    globalTick: number = 0
+
+    simParam: SimulationParameter = new SimulationParameter()
+
+    nodeOutlineColor: color.Color = new color.Color()
+    nodeOutlineWidth: number = 0
 
     constructor(canvas: HTMLCanvasElement) {
         // =========================
@@ -1026,10 +1035,6 @@ export class GpuComputeRenderer {
 
         this.circleTex = createImageTexture(assets.circleImage)
 
-        this.loadingCircleTex = createImageTexture(assets.loadingCircleImage)
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
-
         // ========================
         // create frame buffers
         // ========================
@@ -1189,7 +1194,6 @@ export class GpuComputeRenderer {
             supplyNodeInfos(this.drawNodeUnit, physicsTex)
 
             useTexture(this.drawNodeUnit, this.circleTex, 'u_node_tex')
-            useTexture(this.drawNodeUnit, this.loadingCircleTex, 'u_loading_circle_tex')
 
             this.gl.uniform2f(
                 this.drawNodeUnit.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height)
@@ -1204,15 +1208,19 @@ export class GpuComputeRenderer {
                 this.drawNodeUnit.locs.uLoc('u_tick'), this.globalTick)
 
             if (drawOutline) {
-                // TODO: parameterize
                 this.gl.uniform1i(
                     this.drawNodeUnit.locs.uLoc('u_draw_outline'), 1)
                 this.gl.uniform4f(
                     this.drawNodeUnit.locs.uLoc('u_outline_color'),
-                    1, 1, 1, 1
+                    this.nodeOutlineColor.r / 255.0,
+                    this.nodeOutlineColor.g / 255.0,
+                    this.nodeOutlineColor.b / 255.0,
+                    this.nodeOutlineColor.a / 255.0,
                 )
                 this.gl.uniform1f(
-                    this.drawNodeUnit.locs.uLoc('u_outline_width'), 2)
+                    this.drawNodeUnit.locs.uLoc('u_outline_width'),
+                    this.nodeOutlineWidth
+                )
             } else {
                 this.gl.uniform1i(
                     this.drawNodeUnit.locs.uLoc('u_draw_outline'), 0)
@@ -1329,7 +1337,7 @@ export class GpuComputeRenderer {
                 data[offset + 0] = node.renderX
                 data[offset + 1] = node.renderY
                 data[offset + 2] = node.syncedToRender ? 1 : 0
-                data[offset + 3] = 0
+                data[offset + 3] = node.renderRadiusScale
 
                 offset += 4
             }

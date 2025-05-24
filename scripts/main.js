@@ -26,6 +26,7 @@ class App {
         this._updatingNodePositions = false;
         this._onNodePostionsUpdated = [];
         this._expandRequests = [];
+        this._animations = new Map();
         // ========================
         // input states
         // ========================
@@ -38,10 +39,11 @@ class App {
         this.isPinching = false;
         this.pinch = 0;
         this.pinchPos = new math.Vector2(0, 0);
-        this.pinnedNode = null;
-        // TEST TEST TEST TEST TEST TEST
-        this.draggingNode = null;
-        // TEST TEST TEST TEST TEST TEST
+        this.focusedNode = null;
+        this.focusedTick = 0;
+        // how long a user has to hold node
+        // before we open the wikipedia link
+        this.linkOpenDuration = 1000; // constant
         // ========================
         // simulation parameters
         // ========================
@@ -61,7 +63,6 @@ class App {
             };
             node.isExpanding = true;
             this._expandRequests.push(request);
-            this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeInfos);
             try {
                 const regex = / /g;
                 const links = yield wiki.retrieveAllLiks(node.title.replace(regex, "_"));
@@ -87,6 +88,8 @@ class App {
         this.nodeManager = new NodeManager();
         this.gpu = new GpuComputeRenderer(this.mainCanvas);
         this.gpu.simParam = this.simParam;
+        this.gpu.nodeOutlineColor = new color.Color(255, 255, 255, 255);
+        this.gpu.nodeOutlineWidth = 2;
         // NOTE: we have to add it to window because canvas
         // doesn't take keyboard input
         // TODO: put canvas inside a div
@@ -123,14 +126,14 @@ class App {
         this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
     }
     handleEvent(e) {
-        const focusLoseDist = 100;
-        const unpinNode = () => {
-            if (this.pinnedNode === null) {
+        const focusLoseDist = 50;
+        const unfocusNode = () => {
+            if (this.focusedNode === null) {
                 return;
             }
-            this.pinnedNode.syncedToRender = false;
-            this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeInfos);
-            this.pinnedNode = null;
+            this.focusedNode.syncedToRender = false;
+            this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeRenderPos);
+            this.focusedNode = null;
         };
         const startDragging = (x, y) => {
             this.draggingCanvas = true;
@@ -156,32 +159,82 @@ class App {
             startDragging(x, y);
             this.tappedPos.x = x;
             this.tappedPos.y = y;
-            // pin the node to cursor
-            this.pinnedNode = this.getNodeUnderCursor(x, y);
-            if (this.pinnedNode !== null) {
-                this.pinnedNode.syncedToRender = true;
-                this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeInfos | DataSyncFlags.NodeRenderPos);
+            // focus on node if we clicked
+            this.focusedNode = this.getNodeUnderCursor(x, y);
+            if (this.focusedNode !== null) {
+                this.focusedNode.syncedToRender = true;
+                this.focusedTick = this.globalTick;
+                this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeRenderPos);
+                let quit = false;
+                const node = this.focusedNode;
+                const prevMass = node.mass;
+                let ogRadius = node.getRadius();
+                let radius = node.getRadius();
+                // add node animation
+                const update = (deltaTime) => {
+                    const clickMinRadius = 50;
+                    const expandMinRadius = 70;
+                    let isFocused = true;
+                    if (this.focusedNode === null) {
+                        isFocused = false;
+                    }
+                    else if (this.focusedNode.id !== node.id) {
+                        isFocused = false;
+                    }
+                    let isExpanding = node.isExpanding;
+                    let gotBigger = node.mass > prevMass;
+                    let targetRadius = ogRadius;
+                    if (isFocused) {
+                        targetRadius = Math.max(clickMinRadius, ogRadius);
+                    }
+                    if (isExpanding) {
+                        targetRadius = Math.max(expandMinRadius, ogRadius);
+                    }
+                    if (gotBigger) {
+                        targetRadius = node.getRadius();
+                    }
+                    const newRadius = math.lerp(radius, targetRadius, 0.2);
+                    const scale = newRadius / node.getRadius();
+                    node.renderRadiusScale = scale;
+                    radius = newRadius;
+                    if (!isFocused && !isExpanding && math.prettySame(radius, node.getRadius())) {
+                        node.renderRadiusScale = 1;
+                        quit = true;
+                    }
+                };
+                const didEnd = () => {
+                    return quit;
+                };
+                const skip = () => {
+                    node.renderRadiusScale = 1;
+                };
+                let anim = {
+                    update: update,
+                    didEnd: didEnd,
+                    skip: skip
+                };
+                this.addNodeAnimation(this.focusedNode.id, anim);
             }
         };
         const handlePointerMove = (x, y) => {
             if (this.draggingCanvas) {
                 doDrag(x, y);
             }
-            if (this.pinnedNode !== null) {
+            if (this.focusedNode !== null) {
                 // if user moved cursor too much
                 // unpin the node
                 const dist = math.dist(x - this.tappedPos.x, y - this.tappedPos.y);
                 if (dist > focusLoseDist) {
-                    unpinNode();
+                    unfocusNode();
                 }
             }
         };
         const handlePointerUp = () => {
-            if (this.pinnedNode !== null) {
+            if (this.focusedNode !== null) {
                 // expand node
-                const nodeIndex = this.nodeManager.getIndexFromId(this.pinnedNode.id);
+                const nodeIndex = this.nodeManager.getIndexFromId(this.focusedNode.id);
                 this.expandNode(nodeIndex);
-                unpinNode();
+                unfocusNode();
             }
             this.draggingCanvas = false;
         };
@@ -223,15 +276,19 @@ class App {
                     console.log(mouseEvent);
                     // TEST TEST TEST TEST
                     if (mouseEvent.button === 1) {
-                        if (this.draggingNode === null) {
-                            const node = this.getNodeUnderCursor(this.mouse.x, this.mouse.y);
-                            if (node !== null) {
-                                this.draggingNode = node;
-                                this.draggingNode.syncedToRender = true;
-                            }
-                        }
-                        else {
-                            this.draggingNode = null;
+                        // if (this.draggingNode === null) {
+                        //     const node = this.getNodeUnderCursor(this.mouse.x, this.mouse.y)
+                        //     if (node !== null) {
+                        //         this.draggingNode = node
+                        //         this.draggingNode.syncedToRender = true
+                        //     }
+                        // } else {
+                        //     this.draggingNode = null
+                        // }
+                        // break
+                        const node = this.getNodeUnderCursor(this.mouse.x, this.mouse.y);
+                        if (node !== null) {
+                            wiki.openWikipedia(node.title);
                         }
                         break;
                     }
@@ -249,7 +306,7 @@ class App {
             case "mouseleave":
                 {
                     endDragging();
-                    unpinNode();
+                    unfocusNode();
                 }
                 break;
             case "touchstart":
@@ -261,7 +318,7 @@ class App {
                         handlePointerDown(touch.x, touch.y);
                     }
                     else {
-                        unpinNode();
+                        unfocusNode();
                         endDragging();
                     }
                     if (touches.length == 2) {
@@ -286,7 +343,7 @@ class App {
                         handlePointerMove(touch.x, touch.y);
                     }
                     else {
-                        unpinNode();
+                        unfocusNode();
                         endDragging();
                     }
                     if (touches.length === 2) {
@@ -329,7 +386,7 @@ class App {
     }
     update(deltaTime) {
         this.updateWidthAndHeight();
-        this.globalTick++;
+        this.globalTick += deltaTime;
         // debug print stuff
         {
             let estimate = 1000.0 / deltaTime;
@@ -338,6 +395,7 @@ class App {
         debugPrint('node count', this.nodeManager.nodes.length.toString());
         debugPrint('connection count', this.nodeManager.connections.length.toString());
         debugPrint('zoom', this.zoom.toFixed(2));
+        debugPrint('animation count', this._animations.size.toString());
         // ================================
         // handle expand requests
         // ================================
@@ -405,10 +463,6 @@ class App {
             for (const req of finished) {
                 req.node.isExpanding = false;
             }
-            if (finished.length > 0) {
-                // tell gpu that nodes aren't expanding
-                this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeInfos);
-            }
             this._expandRequests = unfinished;
         }
         // ================================
@@ -440,14 +494,28 @@ class App {
             node.renderX = x;
             node.renderY = y;
         }
-        // TEST TEST TEST TEST TEST
-        if (this.draggingNode !== null) {
-            const pos = this.viewportToWorld(this.mouse.x, this.mouse.y);
-            this.draggingNode.renderX = pos.x;
-            this.draggingNode.renderY = pos.y;
-        }
-        // TEST TEST TEST TEST TEST
+        // ================================
+        // update animations
+        // ================================
+        this._animations.forEach((anim, nodeId, _) => {
+            anim.update(deltaTime);
+            if (anim.didEnd()) {
+                this._animations.delete(nodeId);
+            }
+        });
+        // ================================
+        // submit to gpu
+        // ================================
         this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeRenderPos);
+        // ======================================
+        // open wikipedia article
+        // if user held on to node long enough
+        // ======================================
+        if (this.focusedNode !== null &&
+            this.globalTick - this.focusedTick > this.linkOpenDuration) {
+            wiki.openWikipedia(this.focusedNode.title);
+            this.focusedNode = null;
+        }
         this.gpu.zoom = this.zoom;
         this.gpu.offset.x = this.offset.x;
         this.gpu.offset.y = this.offset.y;
@@ -474,7 +542,7 @@ class App {
             viewMax.y += vy * 0.5;
             for (let i = 0; i < this.nodeManager.nodes.length; i++) {
                 const node = this.nodeManager.nodes[i];
-                const radius = node.getRadius();
+                const radius = node.getRenderRadius();
                 const minX = node.posX - radius;
                 const maxX = node.posX + radius;
                 const minY = node.posY - radius;
@@ -507,15 +575,32 @@ class App {
                     this.overlayCtx.resetTransform();
                     const pos = this.worldToViewport(node.renderX, node.renderY);
                     this.overlayCtx.translate(pos.x, pos.y);
-                    let scaleX = node.getRadius() * this.zoom / (image.width * 0.5);
-                    let scaleY = node.getRadius() * this.zoom / (image.height * 0.5);
+                    let scaleX = node.getRenderRadius() * this.zoom / (image.width * 0.5);
+                    let scaleY = node.getRenderRadius() * this.zoom / (image.height * 0.5);
                     this.overlayCtx.scale(scaleX, scaleY);
-                    this.overlayCtx.rotate(this.globalTick * 0.1);
+                    this.overlayCtx.rotate(this.globalTick * 0.008);
                     this.overlayCtx.drawImage(image, -image.width * 0.5, -image.height * 0.5);
                 }
             });
         }
         this.overlayCtx.resetTransform();
+        // =========================
+        // draw link open timer
+        // =========================
+        if (this.focusedNode !== null) {
+            let tickSinceFocused = this.globalTick - this.focusedTick;
+            if (tickSinceFocused > this.linkOpenDuration * 0.1) {
+                tickSinceFocused -= this.linkOpenDuration * 0.1;
+                this.overlayCtx.beginPath();
+                const pos = this.worldToViewport(this.focusedNode.renderX, this.focusedNode.renderY);
+                let lineWidth = this.focusedNode.getRenderRadius() * 0.4;
+                this.overlayCtx.lineWidth = lineWidth * this.zoom;
+                this.overlayCtx.lineCap = 'round';
+                this.overlayCtx.strokeStyle = 'black';
+                this.overlayCtx.arc(pos.x, pos.y, (this.focusedNode.getRenderRadius() + lineWidth * 0.5 + 2) * this.zoom, 0 - Math.PI * 0.5, (tickSinceFocused / (this.linkOpenDuration * 0.9)) * Math.PI * 2 - Math.PI * 0.5);
+                this.overlayCtx.stroke();
+            }
+        }
         // =========================
         // draw texts
         // =========================
@@ -533,10 +618,17 @@ class App {
             if (this.zoom > 0.3 || node.mass > 20) {
                 this.overlayCtx.font = `${fontSize}px sans-serif`;
                 const pos = this.worldToViewport(node.renderX, node.renderY);
-                this.overlayCtx.strokeText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
-                this.overlayCtx.fillText(node.title, pos.x, pos.y - (node.getRadius() + 5.0) * this.zoom);
+                this.overlayCtx.strokeText(node.title, pos.x, pos.y - (node.getRenderRadius() + 5.0) * this.zoom);
+                this.overlayCtx.fillText(node.title, pos.x, pos.y - (node.getRenderRadius() + 5.0) * this.zoom);
             }
         });
+    }
+    addNodeAnimation(nodeId, anim) {
+        if (this._animations.has(nodeId)) {
+            const anim = this._animations.get(nodeId);
+            anim.skip();
+        }
+        this._animations.set(nodeId, anim);
     }
     updateWidthAndHeight() {
         const rect = this.mainCanvas.getBoundingClientRect();
@@ -565,7 +657,7 @@ class App {
         let pos = this.viewportToWorld(x, y);
         for (let i = 0; i < this.nodeManager.nodes.length; i++) {
             const node = this.nodeManager.nodes[i];
-            if (math.posInCircle(pos.x, pos.y, node.renderX, node.renderY, node.getRadius())) {
+            if (math.posInCircle(pos.x, pos.y, node.renderX, node.renderY, node.getRenderRadius())) {
                 return node;
             }
         }
@@ -634,11 +726,12 @@ class App {
     reset(addStartingNode) {
         this._onNodePostionsUpdated.length = 0;
         this._expandRequests.length = 0;
+        this._animations.clear();
         this.offset.x = 0;
         this.offset.y = 0;
         this.zoom = 1;
         this.nodeManager.reset();
-        this.pinnedNode = null;
+        this.focusedNode = null;
         if (addStartingNode) {
             // TEST TEST TEST TEST
             const testNode = new DocNode();
