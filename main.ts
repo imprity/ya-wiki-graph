@@ -4,6 +4,7 @@ import * as util from "./util.js"
 import * as math from "./math.js"
 import * as assets from "./assets.js"
 import * as color from "./color.js"
+import { ColorTable, serializeColorTable, deserializeColorTable } from "./color_table.js"
 import { GpuComputeRenderer, SimulationParameter, DataSyncFlags } from "./gpu.js"
 import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js'
 import {
@@ -40,6 +41,9 @@ class App {
     width: number = 0
     height: number = 0
 
+    dpiAdujustScaleX: number = 2
+    dpiAdujustScaleY: number = 2
+
     zoom: number = 1
     offset: math.Vector2 = new math.Vector2(0, 0)
 
@@ -57,6 +61,8 @@ class App {
     _expandRequests: Array<ExpandRequest> = []
 
     _animations: Map<number, Animation> = new Map()
+
+    colorTable: ColorTable = new ColorTable()
 
     // ========================
     // input states
@@ -108,8 +114,9 @@ class App {
         this.nodeManager = new NodeManager()
         this.gpu = new GpuComputeRenderer(this.mainCanvas)
         this.gpu.simParam = this.simParam
-        this.gpu.nodeOutlineColor = new color.Color(255, 255, 255, 255)
-        this.gpu.nodeOutlineWidth = 2
+        this.gpu.colorTable = this.colorTable
+        this.gpu.nodeOutlineWidth = 3
+        this.gpu.connectionLineWidth = 1.2
 
         // NOTE: we have to add it to window because canvas
         // doesn't take keyboard input
@@ -348,28 +355,6 @@ class App {
 
             case "mousedown": {
                 const mouseEvent = e as MouseEvent
-                console.log(mouseEvent)
-
-                // TEST TEST TEST TEST
-                if (mouseEvent.button === 1) {
-                    // if (this.draggingNode === null) {
-                    //     const node = this.getNodeUnderCursor(this.mouse.x, this.mouse.y)
-                    //     if (node !== null) {
-                    //         this.draggingNode = node
-                    //         this.draggingNode.syncedToRender = true
-                    //     }
-                    // } else {
-                    //     this.draggingNode = null
-                    // }
-                    // break
-
-                    const node = this.getNodeUnderCursor(this.mouse.x, this.mouse.y)
-                    if (node !== null) {
-                        wiki.openWikipedia(node.title)
-                    }
-                    break
-                }
-                // TEST TEST TEST TEST
 
                 this.isMouseDown = true
 
@@ -715,18 +700,18 @@ class App {
 
 
         this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height)
+        this.resetTransform()
 
         // =========================
         // draw loading circle
         // =========================
-        this.overlayCtx.resetTransform()
         if (assets.loadingCircleImage !== null) {
-            this.overlayCtx.resetTransform()
+            this.resetTransform()
 
             forVisibleNodes((node: DocNode) => {
                 if (node.isExpanding) {
                     const image = assets.loadingCircleImage as ImageBitmap
-                    this.overlayCtx.resetTransform()
+                    this.resetTransform()
 
                     const pos = this.worldToViewport(node.renderX, node.renderY)
                     this.overlayCtx.translate(pos.x, pos.y)
@@ -742,7 +727,7 @@ class App {
                 }
             })
         }
-        this.overlayCtx.resetTransform()
+        this.resetTransform()
 
         // =========================
         // draw link open timer
@@ -756,7 +741,7 @@ class App {
                 let lineWidth = this.focusedNode.getRenderRadius() * 0.4
                 this.overlayCtx.lineWidth = lineWidth * this.zoom
                 this.overlayCtx.lineCap = 'round'
-                this.overlayCtx.strokeStyle = 'black'
+                this.overlayCtx.strokeStyle = this.colorTable.timerStroke.toCssString()
 
                 this.overlayCtx.arc(
                     pos.x, pos.y,
@@ -771,11 +756,10 @@ class App {
         // =========================
         // draw texts
         // =========================
-        this.overlayCtx.fillStyle = "black"
-        this.overlayCtx.strokeStyle = "white"
-        this.overlayCtx.lineWidth = 3 * this.zoom
+        this.overlayCtx.fillStyle = this.colorTable.titleTextFill.toCssString()
+        this.overlayCtx.strokeStyle = this.colorTable.titleTextStroke.toCssString()
+        this.overlayCtx.lineWidth = 3
         this.overlayCtx.textAlign = "center"
-        //this.overlayCtx.textRendering = "optimizeSpeed"
         this.overlayCtx.textBaseline = "bottom"
 
         forVisibleNodes((node: DocNode) => {
@@ -785,7 +769,7 @@ class App {
             }
 
             if (this.zoom > 0.3 || node.mass > 20) {
-                this.overlayCtx.font = `${fontSize}px sans-serif`
+                this.overlayCtx.font = `bold ${fontSize}px sans-serif`
 
                 const pos = this.worldToViewport(node.renderX, node.renderY)
 
@@ -815,11 +799,23 @@ class App {
         this.width = rect.width
         this.height = rect.height
 
+
         this.mainCanvas.width = rect.width
         this.mainCanvas.height = rect.height
 
-        this.overlayCanvas.width = rect.width
-        this.overlayCanvas.height = rect.height
+        // NOTE: https://stackoverflow.com/questions/19142993/how-draw-in-high-resolution-to-canvas-on-chrome-and-why-if-devicepixelratio
+        this.overlayCanvas.width = Math.round(devicePixelRatio * rect.right)
+            - Math.round(devicePixelRatio * rect.left);
+        this.overlayCanvas.height = Math.round(devicePixelRatio * rect.bottom)
+            - Math.round(devicePixelRatio * rect.top);
+
+        this.dpiAdujustScaleX = this.overlayCanvas.width / this.width
+        this.dpiAdujustScaleY = this.overlayCanvas.height / this.height
+    }
+
+    resetTransform() {
+        this.overlayCtx.resetTransform()
+        this.overlayCtx.scale(this.dpiAdujustScaleX, this.dpiAdujustScaleY)
     }
 
     worldToViewport(x: number, y: number): math.Vector2 {
@@ -838,7 +834,6 @@ class App {
 
         x -= this.offset.x
         y -= this.offset.y
-
 
         return new math.Vector2(x, y)
     }
@@ -1025,37 +1020,50 @@ async function main() {
 
     // set up debug UI elements
     {
-        const downloadButton = document.getElementById('download-button') as HTMLButtonElement
-        downloadButton.onclick = async () => {
-            const jsonString = await app.serialize()
-            util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.json')
-        }
-
-        const uploadInput = document.getElementById('upload-input') as HTMLInputElement
-
-        uploadInput.onclick = () => {
-            uploadInput.value = ""
-        }
-
-        uploadInput.addEventListener('input', async (ev: Event) => {
-            if (uploadInput.files !== null) {
-                if (uploadInput.files.length > 0) {
-                    try {
-                        const file = uploadInput.files[0]
-                        const text = await file.text()
-                        app.deserialize(text)
-                    } catch (err) {
-                        console.error(err)
-                    }
-                }
-            }
-        })
-
         let debugUICounter = 0
 
         const getUIid = (): string => {
             debugUICounter++;
             return `debug-ui-id-${debugUICounter}`
+        }
+
+        const addFileUpload = (
+            accept: string,
+            labelText: string,
+            onValueChange: (input: FileList) => void
+        ) => {
+            let debugUIdiv = document.getElementById('debug-ui-div')
+            if (debugUIdiv === null) {
+                return
+            }
+
+            let div = document.createElement('div')
+            div.classList.add('debug-ui-container')
+
+            const id = getUIid()
+
+            let label = document.createElement('label')
+            label.innerText = `${labelText} `
+            label.htmlFor = id
+
+            let input = document.createElement('input')
+            input.type = 'file'
+            input.accept = accept
+            input.id = id
+
+            input.onclick = () => {
+                input.value = ""
+            }
+            input.addEventListener('input', async (ev: Event) => {
+                if (input.files !== null) {
+                    onValueChange(input.files)
+                }
+            })
+
+            div.appendChild(label)
+            div.appendChild(input)
+
+            debugUIdiv.appendChild(div)
         }
 
         const addSlider = (
@@ -1152,8 +1160,148 @@ async function main() {
             debugUIdiv.appendChild(div)
         }
 
+        const addColorPicker = (
+            startingValue: color.Color,
+            labelText: string,
+            onValueChange: (input: color.Color) => void,
+        ): ((c: color.Color) => void) => {
+
+            let labelDiv = document.createElement('div')
+            labelDiv.classList.add('debug-ui-container')
+
+            let label = document.createElement('label')
+            label.innerText = ` ${labelText}: #${startingValue.toHexString()}`
+            labelDiv.appendChild(label)
+
+            let inputDiv = document.createElement('div')
+            inputDiv.classList.add('debug-ui-container')
+
+            let colorInput = document.createElement('input')
+            colorInput.type = 'color'
+            colorInput.value = startingValue.toString()
+
+            let alphaInput = document.createElement('input')
+            alphaInput.type = 'range'
+            alphaInput.min = '0'
+            alphaInput.max = '255'
+            alphaInput.step = '1'
+
+            const setToColor = (c: color.Color) => {
+                colorInput.value = '#' + c.toHexString().substring(0, 6)
+                alphaInput.value = c.a.toString()
+            }
+
+            setToColor(startingValue)
+
+            const getInputColor = (): color.Color => {
+                let alpha = parseInt(alphaInput.value)
+                let alphaStr = alpha.toString(16)
+                if (alphaStr.length < 2) {
+                    alphaStr = '0' + alphaStr
+                }
+                return new color.Color().setFromHexString(
+                    colorInput.value.substring(1) + alphaStr
+                )
+            }
+
+            colorInput.addEventListener('input', async (ev: Event) => {
+                const val = getInputColor()
+                label.innerText = ` ${labelText}: #${val.toHexString()}`
+                onValueChange(val)
+            })
+            alphaInput.addEventListener('input', async (ev: Event) => {
+                const val = getInputColor()
+                label.innerText = ` ${labelText}: #${val.toHexString()}`
+                onValueChange(val)
+            })
+
+            inputDiv.appendChild(colorInput)
+            inputDiv.appendChild(alphaInput)
+
+            let debugUIdiv = document.getElementById('debug-ui-div')
+            if (debugUIdiv !== null) {
+                debugUIdiv.appendChild(labelDiv)
+                debugUIdiv.appendChild(inputDiv)
+            }
+
+            onValueChange(startingValue)
+
+            return setToColor
+        }
+
+        addButton(
+            'download graph', async () => {
+                const jsonString = await app.serialize()
+                util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.json')
+            }
+        )
+        addFileUpload(
+            '.json',
+            'upload graph',
+            async (files) => {
+                if (files.length > 0) {
+                    try {
+                        const file = files[0]
+                        const text = await file.text()
+                        app.deserialize(text)
+                    } catch (err) {
+                        console.error(err)
+                    }
+                }
+            }
+        )
+
         addButton(
             'reset', () => { app.reset(true) }
+        )
+
+        const colorTablePickerSetters: Array<{
+            pickerSetter: (c: color.Color) => void
+            tableIndex: keyof ColorTable
+        }> = []
+
+        for (const key in app.colorTable) {
+            const pickerSetter = addColorPicker(
+                app.colorTable[key as keyof ColorTable],
+                key,
+                ((val) => {
+                    app.colorTable[key as keyof ColorTable].setFromColor(val)
+                })
+            )
+
+            colorTablePickerSetters.push({
+                pickerSetter: pickerSetter,
+                tableIndex: key as keyof ColorTable
+            })
+        }
+
+        addButton(
+            'download color table', async () => {
+                const jsonString = serializeColorTable(app.colorTable)
+                util.saveBlob(
+                    new Blob([jsonString], { type: 'application/json' }), 'color-table.json'
+                )
+            }
+        )
+
+        addFileUpload(
+            '.json',
+            'upload color table',
+            async (files) => {
+                if (files.length > 0) {
+                    try {
+                        const file = files[0]
+                        const text = await file.text()
+                        deserializeColorTable(app.colorTable, text)
+
+                        for (const setter of colorTablePickerSetters) {
+                            setter.pickerSetter(app.colorTable[setter.tableIndex])
+                        }
+                    } catch (err) {
+                        console.error(err)
+                    }
+                }
+            }
         )
 
         addSlider(

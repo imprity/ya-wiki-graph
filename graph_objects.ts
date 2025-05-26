@@ -229,34 +229,7 @@ export function isSerializationContainer(obj: any): boolean {
         return false
     }
 
-    function objHasMatchingKeys(obj: any, instance: any): boolean {
-        const keys = Reflect.ownKeys(instance)
-
-        for (const key of keys) {
-            const instanceType = typeof instance[key]
-            const objType = typeof obj[key]
-
-            if (instanceType !== objType) {
-                return false
-            }
-
-            if (instanceType == "object") {
-                if (Array.isArray(instance[key])) {
-                    if (!Array.isArray(obj[key])) {
-                        return false
-                    }
-                } else {
-                    if (!objHasMatchingKeys(instance[key], obj[key])) {
-                        return false
-                    }
-                }
-            }
-        }
-
-        return true
-    }
-
-    if (!objHasMatchingKeys(obj, new SerializationContainer())) {
+    if (!util.objHasMatchingKeys(obj, new SerializationContainer())) {
         return false
     }
 
@@ -264,7 +237,7 @@ export function isSerializationContainer(obj: any): boolean {
         const dummyNode = new DocNodeContainer()
 
         for (const objNode of obj.nodes) {
-            if (!objHasMatchingKeys(objNode, dummyNode)) {
+            if (!util.objHasMatchingKeys(objNode, dummyNode)) {
                 return false
             }
         }
@@ -274,7 +247,7 @@ export function isSerializationContainer(obj: any): boolean {
         const dummyCon = new NodeConnectionContainer()
 
         for (const objCon of obj.connections) {
-            if (!objHasMatchingKeys(objCon, dummyCon)) {
+            if (!util.objHasMatchingKeys(objCon, dummyCon)) {
                 return false
             }
         }

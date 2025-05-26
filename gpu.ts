@@ -2,6 +2,7 @@ import * as math from "./math.js"
 import { NodeManager, DocNode } from "./graph_objects.js"
 import * as assets from "./assets.js"
 import * as color from "./color.js"
+import { ColorTable } from "./color_table.js"
 import { debugPrint } from './debug_print.js'
 
 const glslCommon = `
@@ -658,8 +659,10 @@ export class GpuComputeRenderer {
 
     simParam: SimulationParameter = new SimulationParameter()
 
-    nodeOutlineColor: color.Color = new color.Color()
+    colorTable: ColorTable = new ColorTable()
+
     nodeOutlineWidth: number = 0
+    connectionLineWidth: number = 1
 
     constructor(canvas: HTMLCanvasElement) {
         // =========================
@@ -1141,7 +1144,12 @@ export class GpuComputeRenderer {
 
         // clear background
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null)
-        this.gl.clearColor(1, 1, 1, 1)
+        {
+            const bg = this.colorTable.background.getPreMultiplied().getNormalized()
+            this.gl.clearColor(
+                bg.r, bg.g, bg.b, bg.a
+            )
+        }
         this.gl.clear(this.gl.COLOR_BUFFER_BIT)
 
         // draw connections
@@ -1168,7 +1176,7 @@ export class GpuComputeRenderer {
                 this.drawConUint.locs.uLoc('u_offset'), this.offset.x, this.offset.y)
 
             this.gl.uniform1f(
-                this.drawConUint.locs.uLoc('u_line_thickness'), 1.2)
+                this.drawConUint.locs.uLoc('u_line_thickness'), this.connectionLineWidth)
 
             this.gl.drawArraysInstanced(
                 this.gl.TRIANGLES,
@@ -1210,12 +1218,10 @@ export class GpuComputeRenderer {
             if (drawOutline) {
                 this.gl.uniform1i(
                     this.drawNodeUnit.locs.uLoc('u_draw_outline'), 1)
+                const ns = this.colorTable.nodeStroke.getPreMultiplied().getNormalized()
                 this.gl.uniform4f(
                     this.drawNodeUnit.locs.uLoc('u_outline_color'),
-                    this.nodeOutlineColor.r / 255.0,
-                    this.nodeOutlineColor.g / 255.0,
-                    this.nodeOutlineColor.b / 255.0,
-                    this.nodeOutlineColor.a / 255.0,
+                    ns.r, ns.g, ns.b, ns.a,
                 )
                 this.gl.uniform1f(
                     this.drawNodeUnit.locs.uLoc('u_outline_width'),
@@ -1303,10 +1309,11 @@ export class GpuComputeRenderer {
             let offset = 0
             for (let i = 0; i < this.nodeLength; i++) {
                 const node = manager.nodes[i]
-                data[offset + 0] = node.color.r
-                data[offset + 1] = node.color.g
-                data[offset + 2] = node.color.b
-                data[offset + 3] = node.color.a
+                const c = node.color.getPreMultiplied()
+                data[offset + 0] = c.r
+                data[offset + 1] = c.g
+                data[offset + 2] = c.b
+                data[offset + 3] = c.a
 
                 offset += 4
             }

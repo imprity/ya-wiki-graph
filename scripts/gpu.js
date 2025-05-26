@@ -10,7 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 import * as math from "./math.js";
 import { DocNode } from "./graph_objects.js";
 import * as assets from "./assets.js";
-import * as color from "./color.js";
+import { ColorTable } from "./color_table.js";
 const glslCommon = `
 #ifndef _GLSL_COMMON_HEADER_GUARD_
 #define _GLSL_COMMON_HEADER_GUARD_
@@ -596,8 +596,9 @@ export class GpuComputeRenderer {
         this.mouse = new math.Vector2(0, 0);
         this.globalTick = 0;
         this.simParam = new SimulationParameter();
-        this.nodeOutlineColor = new color.Color();
+        this.colorTable = new ColorTable();
         this.nodeOutlineWidth = 0;
+        this.connectionLineWidth = 1;
         // =========================
         // create opengl context
         // =========================
@@ -945,7 +946,10 @@ export class GpuComputeRenderer {
         this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
         // clear background
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-        this.gl.clearColor(1, 1, 1, 1);
+        {
+            const bg = this.colorTable.background.getPreMultiplied().getNormalized();
+            this.gl.clearColor(bg.r, bg.g, bg.b, bg.a);
+        }
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
         // draw connections
         {
@@ -962,7 +966,7 @@ export class GpuComputeRenderer {
             this.gl.uniform2f(this.drawConUint.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
             this.gl.uniform1f(this.drawConUint.locs.uLoc('u_zoom'), this.zoom);
             this.gl.uniform2f(this.drawConUint.locs.uLoc('u_offset'), this.offset.x, this.offset.y);
-            this.gl.uniform1f(this.drawConUint.locs.uLoc('u_line_thickness'), 1.2);
+            this.gl.uniform1f(this.drawConUint.locs.uLoc('u_line_thickness'), this.connectionLineWidth);
             this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, // offset
             6, // num vertices per instance
             this.connectionLength // num instances
@@ -987,7 +991,8 @@ export class GpuComputeRenderer {
             this.gl.uniform1f(this.drawNodeUnit.locs.uLoc('u_tick'), this.globalTick);
             if (drawOutline) {
                 this.gl.uniform1i(this.drawNodeUnit.locs.uLoc('u_draw_outline'), 1);
-                this.gl.uniform4f(this.drawNodeUnit.locs.uLoc('u_outline_color'), this.nodeOutlineColor.r / 255.0, this.nodeOutlineColor.g / 255.0, this.nodeOutlineColor.b / 255.0, this.nodeOutlineColor.a / 255.0);
+                const ns = this.colorTable.nodeStroke.getPreMultiplied().getNormalized();
+                this.gl.uniform4f(this.drawNodeUnit.locs.uLoc('u_outline_color'), ns.r, ns.g, ns.b, ns.a);
                 this.gl.uniform1f(this.drawNodeUnit.locs.uLoc('u_outline_width'), this.nodeOutlineWidth);
             }
             else {
@@ -1050,10 +1055,11 @@ export class GpuComputeRenderer {
             let offset = 0;
             for (let i = 0; i < this.nodeLength; i++) {
                 const node = manager.nodes[i];
-                data[offset + 0] = node.color.r;
-                data[offset + 1] = node.color.g;
-                data[offset + 2] = node.color.b;
-                data[offset + 3] = node.color.a;
+                const c = node.color.getPreMultiplied();
+                data[offset + 0] = c.r;
+                data[offset + 1] = c.g;
+                data[offset + 2] = c.b;
+                data[offset + 3] = c.a;
                 offset += 4;
             }
             this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeColorsTex.unit);
