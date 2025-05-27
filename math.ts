@@ -104,3 +104,50 @@ export function prettySame(a: number, b: number): boolean {
 export function lerp(a: number, b: number, t: number): number {
     return a + (b - a) * t
 }
+
+export function randomBetween(a: number, b: number): number {
+    return Math.random() * (b - a) + a
+}
+
+// return random int between a and b
+// b is inclusive
+export function randomBetweenInt(a: number, b: number): number {
+    return Math.round(randomBetween(a, b))
+}
+
+// return random odd int between a and b
+// b is inclusive
+// if a and be are same, returns rounded a
+export function randomOddBetween(a: number, b: number): number {
+    if (a === b) {
+        return Math.round(a)
+    }
+
+    let n = randomBetween(a, b)
+    let floor = Math.floor(n)
+    let ceil = Math.ceil(n)
+
+    if (floor % 2 == 0) {
+        return ceil
+    }
+    return floor
+}
+
+// return random even int between a and b
+// b is inclusive
+// if a and be are same, returns rounded a
+export function randomEvenBetween(a: number, b: number): number {
+    if (a === b) {
+        return Math.round(a)
+    }
+
+    let n = randomBetween(a, b)
+    let floor = Math.floor(n)
+    let ceil = Math.ceil(n)
+
+    if (floor % 2 == 0) {
+        return floor
+    }
+    return ceil
+}
+

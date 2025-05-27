@@ -71,3 +71,41 @@ export function prettySame(a, b) {
 export function lerp(a, b, t) {
     return a + (b - a) * t;
 }
+export function randomBetween(a, b) {
+    return Math.random() * (b - a) + a;
+}
+// return random int between a and b
+// b is inclusive
+export function randomBetweenInt(a, b) {
+    return Math.round(randomBetween(a, b));
+}
+// return random odd int between a and b
+// b is inclusive
+// if a and be are same, returns rounded a
+export function randomOddBetween(a, b) {
+    if (a === b) {
+        return Math.round(a);
+    }
+    let n = randomBetween(a, b);
+    let floor = Math.floor(n);
+    let ceil = Math.ceil(n);
+    if (floor % 2 == 0) {
+        return ceil;
+    }
+    return floor;
+}
+// return random even int between a and b
+// b is inclusive
+// if a and be are same, returns rounded a
+export function randomEvenBetween(a, b) {
+    if (a === b) {
+        return Math.round(a);
+    }
+    let n = randomBetween(a, b);
+    let floor = Math.floor(n);
+    let ceil = Math.ceil(n);
+    if (floor % 2 == 0) {
+        return floor;
+    }
+    return ceil;
+}

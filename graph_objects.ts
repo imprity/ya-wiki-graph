@@ -229,7 +229,7 @@ export function isSerializationContainer(obj: any): boolean {
         return false
     }
 
-    if (!util.objHasMatchingKeys(obj, new SerializationContainer())) {
+    if (!util.objHasMatchingKeys(obj, new SerializationContainer(), false)) {
         return false
     }
 
@@ -237,7 +237,7 @@ export function isSerializationContainer(obj: any): boolean {
         const dummyNode = new DocNodeContainer()
 
         for (const objNode of obj.nodes) {
-            if (!util.objHasMatchingKeys(objNode, dummyNode)) {
+            if (!util.objHasMatchingKeys(objNode, dummyNode, false)) {
                 return false
             }
         }
@@ -247,7 +247,7 @@ export function isSerializationContainer(obj: any): boolean {
         const dummyCon = new NodeConnectionContainer()
 
         for (const objCon of obj.connections) {
-            if (!util.objHasMatchingKeys(objCon, dummyCon)) {
+            if (!util.objHasMatchingKeys(objCon, dummyCon, false)) {
                 return false
             }
         }

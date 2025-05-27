@@ -106,7 +106,7 @@ export interface HSV {
     value: number
 }
 
-function colorToHSV(clr: Color): HSV {
+export function colorToHSV(clr: Color): HSV {
     const norm = clr.getNormalized()
 
     const cMax = Math.max(norm.r, norm.g, norm.b)
@@ -155,7 +155,7 @@ function colorToHSV(clr: Color): HSV {
     }
 }
 
-function colorFromHSV(hue: number, saturation: number, value: number): Color {
+export function colorFromHSV(hue: number, saturation: number, value: number): Color {
     while (hue < 0) {
         hue += Math.PI * 2
     }

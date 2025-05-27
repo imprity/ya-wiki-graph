@@ -13,16 +13,32 @@ export function saveBlob(blob: Blob, fileName: string) {
     URL.revokeObjectURL(url)
 }
 
+export async function fetchBlob(url: string): Promise<Blob> {
+    const body = await fetch(url)
+    if (body.status !== 200) {
+        throw new Error(`failed to fetch ${url}: ${body.statusText}`)
+    }
+
+    return await body.blob()
+}
+
 export function calculateSum(a: number, b: number): number {
     return (b - a + 1) * (a + b) / 2
 }
 
-export function objHasMatchingKeys(obj: any, instance: any): boolean {
+export function objHasMatchingKeys(
+    obj: any, instance: any,
+    forgiveMissingProperties: boolean
+): boolean {
     const keys = Reflect.ownKeys(instance)
 
     for (const key of keys) {
         const instanceType = typeof instance[key]
         const objType = typeof obj[key]
+
+        if (forgiveMissingProperties && objType === 'undefined') {
+            continue
+        }
 
         if (instanceType !== objType) {
             return false
@@ -34,7 +50,10 @@ export function objHasMatchingKeys(obj: any, instance: any): boolean {
                     return false
                 }
             } else {
-                if (!objHasMatchingKeys(instance[key], obj[key])) {
+                if (!objHasMatchingKeys(
+                    instance[key], obj[key],
+                    forgiveMissingProperties
+                )) {
                     return false
                 }
             }

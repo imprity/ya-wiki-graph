@@ -77,7 +77,7 @@ export function getRandomColor() {
     c.a = Math.round(Math.random() * 255);
     return c;
 }
-function colorToHSV(clr) {
+export function colorToHSV(clr) {
     const norm = clr.getNormalized();
     const cMax = Math.max(norm.r, norm.g, norm.b);
     const cMin = Math.min(norm.r, norm.g, norm.b);
@@ -117,7 +117,7 @@ function colorToHSV(clr) {
         value: brightness
     };
 }
-function colorFromHSV(hue, saturation, value) {
+export function colorFromHSV(hue, saturation, value) {
     while (hue < 0) {
         hue += Math.PI * 2;
     }

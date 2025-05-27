@@ -376,8 +376,11 @@ void main() {
 
     vec4 node_color = get_node_color(gl_InstanceID);
 
+    // if (u_draw_outline) {
+    //     node_color = u_outline_color;
+    // }
     if (u_draw_outline) {
-        node_color = u_outline_color;
+        node_color.rgb *= 0.8; // TODO: parameterize
     }
 
     x *= node_raidus * 2.0f;

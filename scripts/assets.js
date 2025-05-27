@@ -7,16 +7,13 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+import * as util from "./util.js";
 export let circleImage = null;
 export let loadingCircleImage = null;
 export function loadAssets() {
     return __awaiter(this, void 0, void 0, function* () {
         const loadImage = (url) => __awaiter(this, void 0, void 0, function* () {
-            const body = yield fetch(url);
-            if (body.status !== 200) {
-                throw new Error(`failed to fetch ${url}: ${body.statusText}`);
-            }
-            const blob = yield body.blob();
+            const blob = yield util.fetchBlob(url);
             return yield createImageBitmap(blob);
         });
         circleImage = yield loadImage('assets/circle.png');
