@@ -117,16 +117,6 @@ class App {
                 this.handleEvent(e);
             });
         }
-        // TEST TEST TEST TEST
-        const testNode = new DocNode();
-        testNode.posX = this.width / 2;
-        testNode.posY = this.height / 2;
-        testNode.renderX = this.width / 2;
-        testNode.renderY = this.height / 2;
-        testNode.title = FirstTitle;
-        testNode.color = this.getNewNodeColor();
-        this.nodeManager.pushNode(testNode);
-        // TEST TEST TEST TEST
         this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
     }
     handleEvent(e) {
@@ -606,6 +596,10 @@ class App {
             }
         });
     }
+    setColorTable(table) {
+        this.colorTable = table;
+        this.gpu.colorTable = table;
+    }
     addNodeAnimation(nodeId, anim) {
         if (this._animations.has(nodeId)) {
             const anim = this._animations.get(nodeId);
@@ -640,21 +634,25 @@ class App {
     getConnectedNodeColorGenerator(nodeColor) {
         const nodeColors = tableNodeColors(this.colorTable);
         let closestColorIndex = 0;
-        let minDist = 69420;
-        for (let i = 0; i < nodeColors.length; i++) {
-            let candidate = nodeColors[i];
-            let dist = 0;
-            dist += Math.abs(candidate.r - nodeColor.r);
-            dist += Math.abs(candidate.g - nodeColor.g);
-            dist += Math.abs(candidate.b - nodeColor.b);
-            if (dist < minDist) {
-                minDist = dist;
-                closestColorIndex = i;
+        {
+            let minDist = 69420;
+            let hsv = color.colorToHSV(nodeColor);
+            for (let i = 0; i < nodeColors.length; i++) {
+                let candidate = nodeColors[i];
+                let candidateHSV = color.colorToHSV(candidate);
+                let dist = 0;
+                dist += Math.abs(candidateHSV.hue - hsv.hue);
+                dist += Math.abs(candidateHSV.saturation - hsv.saturation);
+                dist += Math.abs(candidateHSV.value - hsv.value);
+                if (dist < minDist) {
+                    minDist = dist;
+                    closestColorIndex = i;
+                }
             }
         }
-        let other = closestColorIndex + math.randomBetweenInt(1, nodeColors.length - 1);
-        other = other % nodeColors.length;
-        const hsv = color.colorToHSV(nodeColors[other]);
+        let otherIndex = closestColorIndex + math.randomBetweenInt(1, nodeColors.length - 1);
+        otherIndex = otherIndex % nodeColors.length;
+        const hsv = color.colorToHSV(nodeColors[otherIndex]);
         return () => {
             let hue = hsv.hue;
             let saturation = hsv.saturation;
@@ -763,7 +761,7 @@ class App {
                 throw new Error("json object is not a SerializationContainer");
             }
             const container = jsonObj;
-            this.reset(false);
+            this.reset();
             for (const node of container.nodes) {
                 const nodeCopy = new DocNode();
                 nodeCopy.posX = node.posX;
@@ -772,9 +770,7 @@ class App {
                 nodeCopy.renderY = node.posY;
                 nodeCopy.title = node.title;
                 nodeCopy.mass = 1;
-                // TEST TEST TEST TEST TEST
                 nodeCopy.color = this.getNewNodeColor();
-                // TEST TEST TEST TEST TEST
                 this.nodeManager.pushNode(nodeCopy);
             }
             // add mass to node if connected
@@ -800,7 +796,7 @@ class App {
     onNodePositionUpdated(cb) {
         this._onNodePostionsUpdated.push(cb);
     }
-    reset(addStartingNode) {
+    reset() {
         this._onNodePostionsUpdated.length = 0;
         this._expandRequests.length = 0;
         this._animations.clear();
@@ -809,18 +805,19 @@ class App {
         this.zoom = 1;
         this.nodeManager.reset();
         this.focusedNode = null;
-        if (addStartingNode) {
-            // TEST TEST TEST TEST
-            const testNode = new DocNode();
-            testNode.posX = this.width / 2;
-            testNode.posY = this.height / 2;
-            testNode.renderX = this.width / 2;
-            testNode.renderY = this.height / 2;
-            testNode.title = FirstTitle;
-            testNode.color = this.getNewNodeColor();
-            this.nodeManager.pushNode(testNode);
-            // TEST TEST TEST TEST
-        }
+        this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
+    }
+    resetAndAddFirstNode(title) {
+        this.reset();
+        this.updateWidthAndHeight();
+        const node = new DocNode();
+        node.posX = this.width * 0.5;
+        node.posY = this.height * 0.5;
+        node.renderX = this.width * 0.5;
+        node.renderY = this.height * 0.5;
+        node.title = title;
+        node.color = this.getNewNodeColor();
+        this.nodeManager.pushNode(node);
         this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
     }
 }
@@ -843,8 +840,7 @@ function main() {
         const app = new App(mainCanvas, overlayCanvas);
         try {
             const table = yield loadColorTable('assets/color-table.table');
-            app.colorTable = table;
-            app.gpu.colorTable = table;
+            app.setColorTable(table);
         }
         catch (err) {
             console.error(`failed to load color table: ${err}`);
@@ -1000,7 +996,7 @@ function main() {
                 const jsonString = yield app.serialize();
                 util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.graph');
             }));
-            addFileUpload('.json', 'upload graph', (files) => __awaiter(this, void 0, void 0, function* () {
+            addFileUpload('.graph', 'upload graph', (files) => __awaiter(this, void 0, void 0, function* () {
                 if (files.length > 0) {
                     try {
                         const file = files[0];
@@ -1012,7 +1008,9 @@ function main() {
                     }
                 }
             }));
-            addButton('reset', () => { app.reset(true); });
+            addButton('reset', () => {
+                app.resetAndAddFirstNode(FirstTitle);
+            });
             const colorTablePickerSetters = [];
             for (const key in app.colorTable) {
                 const pickerSetter = addColorPicker(app.colorTable[key], key, ((val) => {
@@ -1027,7 +1025,7 @@ function main() {
                 const jsonString = serializeColorTable(app.colorTable);
                 util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'color-table.table');
             }));
-            addFileUpload('.json', 'upload color table', (files) => __awaiter(this, void 0, void 0, function* () {
+            addFileUpload('.table', 'upload color table', (files) => __awaiter(this, void 0, void 0, function* () {
                 if (files.length > 0) {
                     try {
                         const file = files[0];
@@ -1050,6 +1048,7 @@ function main() {
             addSlider(100, 1, 1000, 1, "forceCap", (value) => { app.simParam.forceCap = value; });
             addButton('recolor graph', () => { app.recolorWholeGraph(); });
         }
+        app.resetAndAddFirstNode(FirstTitle);
         let prevTime;
         const onFrame = (timestamp) => {
             //clearDebugPrint()

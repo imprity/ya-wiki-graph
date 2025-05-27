@@ -7,6 +7,7 @@ export class ColorTable {
     titleTextStroke: color.Color = new color.Color(255, 255, 255, 255)
     titleTextFill: color.Color = new color.Color(0, 0, 0, 255)
 
+    // TODO: remove this if not necessary
     nodeStroke: color.Color = new color.Color(255, 255, 255, 255)
 
     timerStroke: color.Color = new color.Color(0, 0, 0, 255)

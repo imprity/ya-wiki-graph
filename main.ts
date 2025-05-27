@@ -150,17 +150,6 @@ class App {
             })
         }
 
-        // TEST TEST TEST TEST
-        const testNode = new DocNode()
-        testNode.posX = this.width / 2
-        testNode.posY = this.height / 2
-        testNode.renderX = this.width / 2
-        testNode.renderY = this.height / 2
-        testNode.title = FirstTitle
-        testNode.color = this.getNewNodeColor()
-        this.nodeManager.pushNode(testNode)
-        // TEST TEST TEST TEST
-
         this.gpu.submitNodeManager(
             this.nodeManager,
             DataSyncFlags.Everything
@@ -791,6 +780,11 @@ class App {
         })
     }
 
+    setColorTable(table: ColorTable) {
+        this.colorTable = table
+        this.gpu.colorTable = table
+    }
+
     addNodeAnimation(nodeId: number, anim: Animation) {
         if (this._animations.has(nodeId)) {
             const anim = this._animations.get(nodeId) as Animation
@@ -839,25 +833,32 @@ class App {
         const nodeColors = tableNodeColors(this.colorTable)
 
         let closestColorIndex = 0
-        let minDist = 69420
 
-        for (let i = 0; i < nodeColors.length; i++) {
-            let candidate = nodeColors[i]
-            let dist = 0
-            dist += Math.abs(candidate.r - nodeColor.r)
-            dist += Math.abs(candidate.g - nodeColor.g)
-            dist += Math.abs(candidate.b - nodeColor.b)
+        {
+            let minDist = 69420
+            let hsv = color.colorToHSV(nodeColor)
 
-            if (dist < minDist) {
-                minDist = dist
-                closestColorIndex = i
+            for (let i = 0; i < nodeColors.length; i++) {
+                let candidate = nodeColors[i]
+                let candidateHSV = color.colorToHSV(candidate)
+
+                let dist = 0
+
+                dist += Math.abs(candidateHSV.hue - hsv.hue)
+                dist += Math.abs(candidateHSV.saturation - hsv.saturation)
+                dist += Math.abs(candidateHSV.value - hsv.value)
+
+                if (dist < minDist) {
+                    minDist = dist
+                    closestColorIndex = i
+                }
             }
         }
 
-        let other = closestColorIndex + math.randomBetweenInt(1, nodeColors.length - 1)
-        other = other % nodeColors.length
+        let otherIndex = closestColorIndex + math.randomBetweenInt(1, nodeColors.length - 1)
+        otherIndex = otherIndex % nodeColors.length
 
-        const hsv = color.colorToHSV(nodeColors[other])
+        const hsv = color.colorToHSV(nodeColors[otherIndex])
 
         return (): color.Color => {
             let hue = hsv.hue
@@ -1037,7 +1038,7 @@ class App {
             }
             const container = jsonObj as SerializationContainer
 
-            this.reset(false)
+            this.reset()
 
             for (const node of container.nodes) {
                 const nodeCopy = new DocNode()
@@ -1051,9 +1052,7 @@ class App {
 
                 nodeCopy.mass = 1
 
-                // TEST TEST TEST TEST TEST
                 nodeCopy.color = this.getNewNodeColor()
-                // TEST TEST TEST TEST TEST
 
                 this.nodeManager.pushNode(nodeCopy)
             }
@@ -1093,7 +1092,7 @@ class App {
         this._onNodePostionsUpdated.push(cb)
     }
 
-    reset(addStartingNode: boolean) {
+    reset() {
         this._onNodePostionsUpdated.length = 0
         this._expandRequests.length = 0
         this._animations.clear()
@@ -1107,18 +1106,24 @@ class App {
 
         this.focusedNode = null
 
-        if (addStartingNode) {
-            // TEST TEST TEST TEST
-            const testNode = new DocNode()
-            testNode.posX = this.width / 2
-            testNode.posY = this.height / 2
-            testNode.renderX = this.width / 2
-            testNode.renderY = this.height / 2
-            testNode.title = FirstTitle
-            testNode.color = this.getNewNodeColor()
-            this.nodeManager.pushNode(testNode)
-            // TEST TEST TEST TEST
-        }
+        this.gpu.submitNodeManager(
+            this.nodeManager,
+            DataSyncFlags.Everything
+        )
+    }
+
+    resetAndAddFirstNode(title: string) {
+        this.reset()
+        this.updateWidthAndHeight()
+
+        const node = new DocNode()
+        node.posX = this.width * 0.5
+        node.posY = this.height * 0.5
+        node.renderX = this.width * 0.5
+        node.renderY = this.height * 0.5
+        node.title = title
+        node.color = this.getNewNodeColor()
+        this.nodeManager.pushNode(node)
 
         this.gpu.submitNodeManager(
             this.nodeManager,
@@ -1146,8 +1151,7 @@ async function main() {
     const app = new App(mainCanvas, overlayCanvas)
     try {
         const table = await loadColorTable('assets/color-table.table')
-        app.colorTable = table
-        app.gpu.colorTable = table
+        app.setColorTable(table)
     } catch (err) {
         console.error(`failed to load color table: ${err}`)
     }
@@ -1372,7 +1376,7 @@ async function main() {
             }
         )
         addFileUpload(
-            '.json',
+            '.graph',
             'upload graph',
             async (files) => {
                 if (files.length > 0) {
@@ -1388,7 +1392,9 @@ async function main() {
         )
 
         addButton(
-            'reset', () => { app.reset(true) }
+            'reset', () => {
+                app.resetAndAddFirstNode(FirstTitle)
+            }
         )
 
         const colorTablePickerSetters: Array<{
@@ -1421,7 +1427,7 @@ async function main() {
         )
 
         addFileUpload(
-            '.json',
+            '.table',
             'upload color table',
             async (files) => {
                 if (files.length > 0) {
@@ -1485,6 +1491,8 @@ async function main() {
             () => { app.recolorWholeGraph() }
         )
     }
+
+    app.resetAndAddFirstNode(FirstTitle)
 
     let prevTime: DOMHighResTimeStamp | undefined
 
