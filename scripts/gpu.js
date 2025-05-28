@@ -168,8 +168,8 @@ vec2 calculate_repulsion(
     vec2 pos_a, float mass_a,
     vec2 pos_b, float mass_b
 ) {
-    float raidus_a = node_mass_to_radius(mass_a);
-    float raidus_b = node_mass_to_radius(mass_b);
+    float radius_a = node_mass_to_radius(mass_a);
+    float radius_b = node_mass_to_radius(mass_b);
 
     vec2 atob = pos_b - pos_a;
 
@@ -179,8 +179,8 @@ vec2 calculate_repulsion(
         return vec2(0.0f, 0.0f);
     }
 
-    dist -= raidus_a;
-    dist -= raidus_b;
+    dist -= radius_a;
+    dist -= radius_b;
 
     dist = max(dist, u_node_min_dist);
 
@@ -196,8 +196,8 @@ vec2 calculate_spring(
     vec2 pos_a, float mass_a,
     vec2 pos_b, float mass_b
 ) {
-    float raidus_a = node_mass_to_radius(mass_a);
-    float raidus_b = node_mass_to_radius(mass_b);
+    float radius_a = node_mass_to_radius(mass_a);
+    float radius_b = node_mass_to_radius(mass_b);
 
     vec2 atob = pos_b - pos_a;
 
@@ -207,8 +207,8 @@ vec2 calculate_spring(
         return vec2(0.0f, 0.0f);
     }
 
-    dist -= raidus_a;
-    dist -= raidus_b;
+    dist -= radius_a;
+    dist -= radius_b;
 
     dist = max(dist, u_node_min_dist);
 
@@ -369,11 +369,11 @@ void main() {
 
     vec2 node_pos = get_node_render_pos(node_render);
 
-    float node_raidus = get_node_render_radius(node_physics, node_render);
-    float node_raidus_with_outline = node_raidus + u_outline_width;
+    float node_radius = get_node_render_radius(node_physics, node_render);
+    float node_radius_with_outline = node_radius + u_outline_width;
 
     if (u_draw_outline) {
-        node_raidus = node_raidus_with_outline;
+        node_radius = node_radius_with_outline;
     }
 
     vec4 node_color = get_node_color(gl_InstanceID);
@@ -385,8 +385,8 @@ void main() {
         node_color.rgb *= 0.8; // TODO: parameterize
     }
 
-    x *= node_raidus * 2.0f;
-    y *= node_raidus * 2.0f;
+    x *= node_radius * 2.0f;
+    y *= node_radius * 2.0f;
 
     x += node_pos.x;
     y += node_pos.y;
@@ -404,7 +404,7 @@ void main() {
     // if mouse is being hovered, change to different color
     vec2 mouse = viewport_to_world(u_mouse);
 
-    if (u_do_hover && distance(node_pos, mouse) < node_raidus_with_outline) {
+    if (u_do_hover && distance(node_pos, mouse) < node_radius_with_outline) {
         //v_color = vec4(0, 0, 0, 1);
         node_color.rgb *= 0.3; // TODO: parameterize
         v_color = node_color;
