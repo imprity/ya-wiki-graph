@@ -221,8 +221,8 @@ class App {
 
                 // add node animation
                 const update = (deltaTime: number) => {
-                    const clickMinRadius = 50
-                    const expandMinRadius = 70
+                    const clickMinRadius = 90
+                    const expandMinRadius = 120
 
                     let isFocused = true
                     if (this.focusedNode === null) {
@@ -459,6 +459,22 @@ class App {
                 }
             } break
         }
+
+        switch (e.type) {
+            case "wheel":
+            case "mousemove":
+            case "mousedown":
+            case "mouseup":
+            case "mouseleave":
+                this.gpu.doHover = true
+                break
+            case "touchstart":
+            case "touchmove":
+            case "touchcancel":
+            case "touchend":
+                this.gpu.doHover = false
+                break
+        }
     }
 
     update(deltaTime: DOMHighResTimeStamp) {
@@ -474,6 +490,7 @@ class App {
         debugPrint('connection count', this.nodeManager.connections.length.toString())
         debugPrint('zoom', this.zoom.toFixed(2))
         debugPrint('animation count', this._animations.size.toString())
+        debugPrint('do hover', this.gpu.doHover.toString())
 
         // ================================
         // handle expand requests
@@ -1159,8 +1176,13 @@ async function main() {
     // load color table
 
     // set up debug UI elements
-    {
+    const setupDebugUI = () => {
         let debugUICounter = 0
+
+        let debugUIdiv = document.getElementById('debug-ui-div')
+        if (debugUIdiv === null) {
+            return
+        }
 
         const getUIid = (): string => {
             debugUICounter++;
@@ -1172,10 +1194,6 @@ async function main() {
             labelText: string,
             onValueChange: (input: FileList) => void
         ) => {
-            let debugUIdiv = document.getElementById('debug-ui-div')
-            if (debugUIdiv === null) {
-                return
-            }
 
             let div = document.createElement('div')
             div.classList.add('debug-ui-container')
@@ -1213,11 +1231,6 @@ async function main() {
             labelText: string,
             onValueChange: (input: number) => void
         ) => {
-            let debugUIdiv = document.getElementById('debug-ui-div')
-            if (debugUIdiv === null) {
-                return
-            }
-
             let div = document.createElement('div')
             div.classList.add('debug-ui-container')
 
@@ -1251,11 +1264,6 @@ async function main() {
             labelText: string,
             onValueChange: (input: boolean) => void
         ) => {
-            let debugUIdiv = document.getElementById('debug-ui-div')
-            if (debugUIdiv === null) {
-                return
-            }
-
             let div = document.createElement('div')
             div.classList.add('debug-ui-container')
 
@@ -1283,11 +1291,6 @@ async function main() {
             text: string,
             onclick: () => void
         ) => {
-            let debugUIdiv = document.getElementById('debug-ui-div')
-            if (debugUIdiv === null) {
-                return
-            }
-
             let div = document.createElement('div')
             div.classList.add('debug-ui-container')
 
@@ -1358,11 +1361,8 @@ async function main() {
             inputDiv.appendChild(colorInput)
             inputDiv.appendChild(alphaInput)
 
-            let debugUIdiv = document.getElementById('debug-ui-div')
-            if (debugUIdiv !== null) {
-                debugUIdiv.appendChild(labelDiv)
-                debugUIdiv.appendChild(inputDiv)
-            }
+            debugUIdiv.appendChild(labelDiv)
+            debugUIdiv.appendChild(inputDiv)
 
             onValueChange(startingValue)
 
@@ -1490,7 +1490,25 @@ async function main() {
             'recolor graph',
             () => { app.recolorWholeGraph() }
         )
+
+        let isShowing = true
+        const debugUIHideShowButton = document.getElementById('debug-ui-hide-show-button')
+        if (debugUIHideShowButton === null) {
+            return
+        }
+        debugUIHideShowButton.innerText = 'hide'
+        debugUIHideShowButton.onclick = () => {
+            if (isShowing) {
+                debugUIdiv.style.display = 'none'
+                debugUIHideShowButton.innerText = 'show'
+            } else {
+                debugUIdiv.style.display = 'block'
+                debugUIHideShowButton.innerText = 'hide'
+            }
+            isShowing = !isShowing
+        }
     }
+    setupDebugUI()
 
     app.resetAndAddFirstNode(FirstTitle)
 

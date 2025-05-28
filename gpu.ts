@@ -352,6 +352,7 @@ uniform vec2 u_mouse;
 uniform bool u_draw_outline;
 uniform vec4 u_outline_color;
 uniform float u_outline_width;
+uniform bool u_do_hover;
 
 out vec4 v_color;
 out vec2 v_uv;
@@ -369,9 +370,10 @@ void main() {
     vec2 node_pos = get_node_render_pos(node_render);
 
     float node_raidus = get_node_render_radius(node_physics, node_render);
+    float node_raidus_with_outline = node_raidus + u_outline_width;
 
     if (u_draw_outline) {
-        node_raidus += u_outline_width;
+        node_raidus = node_raidus_with_outline;
     }
 
     vec4 node_color = get_node_color(gl_InstanceID);
@@ -402,8 +404,10 @@ void main() {
     // if mouse is being hovered, change to different color
     vec2 mouse = viewport_to_world(u_mouse);
 
-    if (!u_draw_outline && distance(node_pos, mouse) < node_raidus) {
-        v_color = vec4(0, 0, 0, 1);
+    if (u_do_hover && distance(node_pos, mouse) < node_raidus_with_outline) {
+        //v_color = vec4(0, 0, 0, 1);
+        node_color.rgb *= 0.3; // TODO: parameterize
+        v_color = node_color;
     }
 }
 `
@@ -659,6 +663,8 @@ export class GpuComputeRenderer {
     mouse: math.Vector2 = new math.Vector2(0, 0)
 
     globalTick: number = 0
+
+    doHover: boolean = false
 
     simParam: SimulationParameter = new SimulationParameter()
 
@@ -1217,6 +1223,9 @@ export class GpuComputeRenderer {
 
             this.gl.uniform1f(
                 this.drawNodeUnit.locs.uLoc('u_tick'), this.globalTick)
+
+            this.gl.uniform1i(
+                this.drawNodeUnit.locs.uLoc('u_do_hover'), this.doHover ? 1 : 0)
 
             if (drawOutline) {
                 this.gl.uniform1i(

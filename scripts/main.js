@@ -166,8 +166,8 @@ class App {
                 let radius = node.getRadius();
                 // add node animation
                 const update = (deltaTime) => {
-                    const clickMinRadius = 50;
-                    const expandMinRadius = 70;
+                    const clickMinRadius = 90;
+                    const expandMinRadius = 120;
                     let isFocused = true;
                     if (this.focusedNode === null) {
                         isFocused = false;
@@ -357,6 +357,21 @@ class App {
                 }
                 break;
         }
+        switch (e.type) {
+            case "wheel":
+            case "mousemove":
+            case "mousedown":
+            case "mouseup":
+            case "mouseleave":
+                this.gpu.doHover = true;
+                break;
+            case "touchstart":
+            case "touchmove":
+            case "touchcancel":
+            case "touchend":
+                this.gpu.doHover = false;
+                break;
+        }
     }
     update(deltaTime) {
         this.updateWidthAndHeight();
@@ -370,6 +385,7 @@ class App {
         debugPrint('connection count', this.nodeManager.connections.length.toString());
         debugPrint('zoom', this.zoom.toFixed(2));
         debugPrint('animation count', this._animations.size.toString());
+        debugPrint('do hover', this.gpu.doHover.toString());
         // ================================
         // handle expand requests
         // ================================
@@ -847,17 +863,17 @@ function main() {
         }
         // load color table
         // set up debug UI elements
-        {
+        const setupDebugUI = () => {
             let debugUICounter = 0;
+            let debugUIdiv = document.getElementById('debug-ui-div');
+            if (debugUIdiv === null) {
+                return;
+            }
             const getUIid = () => {
                 debugUICounter++;
                 return `debug-ui-id-${debugUICounter}`;
             };
             const addFileUpload = (accept, labelText, onValueChange) => {
-                let debugUIdiv = document.getElementById('debug-ui-div');
-                if (debugUIdiv === null) {
-                    return;
-                }
                 let div = document.createElement('div');
                 div.classList.add('debug-ui-container');
                 const id = getUIid();
@@ -881,10 +897,6 @@ function main() {
                 debugUIdiv.appendChild(div);
             };
             const addSlider = (startingValue, min, max, step, labelText, onValueChange) => {
-                let debugUIdiv = document.getElementById('debug-ui-div');
-                if (debugUIdiv === null) {
-                    return;
-                }
                 let div = document.createElement('div');
                 div.classList.add('debug-ui-container');
                 const id = getUIid();
@@ -908,10 +920,6 @@ function main() {
                 onValueChange(startingValue);
             };
             const addCheckBox = (startingValue, labelText, onValueChange) => {
-                let debugUIdiv = document.getElementById('debug-ui-div');
-                if (debugUIdiv === null) {
-                    return;
-                }
                 let div = document.createElement('div');
                 div.classList.add('debug-ui-container');
                 const id = getUIid();
@@ -931,10 +939,6 @@ function main() {
                 debugUIdiv.appendChild(div);
             };
             const addButton = (text, onclick) => {
-                let debugUIdiv = document.getElementById('debug-ui-div');
-                if (debugUIdiv === null) {
-                    return;
-                }
                 let div = document.createElement('div');
                 div.classList.add('debug-ui-container');
                 let button = document.createElement('button');
@@ -984,11 +988,8 @@ function main() {
                 }));
                 inputDiv.appendChild(colorInput);
                 inputDiv.appendChild(alphaInput);
-                let debugUIdiv = document.getElementById('debug-ui-div');
-                if (debugUIdiv !== null) {
-                    debugUIdiv.appendChild(labelDiv);
-                    debugUIdiv.appendChild(inputDiv);
-                }
+                debugUIdiv.appendChild(labelDiv);
+                debugUIdiv.appendChild(inputDiv);
                 onValueChange(startingValue);
                 return setToColor;
             };
@@ -1047,7 +1048,25 @@ function main() {
             addSlider(600, 1, 1000, 1, "springDist", (value) => { app.simParam.springDist = value; });
             addSlider(100, 1, 1000, 1, "forceCap", (value) => { app.simParam.forceCap = value; });
             addButton('recolor graph', () => { app.recolorWholeGraph(); });
-        }
+            let isShowing = true;
+            const debugUIHideShowButton = document.getElementById('debug-ui-hide-show-button');
+            if (debugUIHideShowButton === null) {
+                return;
+            }
+            debugUIHideShowButton.innerText = 'hide';
+            debugUIHideShowButton.onclick = () => {
+                if (isShowing) {
+                    debugUIdiv.style.display = 'none';
+                    debugUIHideShowButton.innerText = 'show';
+                }
+                else {
+                    debugUIdiv.style.display = 'block';
+                    debugUIHideShowButton.innerText = 'hide';
+                }
+                isShowing = !isShowing;
+            };
+        };
+        setupDebugUI();
         app.resetAndAddFirstNode(FirstTitle);
         let prevTime;
         const onFrame = (timestamp) => {

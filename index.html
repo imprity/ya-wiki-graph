@@ -49,13 +49,19 @@
 
 <body class="mbp-zero" style="width:100dvw; height:100dvh;">
     <div class="mbp-zero parent-div">
-        <div style="border:solid; flex-grow:1; position:relative; min-width:50%; min-height:50%; margin:3px;">
+        <div class="mbp-zero" style="flex-grow:1; position:relative; min-width:50%; min-height:50%;">
             <canvas style="position:absolute; width:100%; height:100%" id="main-canvas"></canvas>
-            <canvas style="position:absolute; width:100%; height:100%; pointer-events: none;" id='overlay-canvas'></canvas>
+            <canvas style="position:absolute; width:100%; height:100%; pointer-events: none;"
+                id='overlay-canvas'></canvas>
             <div class="debug-print-box" id="debug-print-box">
             </div>
         </div>
-        <div style="margin:3px; overflow:auto" id="debug-ui-div">
+        <div style="margin:3px; overflow:auto;">
+            <div class="debug-ui-container">
+                <button id="debug-ui-hide-show-button">hide</button>
+            </div>
+            <div id="debug-ui-div">
+            </div>
         </div>
     </div>
     <script src="scripts/main.js" type="module"></script>
