@@ -160,6 +160,7 @@ uniform float u_force_cap;
 ${glslCommon}
 ${glslNodeUtils}
 ${glslConUtils}
+uniform highp isampler2D u_node_con_infos_start_tex;
 
 out uvec4 out_color;
 
@@ -287,10 +288,41 @@ void main() {
     // =====================
     // calculate springs
     // =====================
-    for (int i=0; i<u_con_count; i++) {
-        ivec2 index_ab = get_connected_nodes(i);
+    // for (int i=0; i<u_con_count; i++) {
+    //     ivec2 index_ab = get_connected_nodes(i);
+    //
+    //     if (index_ab.x == node_index || index_ab.y == node_index) {
+    //         int other_node_index = index_ab.x;
+    //         if (other_node_index == node_index) {
+    //             other_node_index = index_ab.y;
+    //         }
+    //
+    //         uvec4 other_node_physics = get_data_from_tex(u_node_physics_tex, other_node_index);
+    //         uvec4 other_node_render = get_data_from_tex(u_node_render_pos_tex, other_node_index);
+    //
+    //         vec2 other_node_pos = get_node_physics_pos(other_node_physics, other_node_render);
+    //         float other_node_mass = get_node_mass(other_node_physics);
+    //
+    //         force_sum += calculate_spring(
+    //             node_pos, node_mass,
+    //             other_node_pos, other_node_mass
+    //         );
+    //     }
+    // }
 
-        if (index_ab.x == node_index || index_ab.y == node_index) {
+    int pointer = 0;
+    {
+        ivec2 tex_size = textureSize(u_node_con_infos_start_tex, 0);
+        int x = node_index % tex_size.x;
+        int y = node_index / tex_size.x;
+
+        pointer = texelFetch(u_node_con_infos_start_tex, ivec2(x, y), 0).x;
+    }
+    if (pointer >= 0) {
+        while(pointer < u_con_count) {
+            ivec4 con_info = ivec4(get_data_from_tex(u_con_infos_tex, pointer));
+            ivec2 index_ab = con_info.xy;
+
             int other_node_index = index_ab.x;
             if (other_node_index == node_index) {
                 other_node_index = index_ab.y;
@@ -306,6 +338,19 @@ void main() {
                 node_pos, node_mass,
                 other_node_pos, other_node_mass
             );
+
+            int pointer_dist = 0;
+            if (node_index == index_ab.x) {
+                pointer_dist = con_info.z;
+            }else {
+                pointer_dist = con_info.w;
+            }
+
+            if (pointer_dist <= 0) {
+                break;
+            }
+
+            pointer += pointer_dist;
         }
     }
 
@@ -778,57 +823,60 @@ export class GpuComputeRenderer {
                 width: 0, height: 0
             };
         };
-        const setDataTextureSize = (tex, w, h) => {
-            this.gl.activeTexture(this.gl.TEXTURE0 + tex.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, tex.texture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            this.gl.RGBA32UI, // internal format
-            w, h, // width, height
-            0, // border
-            this.gl.RGBA_INTEGER, // format
-            this.gl.UNSIGNED_INT, // type
-            null // data
-            );
-            tex.width = w;
-            tex.height = h;
-        };
-        const texInitSize = 128;
+        // const setDataTextureSize = (
+        //     tex: Texture,
+        //     w: number, h: number
+        // ) => {
+        //     this.gl.activeTexture(this.gl.TEXTURE0 + tex.unit)
+        //     this.gl.bindTexture(this.gl.TEXTURE_2D, tex.texture)
+        //     this.gl.texImage2D(
+        //         this.gl.TEXTURE_2D,
+        //         0, // level
+        //         this.gl.RGBA32UI, // internal format
+        //         w, h, // width, height
+        //         0, // border
+        //         this.gl.RGBA_INTEGER, // format
+        //         this.gl.UNSIGNED_INT, // type
+        //         null // data
+        //     )
+        //
+        //     tex.width = w
+        //     tex.height = h
+        // }
+        // const texInitSize = 128
         // create textures to hold node informations
         this.nodePhysicsTex0 = createDataTexture();
         this.nodePhysicsTex1 = createDataTexture();
-        setDataTextureSize(this.nodePhysicsTex0, texInitSize, texInitSize);
-        setDataTextureSize(this.nodePhysicsTex1, texInitSize, texInitSize);
         // create texture to hold node colors
         {
             const texture = this.gl.createTexture();
             let unit = this.getNewTextureUnitNumber();
-            const w = texInitSize;
-            const h = texInitSize;
             // set up texture parameters
             // set the filtering so we don't need mips
             this.gl.activeTexture(this.gl.TEXTURE0 + unit);
             this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
             disableMips();
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            this.gl.RGBA8, // internal format
-            w, h, // width, height
-            0, // border
-            this.gl.RGBA, // format
-            this.gl.UNSIGNED_BYTE, // type
-            null // data
-            );
+            // this.gl.texImage2D(
+            //     this.gl.TEXTURE_2D,
+            //     0, // level
+            //     this.gl.RGBA8, // internal format
+            //     w, h, // width, height
+            //     0, // border
+            //     this.gl.RGBA, // format
+            //     this.gl.UNSIGNED_BYTE, // type
+            //     null // data
+            // )
             this.nodeColorsTex = {
                 texture: texture,
                 unit: unit,
-                width: w, height: h
+                width: 0, height: 0
             };
         }
         // create texture to hold node render poses
         this.nodeRenderPosTex = createDataTexture();
-        setDataTextureSize(this.nodeRenderPosTex, texInitSize, texInitSize);
         // create textures to hold connection informations
         this.conInfosTex = createDataTexture();
-        setDataTextureSize(this.conInfosTex, texInitSize, texInitSize);
+        this.nodeConInfoStartTex = createDataTexture();
         // create dummy texture
         let dummyTexture;
         {
@@ -942,6 +990,7 @@ export class GpuComputeRenderer {
             }
             supplyNodeInfos(this.forceCalcUnit, physicsTex);
             supplyConInfos(this.forceCalcUnit);
+            useTexture(this.forceCalcUnit, this.nodeConInfoStartTex, 'u_node_con_infos_start_tex');
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_node_min_dist'), this.simParam.nodeMinDist);
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_repulsion'), this.simParam.repulsion);
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring'), this.simParam.spring);
@@ -1111,30 +1160,103 @@ export class GpuComputeRenderer {
         }
         // supply texture with connection infos
         if ((flag & DataSyncFlags.Connections) > 0) {
-            let conDataTexSize = this.capacityToEdge(this.connectionLength);
-            conDataTexSize = Math.max(conDataTexSize, 128); // prevent creating empty texture
-            let data = new Uint32Array(conDataTexSize * conDataTexSize * 4);
-            let offset = 0;
-            for (let i = 0; i < this.connectionLength; i++) {
-                const con = manager.connections[i];
-                data[offset] = con.nodeIndexA;
-                data[offset + 1] = con.nodeIndexB;
-                data[offset + 2] = 0; // reserved
-                data[offset + 3] = 0; // reserved
-                offset += 4;
+            // =======================================
+            // sort connections with it's nodeIndexes
+            // =======================================
+            const conCopy = manager.connections.slice();
+            conCopy.sort((conA, conB) => {
+                if (conA.nodeIndexA !== conB.nodeIndexA) {
+                    return conA.nodeIndexA - conB.nodeIndexA;
+                }
+                return conA.nodeIndexB - conB.nodeIndexB;
+            });
+            // ===================================
+            // collect connections node has
+            // ===================================
+            const nodeIndexToConIndicies = new Array(this.nodeLength);
+            for (let nodeIndex = 0; nodeIndex < this.nodeLength; nodeIndex++) {
+                nodeIndexToConIndicies[nodeIndex] = [];
             }
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            this.gl.RGBA32UI, // internal format
-            conDataTexSize, conDataTexSize, // width, height
-            0, // border
-            this.gl.RGBA_INTEGER, // format
-            this.gl.UNSIGNED_INT, // type
-            data // data
-            );
-            this.conInfosTex.width = conDataTexSize;
-            this.conInfosTex.height = conDataTexSize;
+            for (let i = 0; i < this.connectionLength; i++) {
+                const con = conCopy[i];
+                nodeIndexToConIndicies[con.nodeIndexA].push(i);
+                nodeIndexToConIndicies[con.nodeIndexB].push(i);
+            }
+            // ==========================================
+            // write where connection info will start
+            // for each node at texture
+            // ==========================================
+            {
+                let texSize = this.capacityToEdge(this.nodeLength);
+                texSize = Math.max(texSize, 128); // prevent creating empty texture
+                let data = new Int32Array(texSize * texSize);
+                for (let i = 0; i < this.nodeLength; i++) {
+                    if (nodeIndexToConIndicies[i].length > 0) {
+                        data[i] = nodeIndexToConIndicies[i][0];
+                    }
+                    else {
+                        data[i] = -1;
+                    }
+                }
+                this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeConInfoStartTex.unit);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeConInfoStartTex.texture);
+                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
+                this.gl.R32I, // internal format
+                texSize, texSize, // width, height
+                0, // border
+                this.gl.RED_INTEGER, // format
+                this.gl.INT, // type
+                data // data
+                );
+                this.nodeConInfoStartTex.width = texSize;
+                this.nodeConInfoStartTex.height = texSize;
+            }
+            // ==========================================
+            // write main connection data
+            // ==========================================
+            {
+                let texSize = this.capacityToEdge(this.connectionLength);
+                texSize = Math.max(texSize, 128); // prevent creating empty texture
+                let data = new Uint32Array(texSize * texSize * 4);
+                // write connections
+                let offset = 0;
+                for (let i = 0; i < this.connectionLength; i++) {
+                    const con = conCopy[i];
+                    data[offset + 0] = con.nodeIndexA;
+                    data[offset + 1] = con.nodeIndexB;
+                    offset += 4;
+                }
+                // write relative pointers
+                for (let nodeIndex = 0; nodeIndex < this.nodeLength; nodeIndex++) {
+                    const conIndicies = nodeIndexToConIndicies[nodeIndex];
+                    for (let i = 0; i < conIndicies.length; i++) {
+                        let dataOffset = conIndicies[i] * 4;
+                        let dist = 0;
+                        if (i + 1 < conIndicies.length) {
+                            dist = conIndicies[i + 1] - conIndicies[i];
+                        }
+                        let realCon = conCopy[conIndicies[i]];
+                        if (realCon.nodeIndexA === nodeIndex) {
+                            data[dataOffset + 2] = dist;
+                        }
+                        else {
+                            data[dataOffset + 3] = dist;
+                        }
+                    }
+                }
+                this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture);
+                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
+                this.gl.RGBA32UI, // internal format
+                texSize, texSize, // width, height
+                0, // border
+                this.gl.RGBA_INTEGER, // format
+                this.gl.UNSIGNED_INT, // type
+                new Uint32Array(data.buffer) // data
+                );
+                this.nodeRenderPosTex.width = texSize;
+                this.nodeRenderPosTex.height = texSize;
+            }
         }
     }
     updateNodePhysicsToNodeManager(manager) {

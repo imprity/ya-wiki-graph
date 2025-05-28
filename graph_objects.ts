@@ -57,12 +57,14 @@ export class DocNode {
 }
 
 export class NodeConnection {
-    nodeIndexA: number
-    nodeIndexB: number
+    readonly nodeIndexA: number
+    readonly nodeIndexB: number
 
     constructor(nodeIndexA: number, nodeIndexB: number) {
-        this.nodeIndexA = nodeIndexA
-        this.nodeIndexB = nodeIndexB
+        let min = Math.min(nodeIndexA, nodeIndexB)
+        let max = Math.max(nodeIndexA, nodeIndexB)
+        this.nodeIndexA = min
+        this.nodeIndexB = max
     }
 }
 

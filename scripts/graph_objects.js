@@ -38,8 +38,10 @@ DocNode.nodeMassToRadiusGLSL = 'float node_mass_to_radius(float m) {\n' +
     '}\n';
 export class NodeConnection {
     constructor(nodeIndexA, nodeIndexB) {
-        this.nodeIndexA = nodeIndexA;
-        this.nodeIndexB = nodeIndexB;
+        let min = Math.min(nodeIndexA, nodeIndexB);
+        let max = Math.max(nodeIndexA, nodeIndexB);
+        this.nodeIndexA = min;
+        this.nodeIndexB = max;
     }
 }
 export class NodeManager {
