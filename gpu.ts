@@ -34,6 +34,14 @@ uvec4 get_data_from_tex(highp usampler2D data_tex, int index) {
     return texelFetch(data_tex, ivec2(x, y), 0);
 }
 
+float length_squared(vec2 v) {
+    return dot(v, v);
+}
+
+float distance_squared(vec2 v1, vec2 v2) {
+    return length_squared(v1 - v2);
+}
+
 #endif
 `
 
@@ -178,14 +186,14 @@ vec2 calculate_repulsion(
         return vec2(0.0f, 0.0f);
     }
 
+    vec2 atob_n = atob / dist;
+
     dist -= radius_a;
     dist -= radius_b;
 
     dist = max(dist, u_node_min_dist);
 
     float f = u_repulsion * mass_a * mass_b / (dist * dist);
-
-    vec2 atob_n = normalize(atob);
 
     return -atob_n * f;
 }
@@ -206,14 +214,14 @@ vec2 calculate_spring(
         return vec2(0.0f, 0.0f);
     }
 
+    vec2 atob_n = atob/dist;
+
     dist -= radius_a;
     dist -= radius_b;
 
     dist = max(dist, u_node_min_dist);
 
     float f = log(dist / u_spring_dist) * u_spring;
-
-    vec2 atob_n = normalize(atob);
 
     return atob_n * f;
 }
@@ -356,11 +364,11 @@ void main() {
     // apply force
     // =====================
     {
-        float force_size = length(force_sum);
+        float force_size_squared = length_squared(force_sum);
         float temp_fall_point = 1.0f; // TODO: parameterize
         float temp_change_rate = 0.01f; // TODO: parameterize
 
-        if (force_size < temp_fall_point) {
+        if (force_size_squared < temp_fall_point * temp_fall_point) {
             node_temp -= temp_change_rate;
         }else {
             node_temp += temp_change_rate;
@@ -369,9 +377,9 @@ void main() {
         node_temp = clamp(node_temp, 0.0f, 1.0f);
 
         vec2 fv = force_sum * node_temp / node_mass;
-        float fvl = length(fv);
-        if (fvl > u_force_cap) {
-            fv = normalize(fv) * u_force_cap;
+        float fvl2 = length_squared(fv);
+        if (fvl2 > u_force_cap * u_force_cap) {
+            fv = fv / sqrt(fvl2) * u_force_cap;
         }
         node_pos += fv;
     }
@@ -449,7 +457,7 @@ void main() {
     // if mouse is being hovered, change to different color
     vec2 mouse = viewport_to_world(u_mouse);
 
-    if (u_do_hover && distance(node_pos, mouse) < node_radius_with_outline) {
+    if (u_do_hover && distance_squared(node_pos, mouse) < node_radius_with_outline * node_radius_with_outline) {
         //v_color = vec4(0, 0, 0, 1);
         node_color.rgb *= 0.3; // TODO: parameterize
         v_color = node_color;
@@ -684,7 +692,7 @@ export class GpuComputeRenderer {
 
     nodePhysicsTex0: Texture
     nodePhysicsTex1: Texture
-    useNodePhysicsTex0: boolean = false
+    renderToNodePhysicsTex1: boolean = false
 
     nodeColorsTex: Texture
 
@@ -728,7 +736,6 @@ export class GpuComputeRenderer {
             const gl = this.canvas.getContext('webgl2', {
                 'antialias': true,
                 'premultipliedAlpha': true,
-                'alpha': false,
             })
             if (gl === null) {
                 throw new Error('failed to get webgl2 context')
@@ -932,7 +939,12 @@ export class GpuComputeRenderer {
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         }
 
-        const createDataTexture = (): Texture => {
+        const createDataTexture = (
+            internalformat: GLint,
+            w: number, h: number,
+            format: GLenum,
+            type: GLenum
+        ): Texture => {
             const texture = this.gl.createTexture()
 
             let unit = this.getNewTextureUnitNumber()
@@ -943,79 +955,71 @@ export class GpuComputeRenderer {
             this.gl.bindTexture(this.gl.TEXTURE_2D, texture)
 
             disableMips()
+
+            this.gl.texImage2D(
+                this.gl.TEXTURE_2D,
+                0, // level
+                internalformat,
+                w, h, // width, height
+                0, // border
+                format,
+                type,
+                null // data
+            )
 
             return {
                 texture: texture,
                 unit: unit,
-                width: 0, height: 0
+                width: w, height: h
             }
         }
 
-        // const setDataTextureSize = (
-        //     tex: Texture,
-        //     w: number, h: number
-        // ) => {
-        //     this.gl.activeTexture(this.gl.TEXTURE0 + tex.unit)
-        //     this.gl.bindTexture(this.gl.TEXTURE_2D, tex.texture)
-        //     this.gl.texImage2D(
-        //         this.gl.TEXTURE_2D,
-        //         0, // level
-        //         this.gl.RGBA32UI, // internal format
-        //         w, h, // width, height
-        //         0, // border
-        //         this.gl.RGBA_INTEGER, // format
-        //         this.gl.UNSIGNED_INT, // type
-        //         null // data
-        //     )
-        //
-        //     tex.width = w
-        //     tex.height = h
-        // }
-
-        // const texInitSize = 128
+        const texInitSize = 128
 
         // create textures to hold node informations
 
-        this.nodePhysicsTex0 = createDataTexture()
-        this.nodePhysicsTex1 = createDataTexture()
+        this.nodePhysicsTex0 = createDataTexture(
+            this.gl.RGBA32UI,
+            texInitSize, texInitSize,
+            this.gl.RGBA_INTEGER,
+            this.gl.UNSIGNED_INT,
+        )
+        this.nodePhysicsTex1 = createDataTexture(
+            this.gl.RGBA32UI,
+            texInitSize, texInitSize,
+            this.gl.RGBA_INTEGER,
+            this.gl.UNSIGNED_INT,
+        )
 
         // create texture to hold node colors
-        {
-            const texture = this.gl.createTexture()
-
-            let unit = this.getNewTextureUnitNumber()
-
-            // set up texture parameters
-            // set the filtering so we don't need mips
-            this.gl.activeTexture(this.gl.TEXTURE0 + unit)
-            this.gl.bindTexture(this.gl.TEXTURE_2D, texture)
-
-            disableMips()
-
-            // this.gl.texImage2D(
-            //     this.gl.TEXTURE_2D,
-            //     0, // level
-            //     this.gl.RGBA8, // internal format
-            //     w, h, // width, height
-            //     0, // border
-            //     this.gl.RGBA, // format
-            //     this.gl.UNSIGNED_BYTE, // type
-            //     null // data
-            // )
-
-            this.nodeColorsTex = {
-                texture: texture,
-                unit: unit,
-                width: 0, height: 0
-            }
-        }
+        this.nodeColorsTex = createDataTexture(
+            this.gl.RGBA8, // internal format
+            texInitSize, texInitSize, // width, height
+            this.gl.RGBA, // format
+            this.gl.UNSIGNED_BYTE, // type
+        )
 
         // create texture to hold node render poses
-        this.nodeRenderPosTex = createDataTexture()
+        this.nodeRenderPosTex = createDataTexture(
+            this.gl.RGBA32UI,
+            texInitSize, texInitSize,
+            this.gl.RGBA_INTEGER,
+            this.gl.UNSIGNED_INT,
+        )
 
         // create textures to hold connection informations
-        this.conInfosTex = createDataTexture()
-        this.nodeConInfoStartTex = createDataTexture()
+        this.conInfosTex = createDataTexture(
+            this.gl.RGBA32UI,
+            texInitSize, texInitSize,
+            this.gl.RGBA_INTEGER,
+            this.gl.UNSIGNED_INT,
+        )
+        this.nodeConInfoStartTex = createDataTexture(
+            this.gl.R32I,
+            texInitSize, texInitSize,
+            this.gl.RED_INTEGER,
+            this.gl.INT,
+        )
 
         // create dummy texture
         let dummyTexture: Texture
@@ -1043,10 +1047,7 @@ export class GpuComputeRenderer {
                 ])
             )
             // set the filtering so we don't need mips
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.REPEAT);
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.REPEAT);
+            disableMips()
 
             dummyTexture = {
                 texture: texture,
@@ -1162,7 +1163,7 @@ export class GpuComputeRenderer {
             this.gl.bindVertexArray(this.forceCalcUnit.vao)
 
             let fb = this.nodePhysicsFB1
-            if (!this.useNodePhysicsTex0) {
+            if (!this.renderToNodePhysicsTex1) {
                 fb = this.nodePhysicsFB0
             }
 
@@ -1170,7 +1171,7 @@ export class GpuComputeRenderer {
             this.gl.viewport(0, 0, this.nodePhysicsTex0.width, this.nodePhysicsTex0.height)
 
             let physicsTex = this.nodePhysicsTex0
-            if (!this.useNodePhysicsTex0) {
+            if (!this.renderToNodePhysicsTex1) {
                 physicsTex = this.nodePhysicsTex1
             }
 
@@ -1210,7 +1211,7 @@ export class GpuComputeRenderer {
             this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
 
             let physicsTex = this.nodePhysicsTex1
-            if (!this.useNodePhysicsTex0) {
+            if (!this.renderToNodePhysicsTex1) {
                 physicsTex = this.nodePhysicsTex0
             }
 
@@ -1244,7 +1245,7 @@ export class GpuComputeRenderer {
             this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
 
             let physicsTex = this.nodePhysicsTex1
-            if (!this.useNodePhysicsTex0) {
+            if (!this.renderToNodePhysicsTex1) {
                 physicsTex = this.nodePhysicsTex0
             }
 
@@ -1295,7 +1296,7 @@ export class GpuComputeRenderer {
         drawNodes(true)
         drawNodes(false)
 
-        this.useNodePhysicsTex0 = !this.useNodePhysicsTex0
+        this.renderToNodePhysicsTex1 = !this.renderToNodePhysicsTex1
     }
 
     submitNodeManager(
@@ -1541,14 +1542,22 @@ export class GpuComputeRenderer {
             console.error(`node length is different : ${this.nodeLength}, ${manager.nodes.length}`)
         }
 
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodePhysicsFB1)
+        let fb = this.nodePhysicsFB1
+        let tex = this.nodePhysicsTex1
+
+        // if (this.renderToNodePhysicsTex1) {
+        //     fb = this.nodePhysicsFB0
+        //     tex = this.nodePhysicsTex0
+        // }
+
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, fb)
 
         let nodeInfos: any = new Uint32Array(
-            this.nodePhysicsTex0.width * this.nodePhysicsTex0.height * 4);
+            tex.width * tex.height * 4);
 
         await readPixelsAsync(
             this.gl,
-            0, 0, this.nodePhysicsTex0.width, this.nodePhysicsTex0.height,
+            0, 0, tex.width, tex.height,
             this.gl.RGBA_INTEGER,
             this.gl.UNSIGNED_INT,
             nodeInfos
