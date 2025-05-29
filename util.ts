@@ -63,3 +63,34 @@ export function objHasMatchingKeys(
     return true
 }
 
+export class Stack<T> {
+    buffer: Array<T> = new Array(512)
+    length = 0
+
+    push(thing: T) {
+        if (this.length >= this.buffer.length) {
+            let cap = this.buffer.length
+            while (cap <= this.length) {
+                cap *= 2
+            }
+            this.buffer.length = cap
+        }
+
+        this.buffer[this.length] = thing
+        this.length++
+    }
+
+    pop(): T {
+        const toReturn = this.buffer[this.length - 1]
+        this.length--
+        return toReturn
+    }
+
+    peekAt(at: number): T {
+        return this.buffer[at]
+    }
+
+    clear() {
+        this.length = 0
+    }
+}

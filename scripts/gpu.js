@@ -668,6 +668,7 @@ export class GpuComputeRenderer {
             const gl = this.canvas.getContext('webgl2', {
                 'antialias': true,
                 'premultipliedAlpha': true,
+                'preserveDrawingBuffer': true,
             });
             if (gl === null) {
                 throw new Error('failed to get webgl2 context');
@@ -1039,6 +1040,23 @@ export class GpuComputeRenderer {
         this.connectionLength = manager.connections.length;
         let nodeTexSize = this.capacityToEdge(this.nodeLength);
         nodeTexSize = Math.max(nodeTexSize, 128); // prevent creating empty texture
+        const texImage = (tex, internalformat, width, height, format, type, data) => {
+            this.gl.activeTexture(this.gl.TEXTURE0 + tex.unit);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, tex.texture);
+            if (width === tex.width && height === tex.height) {
+                this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, // level
+                0, 0, width, height, // x, y, width, height
+                format, type, data);
+            }
+            else {
+                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
+                internalformat, width, height, // width, height
+                0, // border
+                format, type, data);
+            }
+            tex.width = Math.max(tex.width, width);
+            tex.height = Math.max(tex.height, height);
+        };
         // supply texture with node physics
         if ((flag & DataSyncFlags.NodePhysics) > 0) {
             let data = new Float32Array(nodeTexSize * nodeTexSize * 4);
@@ -1051,30 +1069,18 @@ export class GpuComputeRenderer {
                 data[offset + 3] = node.temp;
                 offset += 4;
             }
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodePhysicsTex0.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodePhysicsTex0.texture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            this.gl.RGBA32UI, // internal format
+            texImage(this.nodePhysicsTex0, this.gl.RGBA32UI, // internal format
             nodeTexSize, nodeTexSize, // width, height
-            0, // border
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
             new Uint32Array(data.buffer) // data
             );
-            this.nodePhysicsTex0.width = nodeTexSize;
-            this.nodePhysicsTex0.height = nodeTexSize;
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodePhysicsTex1.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodePhysicsTex1.texture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            this.gl.RGBA32UI, // internal format
+            texImage(this.nodePhysicsTex1, this.gl.RGBA32UI, // internal format
             nodeTexSize, nodeTexSize, // width, height
-            0, // border
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
             new Uint32Array(data.buffer) // data
             );
-            this.nodePhysicsTex1.width = nodeTexSize;
-            this.nodePhysicsTex1.height = nodeTexSize;
         }
         // supply texture with node colors
         if ((flag & DataSyncFlags.NodeColors) > 0) {
@@ -1089,18 +1095,12 @@ export class GpuComputeRenderer {
                 data[offset + 3] = c.a;
                 offset += 4;
             }
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeColorsTex.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeColorsTex.texture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            this.gl.RGBA8, // internal format
+            texImage(this.nodeColorsTex, this.gl.RGBA8, // internal format
             nodeTexSize, nodeTexSize, // width, height
-            0, // border
             this.gl.RGBA, // format
             this.gl.UNSIGNED_BYTE, // type
             data // data
             );
-            this.nodeColorsTex.width = nodeTexSize;
-            this.nodeColorsTex.height = nodeTexSize;
         }
         // supply texture with node render positions
         if ((flag & DataSyncFlags.NodeRenderPos) > 0) {
@@ -1114,18 +1114,12 @@ export class GpuComputeRenderer {
                 data[offset + 3] = node.renderRadiusScale;
                 offset += 4;
             }
-            this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeRenderPosTex.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeRenderPosTex.texture);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            this.gl.RGBA32UI, // internal format
+            texImage(this.nodeRenderPosTex, this.gl.RGBA32UI, // internal format
             nodeTexSize, nodeTexSize, // width, height
-            0, // border
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
             new Uint32Array(data.buffer) // data
             );
-            this.nodeRenderPosTex.width = nodeTexSize;
-            this.nodeRenderPosTex.height = nodeTexSize;
         }
         // supply texture with connection infos
         if ((flag & DataSyncFlags.Connections) > 0) {
@@ -1167,18 +1161,12 @@ export class GpuComputeRenderer {
                         data[i] = -1;
                     }
                 }
-                this.gl.activeTexture(this.gl.TEXTURE0 + this.nodeConInfoStartTex.unit);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, this.nodeConInfoStartTex.texture);
-                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-                this.gl.R32I, // internal format
+                texImage(this.nodeConInfoStartTex, this.gl.R32I, // internal format
                 texSize, texSize, // width, height
-                0, // border
                 this.gl.RED_INTEGER, // format
                 this.gl.INT, // type
                 data // data
                 );
-                this.nodeConInfoStartTex.width = texSize;
-                this.nodeConInfoStartTex.height = texSize;
             }
             // ==========================================
             // write main connection data
@@ -1213,18 +1201,12 @@ export class GpuComputeRenderer {
                         }
                     }
                 }
-                this.gl.activeTexture(this.gl.TEXTURE0 + this.conInfosTex.unit);
-                this.gl.bindTexture(this.gl.TEXTURE_2D, this.conInfosTex.texture);
-                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-                this.gl.RGBA32UI, // internal format
+                texImage(this.conInfosTex, this.gl.RGBA32UI, // internal format
                 texSize, texSize, // width, height
-                0, // border
                 this.gl.RGBA_INTEGER, // format
                 this.gl.UNSIGNED_INT, // type
                 new Uint32Array(data.buffer) // data
                 );
-                this.nodeRenderPosTex.width = texSize;
-                this.nodeRenderPosTex.height = texSize;
             }
         }
     }

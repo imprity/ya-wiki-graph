@@ -55,3 +55,31 @@ export function objHasMatchingKeys(obj, instance, forgiveMissingProperties) {
     }
     return true;
 }
+export class Stack {
+    constructor() {
+        this.buffer = new Array(512);
+        this.length = 0;
+    }
+    push(thing) {
+        if (this.length >= this.buffer.length) {
+            let cap = this.buffer.length;
+            while (cap <= this.length) {
+                cap *= 2;
+            }
+            this.buffer.length = cap;
+        }
+        this.buffer[this.length] = thing;
+        this.length++;
+    }
+    pop() {
+        const toReturn = this.buffer[this.length - 1];
+        this.length--;
+        return toReturn;
+    }
+    peekAt(at) {
+        return this.buffer[at];
+    }
+    clear() {
+        this.length = 0;
+    }
+}

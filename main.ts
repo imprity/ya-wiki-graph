@@ -654,7 +654,7 @@ class App {
         this.gpu.globalTick = this.globalTick
     }
 
-    _nodeVisibilityCache: Array<boolean> = []
+    _visibleNodeCache: util.Stack<DocNode> = new util.Stack()
 
     draw(deltaTime: DOMHighResTimeStamp) {
         this.gpu.render()
@@ -663,9 +663,7 @@ class App {
         // cache node visibility
         // =======================
         {
-            while (this._nodeVisibilityCache.length < this.nodeManager.nodes.length) {
-                this._nodeVisibilityCache.push(false)
-            }
+            this._visibleNodeCache.clear()
 
             const viewMin = this.viewportToWorld(0, 0)
             const viewMax = this.viewportToWorld(this.width, this.height)
@@ -693,18 +691,14 @@ class App {
                     minX, minY, maxX, maxY,
                     viewMin.x, viewMin.y, viewMax.x, viewMax.y
                 )) {
-                    this._nodeVisibilityCache[i] = true
-                } else {
-                    this._nodeVisibilityCache[i] = false
+                    this._visibleNodeCache.push(node)
                 }
             }
         }
 
         const forVisibleNodes = (f: (node: DocNode) => void) => {
-            for (let i = 0; i < this.nodeManager.nodes.length; i++) {
-                if (this._nodeVisibilityCache[i]) {
-                    f(this.nodeManager.nodes[i])
-                }
+            for (let i = 0; i < this._visibleNodeCache.length; i++) {
+                f(this._visibleNodeCache.peekAt(i))
             }
         }
 
@@ -773,14 +767,15 @@ class App {
         this.overlayCtx.lineJoin = 'round'
 
         forVisibleNodes((node: DocNode) => {
-            let fontSize = this.zoom * 14
-            this.overlayCtx.lineWidth = this.zoom * 4
-            if (node.mass > 20) {
-                fontSize = 12
-                this.overlayCtx.lineWidth = 4
-            }
-
             if (this.zoom > 0.3 || node.mass > 20) {
+                let fontSize = this.zoom * 14
+
+                this.overlayCtx.lineWidth = this.zoom * 4
+                if (node.mass > 20) {
+                    fontSize = 12
+                    this.overlayCtx.lineWidth = 4
+                }
+
                 this.overlayCtx.font = `bold ${fontSize}px sans-serif`
 
                 const pos = this.worldToViewport(node.renderX, node.renderY)

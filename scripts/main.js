@@ -52,7 +52,7 @@ class App {
         // simulation parameters
         // ========================
         this.simParam = new SimulationParameter();
-        this._nodeVisibilityCache = [];
+        this._visibleNodeCache = new util.Stack();
         this.expandNode = (nodeIndex) => __awaiter(this, void 0, void 0, function* () {
             if (!(0 <= nodeIndex && nodeIndex < this.nodeManager.nodes.length)) {
                 console.error(`node id ${nodeIndex} out of bound`);
@@ -517,9 +517,7 @@ class App {
         // cache node visibility
         // =======================
         {
-            while (this._nodeVisibilityCache.length < this.nodeManager.nodes.length) {
-                this._nodeVisibilityCache.push(false);
-            }
+            this._visibleNodeCache.clear();
             const viewMin = this.viewportToWorld(0, 0);
             const viewMax = this.viewportToWorld(this.width, this.height);
             const vx = viewMax.x - viewMin.x;
@@ -536,18 +534,13 @@ class App {
                 const minY = node.posY - radius;
                 const maxY = node.posY + radius;
                 if (math.boxIntersects(minX, minY, maxX, maxY, viewMin.x, viewMin.y, viewMax.x, viewMax.y)) {
-                    this._nodeVisibilityCache[i] = true;
-                }
-                else {
-                    this._nodeVisibilityCache[i] = false;
+                    this._visibleNodeCache.push(node);
                 }
             }
         }
         const forVisibleNodes = (f) => {
-            for (let i = 0; i < this.nodeManager.nodes.length; i++) {
-                if (this._nodeVisibilityCache[i]) {
-                    f(this.nodeManager.nodes[i]);
-                }
+            for (let i = 0; i < this._visibleNodeCache.length; i++) {
+                f(this._visibleNodeCache.peekAt(i));
             }
         };
         this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
@@ -598,13 +591,13 @@ class App {
         this.overlayCtx.textBaseline = "bottom";
         this.overlayCtx.lineJoin = 'round';
         forVisibleNodes((node) => {
-            let fontSize = this.zoom * 14;
-            this.overlayCtx.lineWidth = this.zoom * 4;
-            if (node.mass > 20) {
-                fontSize = 12;
-                this.overlayCtx.lineWidth = 4;
-            }
             if (this.zoom > 0.3 || node.mass > 20) {
+                let fontSize = this.zoom * 14;
+                this.overlayCtx.lineWidth = this.zoom * 4;
+                if (node.mass > 20) {
+                    fontSize = 12;
+                    this.overlayCtx.lineWidth = 4;
+                }
                 this.overlayCtx.font = `bold ${fontSize}px sans-serif`;
                 const pos = this.worldToViewport(node.renderX, node.renderY);
                 this.overlayCtx.strokeText(node.title, pos.x, pos.y - (node.getRenderRadius() + 5.0) * this.zoom);
