@@ -1054,8 +1054,8 @@ export class GpuComputeRenderer {
                 0, // border
                 format, type, data);
             }
-            tex.width = Math.max(tex.width, width);
-            tex.height = Math.max(tex.height, height);
+            tex.width = width;
+            tex.height = height;
         };
         // supply texture with node physics
         if ((flag & DataSyncFlags.NodePhysics) > 0) {

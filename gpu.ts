@@ -1341,8 +1341,8 @@ export class GpuComputeRenderer {
                     data
                 )
             }
-            tex.width = Math.max(tex.width, width)
-            tex.height = Math.max(tex.height, height)
+            tex.width = width
+            tex.height = height
         }
 
         // supply texture with node physics
