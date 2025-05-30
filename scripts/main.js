@@ -12,7 +12,8 @@ import * as util from "./util.js";
 import * as math from "./math.js";
 import * as assets from "./assets.js";
 import * as color from "./color.js";
-import { GpuComputeRenderer, SimulationParameter, DataSyncFlags } from "./gpu.js";
+import { GpuRenderer, RenderSyncFlags } from "./gpu_render.js";
+import { GpuSimulator, SimulationParameter } from "./gpu_simulate.js";
 import { debugPrint, renderDebugPrint } from './debug_print.js';
 import { ColorTable, serializeColorTable, deserializeColorTable, loadColorTable, tableNodeColors } from "./color_table.js";
 import { NodeManager, DocNode, SerializationContainer, isSerializationContainer, } from "./graph_objects.js";
@@ -90,11 +91,12 @@ class App {
         }
         this.updateWidthAndHeight();
         this.nodeManager = new NodeManager();
-        this.gpu = new GpuComputeRenderer(this.mainCanvas);
-        this.gpu.simParam = this.simParam;
-        this.gpu.colorTable = this.colorTable;
-        this.gpu.nodeOutlineWidth = 3;
-        this.gpu.connectionLineWidth = 1.2;
+        this.gpuRenderer = new GpuRenderer(this.mainCanvas);
+        this.gpuRenderer.colorTable = this.colorTable;
+        this.gpuRenderer.nodeOutlineWidth = 3;
+        this.gpuRenderer.connectionLineWidth = 1.2;
+        this.gpuSimulator = new GpuSimulator();
+        this.gpuSimulator.simParam = this.simParam;
         // NOTE: we have to add it to window because canvas
         // doesn't take keyboard input
         // TODO: put canvas inside a div
@@ -117,7 +119,7 @@ class App {
                 this.handleEvent(e);
             });
         }
-        this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
+        this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
     }
     handleEvent(e) {
         const focusLoseDist = 50;
@@ -126,7 +128,7 @@ class App {
                 return;
             }
             this.focusedNode.syncedToRender = false;
-            this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeRenderPos);
+            this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.NodeRenderPos);
             this.focusedNode = null;
         };
         const startDragging = (x, y) => {
@@ -158,7 +160,7 @@ class App {
             if (this.focusedNode !== null) {
                 this.focusedNode.syncedToRender = true;
                 this.focusedTick = this.globalTick;
-                this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeRenderPos);
+                this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.NodeRenderPos);
                 let quit = false;
                 const node = this.focusedNode;
                 const prevMass = node.mass;
@@ -363,13 +365,13 @@ class App {
             case "mousedown":
             case "mouseup":
             case "mouseleave":
-                this.gpu.doHover = true;
+                this.gpuRenderer.doHover = true;
                 break;
             case "touchstart":
             case "touchmove":
             case "touchcancel":
             case "touchend":
-                this.gpu.doHover = false;
+                this.gpuRenderer.doHover = false;
                 break;
         }
     }
@@ -385,7 +387,7 @@ class App {
         debugPrint('connection count', this.nodeManager.connections.length.toString());
         debugPrint('zoom', this.zoom.toFixed(2));
         debugPrint('animation count', this._animations.size.toString());
-        debugPrint('do hover', this.gpu.doHover.toString());
+        debugPrint('do hover', this.gpuRenderer.doHover.toString());
         // ================================
         // handle expand requests
         // ================================
@@ -442,7 +444,7 @@ class App {
                             otherNode.mass += 1;
                         }
                     }
-                    this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
+                    this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
                 });
             }
             // =====================================================
@@ -458,7 +460,7 @@ class App {
         // ================================
         if (!this._updatingNodePositions) {
             this._updatingNodePositions = true;
-            this.gpu.updateNodePhysicsToNodeManager(this.nodeManager).then(() => {
+            this.gpuSimulator.simulatePhysics(this.nodeManager).then(() => {
                 this._updatingNodePositions = false;
                 for (const cb of this._onNodePostionsUpdated) {
                     cb();
@@ -494,7 +496,7 @@ class App {
         // ================================
         // submit to gpu
         // ================================
-        this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeRenderPos);
+        this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.NodeRenderPos);
         // ======================================
         // open wikipedia article
         // if user held on to node long enough
@@ -504,15 +506,14 @@ class App {
             wiki.openWikipedia(this.focusedNode.title);
             this.focusedNode = null;
         }
-        this.gpu.zoom = this.zoom;
-        this.gpu.offset.x = this.offset.x;
-        this.gpu.offset.y = this.offset.y;
-        this.gpu.mouse.x = this.mouse.x;
-        this.gpu.mouse.y = this.mouse.y;
-        this.gpu.globalTick = this.globalTick;
+        this.gpuRenderer.zoom = this.zoom;
+        this.gpuRenderer.offset.x = this.offset.x;
+        this.gpuRenderer.offset.y = this.offset.y;
+        this.gpuRenderer.mouse.x = this.mouse.x;
+        this.gpuRenderer.mouse.y = this.mouse.y;
     }
     draw(deltaTime) {
-        this.gpu.render();
+        this.gpuRenderer.render();
         // =======================
         // cache node visibility
         // =======================
@@ -607,7 +608,7 @@ class App {
     }
     setColorTable(table) {
         this.colorTable = table;
-        this.gpu.colorTable = table;
+        this.gpuRenderer.colorTable = table;
     }
     addNodeAnimation(nodeId, anim) {
         if (this._animations.has(nodeId)) {
@@ -717,7 +718,7 @@ class App {
                 break;
             }
         }
-        this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.NodeColors);
+        this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.NodeColors);
     }
     resetTransform() {
         this.overlayCtx.resetTransform();
@@ -749,7 +750,7 @@ class App {
     }
     serialize() {
         return __awaiter(this, void 0, void 0, function* () {
-            yield this.gpu.updateNodePhysicsToNodeManager(this.nodeManager);
+            yield this.gpuSimulator.simulatePhysics(this.nodeManager);
             const container = new SerializationContainer();
             for (let i = 0; i < this.nodeManager.nodes.length; i++) {
                 container.nodes.push(this.nodeManager.nodes[i]);
@@ -796,7 +797,7 @@ class App {
             this.offset.y = container.offsetY;
             this.zoom = container.zoom;
             this.recolorWholeGraph();
-            this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
+            this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
         }
         catch (err) {
             console.error(err);
@@ -814,7 +815,7 @@ class App {
         this.zoom = 1;
         this.nodeManager.reset();
         this.focusedNode = null;
-        this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
+        this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
     }
     resetAndAddFirstNode(title) {
         this.reset();
@@ -827,7 +828,7 @@ class App {
         node.title = title;
         node.color = this.getNewNodeColor();
         this.nodeManager.pushNode(node);
-        this.gpu.submitNodeManager(this.nodeManager, DataSyncFlags.Everything);
+        this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
     }
 }
 function main() {
