@@ -497,6 +497,32 @@ class App {
         debugPrint('do hover', this.gpuRenderer.doHover.toString())
 
         // ================================
+        // node position updating
+        // ================================
+        debugPrint('before cb count', this._beforeSimCBs.length.toString())
+
+        if (!this._simulating) {
+            this._doingBeforeSimCBs = true
+            for (const cb of this._beforeSimCBs) {
+                cb()
+            }
+            this._doingBeforeSimCBs = false
+            this._beforeSimCBs.length = 0
+
+            this._simulating = true
+            this.gpuSimulator.simulatePhysics(this.nodeManager).then(() => {
+                this._simulating = false
+
+                this._doingAfterSimCBS = true
+                for (const cb of this._afterSimCBS) {
+                    cb()
+                }
+                this._doingAfterSimCBS = false
+                this._afterSimCBS.length = 0
+            })
+        }
+
+        // ================================
         // handle expand requests
         // ================================
         {
@@ -586,32 +612,6 @@ class App {
             }
 
             this._expandRequests = unfinished
-        }
-
-        // ================================
-        // node position updating
-        // ================================
-        debugPrint('before cb count', this._beforeSimCBs.length.toString())
-
-        if (!this._simulating) {
-            this._doingBeforeSimCBs = true
-            for (const cb of this._beforeSimCBs) {
-                cb()
-            }
-            this._doingBeforeSimCBs = false
-            this._beforeSimCBs.length = 0
-
-            this._simulating = true
-            this.gpuSimulator.simulatePhysics(this.nodeManager).then(() => {
-                this._simulating = false
-
-                this._doingAfterSimCBS = true
-                for (const cb of this._afterSimCBS) {
-                    cb()
-                }
-                this._doingAfterSimCBS = false
-                this._afterSimCBS.length = 0
-            })
         }
 
         // ================================
@@ -1179,8 +1179,6 @@ class App {
 
     reset() {
         this.beforeSimulation(() => {
-            this._afterSimCBS.length = 0
-            this._beforeSimCBs.length = 0
             this._expandRequests.length = 0
             this._animations.clear()
 
