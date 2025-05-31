@@ -354,7 +354,7 @@ export class GpuSimulator {
         // =====================
         // supply node infos
         // =====================
-        let nodeTexSize = gpu.capacityToEdge(this.nodeLength);
+        let nodeTexSize = Math.max(gpu.capacityToEdge(this.nodeLength), 128);
         let data = new Float32Array(nodeTexSize * nodeTexSize * 4);
         let offset = 0;
         for (let i = 0; i < this.nodeLength; i++) {

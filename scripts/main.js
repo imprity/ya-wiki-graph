@@ -27,8 +27,11 @@ class App {
         this.zoom = 1;
         this.offset = new math.Vector2(0, 0);
         this.globalTick = 0;
-        this._updatingNodePositions = false;
-        this._onNodePostionsUpdated = [];
+        this._simulating = false;
+        this._doingBeforeSimCBs = false;
+        this._beforeSimCBs = [];
+        this._doingAfterSimCBS = false;
+        this._afterSimCBS = [];
         this._expandRequests = [];
         this._animations = new Map();
         this.colorTable = new ColorTable();
@@ -44,7 +47,7 @@ class App {
         this.isPinching = false;
         this.pinch = 0;
         this.pinchPos = new math.Vector2(0, 0);
-        this.focusedNode = null;
+        this._focusedNode = null;
         this.focusedTick = 0;
         // how long a user has to hold node
         // before we open the wikipedia link
@@ -124,14 +127,6 @@ class App {
     }
     handleEvent(e) {
         const focusLoseDist = 50;
-        const unfocusNode = () => {
-            if (this.focusedNode === null) {
-                return;
-            }
-            this.focusedNode.syncedToRender = false;
-            this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.NodeRenderPos);
-            this.focusedNode = null;
-        };
         const startDragging = (x, y) => {
             this.draggingCanvas = true;
             this.pDrag.x = x;
@@ -156,14 +151,13 @@ class App {
             startDragging(x, y);
             this.tappedPos.x = x;
             this.tappedPos.y = y;
+            this.unfocusNode();
             // focus on node if we clicked
-            this.focusedNode = this.getNodeUnderCursor(x, y);
-            if (this.focusedNode !== null) {
-                this.focusedNode.syncedToRender = true;
-                this.focusedTick = this.globalTick;
-                this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.NodeRenderPos);
+            const nodeUnderCurosor = this.getNodeUnderCursor(x, y);
+            if (nodeUnderCurosor !== null) {
+                this.focusOnNode(nodeUnderCurosor);
                 let quit = false;
-                const node = this.focusedNode;
+                const node = nodeUnderCurosor;
                 const prevMass = node.mass;
                 let ogRadius = node.getRadius();
                 let radius = node.getRadius();
@@ -171,11 +165,12 @@ class App {
                 const update = (deltaTime) => {
                     const clickMinRadius = 90;
                     const expandMinRadius = 120;
+                    const focusedNode = this.focusedNode();
                     let isFocused = true;
-                    if (this.focusedNode === null) {
+                    if (focusedNode === null) {
                         isFocused = false;
                     }
-                    else if (this.focusedNode.id !== node.id) {
+                    else if (focusedNode.id !== node.id) {
                         isFocused = false;
                     }
                     let isExpanding = node.isExpanding;
@@ -210,7 +205,7 @@ class App {
                     didEnd: didEnd,
                     skip: skip
                 };
-                this.addNodeAnimation(this.focusedNode.id, anim);
+                this.addNodeAnimation(nodeUnderCurosor.id, anim);
             }
         };
         const handlePointerMove = (x, y) => {
@@ -222,16 +217,17 @@ class App {
                 // unpin the node
                 const dist = math.dist(x - this.tappedPos.x, y - this.tappedPos.y);
                 if (dist > focusLoseDist) {
-                    unfocusNode();
+                    this.unfocusNode();
                 }
             }
         };
         const handlePointerUp = () => {
-            if (this.focusedNode !== null) {
+            const focusedNode = this.focusedNode();
+            if (focusedNode !== null) {
                 // expand node
-                const nodeIndex = this.nodeManager.getIndexFromId(this.focusedNode.id);
+                const nodeIndex = this.nodeManager.getIndexFromId(focusedNode.id);
                 this.expandNode(nodeIndex);
-                unfocusNode();
+                this.unfocusNode();
             }
             this.draggingCanvas = false;
         };
@@ -283,7 +279,8 @@ class App {
             case "mouseleave":
                 {
                     endDragging();
-                    unfocusNode();
+                    this.unfocusNode();
+                    console.log('mouse left');
                 }
                 break;
             case "touchstart":
@@ -295,7 +292,7 @@ class App {
                         handlePointerDown(touch.x, touch.y);
                     }
                     else {
-                        unfocusNode();
+                        this.unfocusNode();
                         endDragging();
                     }
                     if (touches.length == 2) {
@@ -320,7 +317,7 @@ class App {
                         handlePointerMove(touch.x, touch.y);
                     }
                     else {
-                        unfocusNode();
+                        this.unfocusNode();
                         endDragging();
                     }
                     if (touches.length === 2) {
@@ -406,49 +403,49 @@ class App {
             // =======================================
             // actually add nodes from links we got
             // =======================================
-            for (const req of finished) {
-                this.onNodePositionUpdated(() => {
-                    if (req.links === null) {
-                        return;
-                    }
-                    const angle = Math.PI * 2 / req.links.length;
-                    // not an accurate mass of node that will expand
-                    // but good enough
-                    const offsetV = { x: 0, y: -(100 + DocNode.nodeMassToRadius(req.node.mass + req.links.length)) };
-                    let index = this.nodeManager.getIndexFromId(req.node.id);
-                    const colorGenerator = this.getConnectedNodeColorGenerator(req.node.color);
-                    for (let i = 0; i < req.links.length; i++) {
-                        const link = req.links[i];
-                        const otherIndex = this.nodeManager.findNodeFromTitle(link);
-                        if (index === otherIndex) {
+            if (finished.length > 0) {
+                this.beforeSimulation(() => {
+                    for (const req of finished) {
+                        if (req.links === null) {
                             continue;
                         }
-                        if (otherIndex < 0) { // we have to make a new node
-                            const newNode = new DocNode();
-                            const newNodeIndex = this.nodeManager.nodes.length;
-                            newNode.title = link;
-                            const v = math.vector2Rotate(offsetV, angle * i);
-                            newNode.posX = req.node.posX + v.x;
-                            newNode.posY = req.node.posY + v.y;
-                            newNode.renderX = newNode.posX;
-                            newNode.renderY = newNode.posY;
-                            this.nodeManager.pushNode(newNode);
-                            this.nodeManager.setConnected(index, newNodeIndex, true);
-                            req.node.mass += 1;
-                            newNode.mass += 1;
-                            newNode.color = colorGenerator();
+                        const angle = Math.PI * 2 / req.links.length;
+                        // not an accurate mass of node that will expand
+                        // but good enough
+                        const offsetV = { x: 0, y: -(100 + DocNode.nodeMassToRadius(req.node.mass + req.links.length)) };
+                        let index = this.nodeManager.getIndexFromId(req.node.id);
+                        const colorGenerator = this.getConnectedNodeColorGenerator(req.node.color);
+                        for (let i = 0; i < req.links.length; i++) {
+                            const link = req.links[i];
+                            const otherIndex = this.nodeManager.findNodeFromTitle(link);
+                            if (index === otherIndex) {
+                                continue;
+                            }
+                            if (otherIndex < 0) { // we have to make a new node
+                                const newNode = new DocNode();
+                                const newNodeIndex = this.nodeManager.nodes.length;
+                                newNode.title = link;
+                                const v = math.vector2Rotate(offsetV, angle * i);
+                                newNode.posX = req.node.posX + v.x;
+                                newNode.posY = req.node.posY + v.y;
+                                newNode.renderX = newNode.posX;
+                                newNode.renderY = newNode.posY;
+                                this.nodeManager.pushNode(newNode);
+                                this.nodeManager.setConnected(index, newNodeIndex, true);
+                                req.node.mass += 1;
+                                newNode.mass += 1;
+                                newNode.color = colorGenerator();
+                            }
+                            else if (!this.nodeManager.isConnected(index, otherIndex)) { // we have to make a new connection
+                                const otherNode = this.nodeManager.nodes[otherIndex];
+                                this.nodeManager.setConnected(index, otherIndex, true);
+                                req.node.mass += 1;
+                                otherNode.mass += 1;
+                            }
                         }
-                        else if (!this.nodeManager.isConnected(index, otherIndex)) { // we have to make a new connection
-                            const otherNode = this.nodeManager.nodes[otherIndex];
-                            this.nodeManager.setConnected(index, otherIndex, true);
-                            req.node.mass += 1;
-                            otherNode.mass += 1;
-                        }
-                    }
-                    this.onNodePositionUpdated(() => {
                         this.gpuSimulator.submitConnections(this.nodeManager);
-                    });
-                    this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
+                        this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
+                    }
                 });
             }
             // =====================================================
@@ -462,14 +459,23 @@ class App {
         // ================================
         // node position updating
         // ================================
-        if (!this._updatingNodePositions) {
-            this._updatingNodePositions = true;
+        debugPrint('before cb count', this._beforeSimCBs.length.toString());
+        if (!this._simulating) {
+            this._doingBeforeSimCBs = true;
+            for (const cb of this._beforeSimCBs) {
+                cb();
+            }
+            this._doingBeforeSimCBs = false;
+            this._beforeSimCBs.length = 0;
+            this._simulating = true;
             this.gpuSimulator.simulatePhysics(this.nodeManager).then(() => {
-                this._updatingNodePositions = false;
-                for (const cb of this._onNodePostionsUpdated) {
+                this._simulating = false;
+                this._doingAfterSimCBS = true;
+                for (const cb of this._afterSimCBS) {
                     cb();
                 }
-                this._onNodePostionsUpdated.length = 0;
+                this._doingAfterSimCBS = false;
+                this._afterSimCBS.length = 0;
             });
         }
         // ================================
@@ -505,10 +511,13 @@ class App {
         // open wikipedia article
         // if user held on to node long enough
         // ======================================
-        if (this.focusedNode !== null &&
-            this.globalTick - this.focusedTick > this.linkOpenDuration) {
-            wiki.openWikipedia(this.focusedNode.title);
-            this.focusedNode = null;
+        {
+            const focusedNode = this.focusedNode();
+            if (focusedNode !== null &&
+                this.globalTick - this.focusedTick > this.linkOpenDuration) {
+                wiki.openWikipedia(focusedNode.title);
+                this.unfocusNode();
+            }
         }
         this.gpuRenderer.zoom = this.zoom;
         this.gpuRenderer.offset.x = this.offset.x;
@@ -573,18 +582,21 @@ class App {
         // =========================
         // draw link open timer
         // =========================
-        if (this.focusedNode !== null) {
-            let tickSinceFocused = this.globalTick - this.focusedTick;
-            if (tickSinceFocused > this.linkOpenDuration * 0.1) {
-                tickSinceFocused -= this.linkOpenDuration * 0.1;
-                this.overlayCtx.beginPath();
-                const pos = this.worldToViewport(this.focusedNode.renderX, this.focusedNode.renderY);
-                let lineWidth = this.focusedNode.getRenderRadius() * 0.4;
-                this.overlayCtx.lineWidth = lineWidth * this.zoom;
-                this.overlayCtx.lineCap = 'round';
-                this.overlayCtx.strokeStyle = this.colorTable.timerStroke.toCssString();
-                this.overlayCtx.arc(pos.x, pos.y, (this.focusedNode.getRenderRadius() + lineWidth * 0.5 + 2) * this.zoom, 0 - Math.PI * 0.5, (tickSinceFocused / (this.linkOpenDuration * 0.9)) * Math.PI * 2 - Math.PI * 0.5);
-                this.overlayCtx.stroke();
+        {
+            const focusedNode = this.focusedNode();
+            if (focusedNode !== null) {
+                let tickSinceFocused = this.globalTick - this.focusedTick;
+                if (tickSinceFocused > this.linkOpenDuration * 0.1) {
+                    tickSinceFocused -= this.linkOpenDuration * 0.1;
+                    this.overlayCtx.beginPath();
+                    const pos = this.worldToViewport(focusedNode.renderX, focusedNode.renderY);
+                    let lineWidth = focusedNode.getRenderRadius() * 0.4;
+                    this.overlayCtx.lineWidth = lineWidth * this.zoom;
+                    this.overlayCtx.lineCap = 'round';
+                    this.overlayCtx.strokeStyle = this.colorTable.timerStroke.toCssString();
+                    this.overlayCtx.arc(pos.x, pos.y, (focusedNode.getRenderRadius() + lineWidth * 0.5 + 2) * this.zoom, 0 - Math.PI * 0.5, (tickSinceFocused / (this.linkOpenDuration * 0.9)) * Math.PI * 2 - Math.PI * 0.5);
+                    this.overlayCtx.stroke();
+                }
             }
         }
         // =========================
@@ -769,73 +781,111 @@ class App {
         });
     }
     deserialize(jsonString) {
-        try {
-            const jsonObj = JSON.parse(jsonString);
-            if (!isSerializationContainer(jsonObj)) {
-                throw new Error("json object is not a SerializationContainer");
-            }
-            const container = jsonObj;
-            this.reset();
-            for (const node of container.nodes) {
-                const nodeCopy = new DocNode();
-                nodeCopy.posX = node.posX;
-                nodeCopy.posY = node.posY;
-                nodeCopy.renderX = node.posX;
-                nodeCopy.renderY = node.posY;
-                nodeCopy.title = node.title;
-                nodeCopy.mass = 1;
-                nodeCopy.color = this.getNewNodeColor();
-                this.nodeManager.pushNode(nodeCopy);
-            }
-            // add mass to node if connected
-            for (const con of container.connections) {
-                const nodeA = this.nodeManager.nodes[con.nodeIndexA];
-                const nodeB = this.nodeManager.nodes[con.nodeIndexB];
-                nodeA.mass += 1;
-                nodeB.mass += 1;
-            }
-            for (const con of container.connections) {
-                this.nodeManager.setConnected(con.nodeIndexA, con.nodeIndexB, true);
-            }
-            this.offset.x = container.offsetX;
-            this.offset.y = container.offsetY;
-            this.zoom = container.zoom;
-            this.recolorWholeGraph();
-            this.onNodePositionUpdated(() => {
+        this.beforeSimulation(() => {
+            try {
+                const jsonObj = JSON.parse(jsonString);
+                if (!isSerializationContainer(jsonObj)) {
+                    throw new Error("json object is not a SerializationContainer");
+                }
+                const container = jsonObj;
+                this.reset();
+                for (const node of container.nodes) {
+                    const nodeCopy = new DocNode();
+                    nodeCopy.posX = node.posX;
+                    nodeCopy.posY = node.posY;
+                    nodeCopy.renderX = node.posX;
+                    nodeCopy.renderY = node.posY;
+                    nodeCopy.title = node.title;
+                    nodeCopy.mass = 1;
+                    nodeCopy.color = this.getNewNodeColor();
+                    this.nodeManager.pushNode(nodeCopy);
+                }
+                // add mass to node if connected
+                for (const con of container.connections) {
+                    const nodeA = this.nodeManager.nodes[con.nodeIndexA];
+                    const nodeB = this.nodeManager.nodes[con.nodeIndexB];
+                    nodeA.mass += 1;
+                    nodeB.mass += 1;
+                }
+                for (const con of container.connections) {
+                    this.nodeManager.setConnected(con.nodeIndexA, con.nodeIndexB, true);
+                }
+                this.offset.x = container.offsetX;
+                this.offset.y = container.offsetY;
+                this.zoom = container.zoom;
+                this.recolorWholeGraph();
                 this.gpuSimulator.submitConnections(this.nodeManager);
-            });
-            this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
+                this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
+            }
+            catch (err) {
+                console.error(err);
+            }
+        });
+    }
+    focusedNode() {
+        return this._focusedNode;
+    }
+    focusOnNode(node) {
+        if (this._focusedNode !== null) {
+            this.unfocusNode();
         }
-        catch (err) {
-            console.error(err);
+        this._focusedNode = node;
+        this._focusedNode.syncedToRender = true;
+        this.focusedTick = this.globalTick;
+        this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.NodeRenderPos);
+    }
+    unfocusNode() {
+        if (this._focusedNode === null) {
+            return;
+        }
+        this._focusedNode.syncedToRender = false;
+        this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.NodeRenderPos);
+        this._focusedNode = null;
+    }
+    beforeSimulation(cb) {
+        if (this._doingBeforeSimCBs) {
+            cb();
+        }
+        else {
+            this._beforeSimCBs.push(cb);
         }
     }
-    onNodePositionUpdated(cb) {
-        this._onNodePostionsUpdated.push(cb);
+    afterSimulation(cb) {
+        if (this._doingAfterSimCBS) {
+            cb();
+        }
+        else {
+            this._afterSimCBS.push(cb);
+        }
     }
     reset() {
-        this._onNodePostionsUpdated.length = 0;
-        this._expandRequests.length = 0;
-        this._animations.clear();
-        this.offset.x = 0;
-        this.offset.y = 0;
-        this.zoom = 1;
-        this.nodeManager.reset();
-        this.focusedNode = null;
-        this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
+        this.beforeSimulation(() => {
+            this._afterSimCBS.length = 0;
+            this._beforeSimCBs.length = 0;
+            this._expandRequests.length = 0;
+            this._animations.clear();
+            this.offset.x = 0;
+            this.offset.y = 0;
+            this.zoom = 1;
+            this.nodeManager.reset();
+            this._focusedNode = null;
+            this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
+        });
     }
     resetAndAddFirstNode(title) {
-        this.reset();
-        this.updateWidthAndHeight();
-        const node = new DocNode();
-        node.posX = this.width * 0.5;
-        node.posY = this.height * 0.5;
-        node.renderX = this.width * 0.5;
-        node.renderY = this.height * 0.5;
-        node.title = title;
-        node.color = this.getNewNodeColor();
-        this.nodeManager.pushNode(node);
-        this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
+        this.beforeSimulation(() => {
+            this.reset();
+            this.updateWidthAndHeight();
+            const node = new DocNode();
+            node.posX = this.width * 0.5;
+            node.posY = this.height * 0.5;
+            node.renderX = this.width * 0.5;
+            node.renderY = this.height * 0.5;
+            node.title = title;
+            node.color = this.getNewNodeColor();
+            this.nodeManager.pushNode(node);
+            this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
+        });
     }
 }
 function main() {
