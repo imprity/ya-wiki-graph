@@ -105,6 +105,7 @@ class App {
     constructor(
         mainCanvas: HTMLCanvasElement,
         overlayCanvas: HTMLCanvasElement,
+        simCanvas: HTMLCanvasElement
     ) {
         this.mainCanvas = mainCanvas
         this.overlayCanvas = overlayCanvas
@@ -126,7 +127,7 @@ class App {
         this.gpuRenderer.nodeOutlineWidth = 3
         this.gpuRenderer.connectionLineWidth = 1.2
 
-        this.gpuSimulator = new GpuSimulator()
+        this.gpuSimulator = new GpuSimulator(simCanvas)
         this.gpuSimulator.simParam = this.simParam
 
         // NOTE: we have to add it to window because canvas
@@ -155,6 +156,9 @@ class App {
             })
         }
 
+        this.gpuSimulator.submitConnections(
+            this.nodeManager,
+        )
         this.gpuRenderer.submitNodeManager(
             this.nodeManager,
             RenderSyncFlags.Everything
@@ -566,6 +570,12 @@ class App {
                         }
                     }
 
+
+                    this.onNodePositionUpdated(() => {
+                        this.gpuSimulator.submitConnections(
+                            this.nodeManager,
+                        )
+                    })
                     this.gpuRenderer.submitNodeManager(
                         this.nodeManager,
                         RenderSyncFlags.Everything
@@ -1095,6 +1105,11 @@ class App {
 
             this.recolorWholeGraph()
 
+            this.onNodePositionUpdated(() => {
+                this.gpuSimulator.submitConnections(
+                    this.nodeManager,
+                )
+            })
             this.gpuRenderer.submitNodeManager(
                 this.nodeManager,
                 RenderSyncFlags.Everything
@@ -1157,6 +1172,10 @@ async function main() {
     if (overlayCanvas === null) {
         throw new Error("failed to get overlay-canvas")
     }
+    const simCanvas = document.getElementById('sim-canvas') as HTMLCanvasElement
+    if (simCanvas === null) {
+        throw new Error("failed to get sim-canvas")
+    }
 
     try {
         await assets.loadAssets()
@@ -1164,7 +1183,7 @@ async function main() {
         console.error(`failed to load assets: ${err}`)
     }
 
-    const app = new App(mainCanvas, overlayCanvas)
+    const app = new App(mainCanvas, overlayCanvas, simCanvas)
     try {
         const table = await loadColorTable('assets/color-table.table')
         app.setColorTable(table)

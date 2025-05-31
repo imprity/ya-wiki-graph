@@ -19,7 +19,7 @@ import { ColorTable, serializeColorTable, deserializeColorTable, loadColorTable,
 import { NodeManager, DocNode, SerializationContainer, isSerializationContainer, } from "./graph_objects.js";
 const FirstTitle = "English language";
 class App {
-    constructor(mainCanvas, overlayCanvas) {
+    constructor(mainCanvas, overlayCanvas, simCanvas) {
         this.width = 0;
         this.height = 0;
         this.dpiAdujustScaleX = 2;
@@ -95,7 +95,7 @@ class App {
         this.gpuRenderer.colorTable = this.colorTable;
         this.gpuRenderer.nodeOutlineWidth = 3;
         this.gpuRenderer.connectionLineWidth = 1.2;
-        this.gpuSimulator = new GpuSimulator();
+        this.gpuSimulator = new GpuSimulator(simCanvas);
         this.gpuSimulator.simParam = this.simParam;
         // NOTE: we have to add it to window because canvas
         // doesn't take keyboard input
@@ -119,6 +119,7 @@ class App {
                 this.handleEvent(e);
             });
         }
+        this.gpuSimulator.submitConnections(this.nodeManager);
         this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
     }
     handleEvent(e) {
@@ -444,6 +445,9 @@ class App {
                             otherNode.mass += 1;
                         }
                     }
+                    this.onNodePositionUpdated(() => {
+                        this.gpuSimulator.submitConnections(this.nodeManager);
+                    });
                     this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
                 });
             }
@@ -797,6 +801,9 @@ class App {
             this.offset.y = container.offsetY;
             this.zoom = container.zoom;
             this.recolorWholeGraph();
+            this.onNodePositionUpdated(() => {
+                this.gpuSimulator.submitConnections(this.nodeManager);
+            });
             this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
         }
         catch (err) {
@@ -841,13 +848,17 @@ function main() {
         if (overlayCanvas === null) {
             throw new Error("failed to get overlay-canvas");
         }
+        const simCanvas = document.getElementById('sim-canvas');
+        if (simCanvas === null) {
+            throw new Error("failed to get sim-canvas");
+        }
         try {
             yield assets.loadAssets();
         }
         catch (err) {
             console.error(`failed to load assets: ${err}`);
         }
-        const app = new App(mainCanvas, overlayCanvas);
+        const app = new App(mainCanvas, overlayCanvas, simCanvas);
         try {
             const table = yield loadColorTable('assets/color-table.table');
             app.setColorTable(table);
