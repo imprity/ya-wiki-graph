@@ -38,7 +38,7 @@ export function strokeCircle(
     ctx.strokeStyle = color
 
     ctx.beginPath();
-    ctx.ellipse(x, y, r, r, 0, 0, Math.PI)
+    ctx.ellipse(x, y, r, r, 0, 0, Math.PI * 2)
     ctx.stroke()
 }
 

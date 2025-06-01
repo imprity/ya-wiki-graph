@@ -36,6 +36,15 @@ uniform int u_con_count;
 uniform highp usampler2D u_con_infos_tex;
 uniform highp isampler2D u_node_con_infos_start_tex;
 
+uniform float u_bh_threshold;
+
+uniform int u_tree_count;
+uniform highp usampler2D u_tree_boundary_tex;
+// uniform highp isampler2D u_tree_children_tex;
+uniform highp usampler2D u_tree_center_of_mass_tex;
+uniform highp usampler2D u_tree_nodes_header_tex;
+uniform highp usampler2D u_tree_nodes_tex;
+
 out uvec4 out_color;
 
 // returns force that A should recieve
@@ -137,20 +146,62 @@ void main() {
     // =====================
     // calculate repulsions
     // =====================
-    for (int i=0; i<u_node_count; i++) {
-        if (i == node_index) {
-            continue;
+    // for (int i=0; i<u_node_count; i++) {
+    //     if (i == node_index) {
+    //         continue;
+    //     }
+    //
+    //     uvec4 other_node_physics = get_data_from_tex(u_node_physics_tex, i);
+    //
+    //     vec2 other_node_pos = get_node_physics_pos(other_node_physics);
+    //     float other_node_mass = get_node_mass(other_node_physics);
+    //
+    //     force_sum += calculate_repulsion(
+    //         node_pos, node_mass,
+    //         other_node_pos, other_node_mass
+    //     );
+    // }
+
+    for (int i=0; i<u_tree_count; i++) {
+        uvec4 tree_center_of_mass = get_data_from_tex(u_tree_center_of_mass_tex, i);
+
+        vec2 tcm_pos = uintBitsToFloat(tree_center_of_mass.xy);
+        float tcm_mass = uintBitsToFloat(tree_center_of_mass.z);
+
+        uvec4 tree_box = get_data_from_tex(u_tree_boundary_tex, i);
+        float tree_box_width = uintBitsToFloat(tree_box.z) - uintBitsToFloat(tree_box.x);
+
+        vec2 to_tcm_pos = tcm_pos - node_pos;
+        float to_tcm_dist = length(to_tcm_pos);
+
+        if (tree_box_width / to_tcm_dist < u_bh_threshold) {
+            force_sum += calculate_repulsion(
+                node_pos, node_mass,
+                tcm_pos, tcm_mass
+            );
+        }else {
+            uvec4 tree_header = get_data_from_tex(u_tree_nodes_header_tex, i);
+            int tree_nodes_start = int(tree_header.x);
+            int tree_nodes_size = int(tree_header.y);
+            int tree_nodes_end = tree_nodes_start + tree_nodes_size;
+
+            for (int j=tree_nodes_start; j<tree_nodes_end; j++) {
+                int other_node_index = int(get_data_from_tex(u_tree_nodes_tex, j).x);
+                if (other_node_index == node_index) {
+                    continue;
+                }
+
+                uvec4 other_node_physics = get_data_from_tex(u_node_physics_tex, other_node_index);
+
+                vec2 other_node_pos = get_node_physics_pos(other_node_physics);
+                float other_node_mass = get_node_mass(other_node_physics);
+
+                force_sum += calculate_repulsion(
+                    node_pos, node_mass,
+                    other_node_pos, other_node_mass
+                );
+            }
         }
-
-        uvec4 other_node_physics = get_data_from_tex(u_node_physics_tex, i);
-
-        vec2 other_node_pos = get_node_physics_pos(other_node_physics);
-        float other_node_mass = get_node_mass(other_node_physics);
-
-        force_sum += calculate_repulsion(
-            node_pos, node_mass,
-            other_node_pos, other_node_mass
-        );
     }
 
     int pointer = 0;
@@ -230,6 +281,248 @@ void main() {
 
     return;
 }`;
+var TreeDirection;
+(function (TreeDirection) {
+    TreeDirection[TreeDirection["TopLeft"] = 0] = "TopLeft";
+    TreeDirection[TreeDirection["TopRight"] = 1] = "TopRight";
+    TreeDirection[TreeDirection["BottomLeft"] = 2] = "BottomLeft";
+    TreeDirection[TreeDirection["BottomRight"] = 3] = "BottomRight";
+})(TreeDirection || (TreeDirection = {}));
+export class QuadTree {
+    constructor() {
+        this.id = -1;
+        this.minX = 0;
+        this.minY = 0;
+        this.maxX = 0;
+        this.maxY = 0;
+        this.centerX = 0;
+        this.centerY = 0;
+        this.centerOfMassX = 0;
+        this.centerOfMassY = 0;
+        this.mass = 0;
+        this.hasChildren = false;
+        this.childrenTrees = new Array(4).fill(null);
+        this.nodes = [];
+    }
+    reset() {
+        this.minX = 0;
+        this.minY = 0;
+        this.maxX = 0;
+        this.maxY = 0;
+        this.centerX = 0;
+        this.centerY = 0;
+        this.centerOfMassX = 0;
+        this.centerOfMassY = 0;
+        this.mass = 0;
+        this.hasChildren = false;
+        this.childrenTrees.fill(null);
+        this.id = -1;
+        this.nodes = [];
+    }
+    setRect(minX, minY, maxX, maxY) {
+        this.minX = minX;
+        this.minY = minY;
+        this.maxX = maxX;
+        this.maxY = maxY;
+        this.centerX = (this.minX + this.maxX) * 0.5;
+        this.centerY = (this.minY + this.maxY) * 0.5;
+    }
+    dx() {
+        return this.maxX - this.minX;
+    }
+    dy() {
+        return this.maxY - this.minY;
+    }
+    getPosDirection(posX, posY) {
+        let onLeft = false;
+        let onTop = false;
+        if (posX < this.centerX) {
+            onLeft = true;
+        }
+        if (posY < this.centerY) {
+            onTop = true;
+        }
+        if (onLeft) { // left
+            if (onTop) { // top
+                return TreeDirection.TopLeft;
+            }
+            else { // bottom
+                return TreeDirection.BottomLeft;
+            }
+        }
+        else { // right
+            if (onTop) { // top
+                return TreeDirection.TopRight;
+            }
+            else { // bottom
+                return TreeDirection.BottomRight;
+            }
+        }
+    }
+}
+export class QuadTreeBuilder {
+    constructor() {
+        this._treePoolCursor = 0;
+        this.minD = 500;
+        const initCapacity = 512;
+        this._treePool = new Array(initCapacity);
+        for (let i = 0; i < initCapacity; i++) {
+            this._treePool[i] = new QuadTree();
+        }
+    }
+    getNewTree() {
+        if (this._treePoolCursor >= this._treePool.length) {
+            const oldLen = this._treePool.length;
+            const newLen = oldLen * 2;
+            this._treePool.length = newLen;
+            for (let i = oldLen; i < newLen; i++) {
+                this._treePool[i] = new QuadTree();
+            }
+        }
+        const tree = this._treePool[this._treePoolCursor];
+        tree.reset();
+        tree.id = this._treePoolCursor;
+        this._treePoolCursor++;
+        return tree;
+    }
+    _createTreeChild(tree, dir) {
+        const child = this.getNewTree();
+        switch (dir) {
+            case TreeDirection.TopLeft:
+                {
+                    child.setRect(tree.minX, tree.minY, tree.centerX, tree.centerY);
+                }
+                break;
+            case TreeDirection.TopRight:
+                {
+                    child.setRect(tree.centerX, tree.minY, tree.maxX, tree.centerY);
+                }
+                break;
+            case TreeDirection.BottomLeft:
+                {
+                    child.setRect(tree.minX, tree.centerY, tree.centerX, tree.maxY);
+                }
+                break;
+            case TreeDirection.BottomRight:
+                {
+                    child.setRect(tree.centerX, tree.centerY, tree.maxX, tree.maxY);
+                }
+                break;
+            default: {
+                console.error('unknown direction');
+                break;
+            }
+        }
+        return child;
+    }
+    _pushNodeToTree(tree, node) {
+        if ((tree.dx() < this.minD || tree.dy() < this.minD) ||
+            (tree.nodes.length <= 0 && !tree.hasChildren)) {
+            tree.nodes.push(node);
+            return;
+        }
+        tree.hasChildren = true;
+        if (tree.nodes.length > 0) {
+            for (const ogNode of tree.nodes) {
+                const direction = tree.getPosDirection(ogNode.posX, ogNode.posY);
+                if (tree.childrenTrees[direction] === null) {
+                    tree.childrenTrees[direction] = this._createTreeChild(tree, direction);
+                }
+                this._pushNodeToTree(tree.childrenTrees[direction], ogNode);
+            }
+            tree.nodes = [];
+        }
+        const nodeDirection = tree.getPosDirection(node.posX, node.posY);
+        if (tree.childrenTrees[nodeDirection] === null) {
+            tree.childrenTrees[nodeDirection] = this._createTreeChild(tree, nodeDirection);
+        }
+        this._pushNodeToTree(tree.childrenTrees[nodeDirection], node);
+    }
+    _cacheCenterOfMass(tree) {
+        if (tree.hasChildren) {
+            for (const child of tree.childrenTrees) {
+                if (child === null) {
+                    continue;
+                }
+                this._cacheCenterOfMass(child);
+            }
+            let x = 0;
+            let y = 0;
+            let mass = 0;
+            for (const child of tree.childrenTrees) {
+                if (child === null) {
+                    continue;
+                }
+                x += child.centerOfMassX * child.mass;
+                y += child.centerOfMassY * child.mass;
+                mass += child.mass;
+            }
+            tree.centerOfMassX = x / mass;
+            tree.centerOfMassY = y / mass;
+            tree.mass = mass;
+        }
+        else if (tree.nodes.length > 0) {
+            let x = 0;
+            let y = 0;
+            let mass = 0;
+            for (const node of tree.nodes) {
+                x += node.posX * node.mass;
+                y += node.posY * node.mass;
+                mass += node.mass;
+            }
+            tree.centerOfMassX = x / mass;
+            tree.centerOfMassY = y / mass;
+            tree.mass = mass;
+        }
+    }
+    buildTree(nodeManager) {
+        this._treePoolCursor = 0;
+        if (nodeManager.nodes.length <= 0) {
+            const tree = this.getNewTree();
+            tree.setRect(0, 0, 0, 0);
+            return tree;
+        }
+        const root = this.getNewTree();
+        // calculate root rect
+        {
+            let minX = Number.MAX_VALUE;
+            let minY = Number.MAX_VALUE;
+            let maxX = -Number.MAX_VALUE;
+            let maxY = -Number.MAX_VALUE;
+            for (let i = 0; i < nodeManager.nodes.length; i++) {
+                const node = nodeManager.nodes[i];
+                minX = Math.min(node.posX, minX);
+                minY = Math.min(node.posY, minY);
+                maxX = Math.max(node.posX, maxX);
+                maxY = Math.max(node.posY, maxY);
+            }
+            const width = maxX - minX;
+            const height = maxY - minY;
+            const maxD = Math.max(width, height);
+            const centerX = minX + width * 0.5;
+            const centerY = minY + height * 0.5;
+            root.setRect(centerX - maxD * 0.5, centerY - maxD * 0.5, centerX + maxD * 0.5, centerY + maxD * 0.5);
+        }
+        for (let i = 0; i < nodeManager.nodes.length; i++) {
+            const node = nodeManager.nodes[i];
+            this._pushNodeToTree(root, node);
+        }
+        this._cacheCenterOfMass(root);
+        for (let i = 0; i < this.treeCount(); i++) {
+            const tree = this._treePool[i];
+        }
+        return root;
+    }
+    treeCount() {
+        return this._treePoolCursor;
+    }
+    getTreeWithId(id) {
+        if (0 <= id && id < this._treePoolCursor && id < this._treePool.length) {
+            return this._treePool[id];
+        }
+        return null;
+    }
+}
 export class SimulationParameter {
     constructor() {
         this.nodeMinDist = 10;
@@ -237,6 +530,7 @@ export class SimulationParameter {
         this.spring = 5;
         this.springDist = 600;
         this.forceCap = 200;
+        this.bhThreshold = 0.1;
     }
 }
 export class GpuSimulator {
@@ -244,6 +538,7 @@ export class GpuSimulator {
         this.nodeLength = 0;
         this.connectionLength = 0;
         this.simParam = new SimulationParameter();
+        this.treeBuilder = new QuadTreeBuilder();
         // =========================
         // create opengl context
         // =========================
@@ -283,13 +578,32 @@ export class GpuSimulator {
         // =========================
         // create textures
         // =========================
+        gpu.resetTextureUnitCounter();
         const texInitSize = 4;
+        // ===========================================
         // create textures to hold node informations
+        // ===========================================
         this.nodePhysicsTex0 = gpu.createDataTexture(this.gl, this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
         this.nodePhysicsTex1 = gpu.createDataTexture(this.gl, this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
+        // ===========================================
         // create textures to hold connection informations
+        // ===========================================
         this.conInfosTex = gpu.createDataTexture(this.gl, this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
         this.nodeConInfoStartTex = gpu.createDataTexture(this.gl, this.gl.R32I, texInitSize, texInitSize, this.gl.RED_INTEGER, this.gl.INT);
+        // ===========================================
+        // create textures to hold tree informations
+        // ===========================================
+        this.treeBoundaryTex = gpu.createDataTexture(this.gl, this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
+        // this.treeChildrenTex = gpu.createDataTexture(
+        //     this.gl,
+        //     this.gl.RGBA32I,
+        //     texInitSize, texInitSize,
+        //     this.gl.RGBA_INTEGER,
+        //     this.gl.INT,
+        // )
+        this.treeCenterOfMassTex = gpu.createDataTexture(this.gl, this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
+        this.treeNodesHeaderTex = gpu.createDataTexture(this.gl, this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
+        this.treeNodesTex = gpu.createDataTexture(this.gl, this.gl.R32UI, texInitSize, texInitSize, this.gl.RED_INTEGER, this.gl.UNSIGNED_INT);
         // ========================
         // create frame buffers
         // ========================
@@ -298,6 +612,8 @@ export class GpuSimulator {
     simulatePhysics(manager) {
         return __awaiter(this, void 0, void 0, function* () {
             this.submitNodes(manager);
+            this.treeBuilder.buildTree(manager);
+            const leafCount = this.writeTreeInfosToTexture(manager);
             // =====================
             // calculate forces
             // =====================
@@ -309,11 +625,21 @@ export class GpuSimulator {
                 this.gl.bindVertexArray(this.forceCalcUnit.vao);
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.nodePhysicsFB1);
                 this.gl.viewport(0, 0, this.nodePhysicsTex0.width, this.nodePhysicsTex0.height);
+                // node textures and uniforms
                 gpu.useTexture(this.gl, this.forceCalcUnit, this.nodePhysicsTex0, 'u_node_physics_tex');
                 this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_node_count'), this.nodeLength);
+                // connection textures and uniforms
                 gpu.useTexture(this.gl, this.forceCalcUnit, this.conInfosTex, 'u_con_infos_tex');
                 gpu.useTexture(this.gl, this.forceCalcUnit, this.nodeConInfoStartTex, 'u_node_con_infos_start_tex');
                 this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_con_count'), this.connectionLength);
+                // tree textures and uniforms
+                gpu.useTexture(this.gl, this.forceCalcUnit, this.treeBoundaryTex, 'u_tree_boundary_tex');
+                gpu.useTexture(this.gl, this.forceCalcUnit, this.treeCenterOfMassTex, 'u_tree_center_of_mass_tex');
+                gpu.useTexture(this.gl, this.forceCalcUnit, this.treeNodesHeaderTex, 'u_tree_nodes_header_tex');
+                gpu.useTexture(this.gl, this.forceCalcUnit, this.treeNodesTex, 'u_tree_nodes_tex');
+                this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_tree_count'), leafCount);
+                this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_bh_threshold'), this.simParam.bhThreshold);
+                // physics parameters
                 this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_node_min_dist'), this.simParam.nodeMinDist);
                 this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_repulsion'), this.simParam.repulsion);
                 this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_spring'), this.simParam.spring);
@@ -466,5 +792,132 @@ export class GpuSimulator {
             new Uint32Array(data.buffer) // data
             );
         }
+    }
+    writeTreeInfosToTexture(manager) {
+        const leafTrees = [];
+        for (let i = 0; i < this.treeBuilder.treeCount(); i++) {
+            const tree = this.treeBuilder.getTreeWithId(i);
+            if (tree === null) {
+                continue;
+            }
+            if (tree.nodes.length > 0) {
+                leafTrees.push(tree);
+            }
+        }
+        const leafCount = leafTrees.length;
+        const texSize = Math.max(gpu.capacityToEdge(leafCount), 128);
+        // =========================
+        // treeBoundaryTex
+        // =========================
+        {
+            let data = new Float32Array(texSize * texSize * 4);
+            let offset = 0;
+            for (let i = 0; i < leafCount; i++) {
+                const tree = leafTrees[i];
+                data[offset + 0] = tree.minX;
+                data[offset + 1] = tree.minY;
+                data[offset + 2] = tree.maxX;
+                data[offset + 3] = tree.maxY;
+                offset += 4;
+            }
+            gpu.setDataTextureData(this.gl, this.treeBoundaryTex, this.gl.RGBA32UI, // internal format
+            texSize, texSize, // width, height
+            this.gl.RGBA_INTEGER, // format
+            this.gl.UNSIGNED_INT, // type
+            new Uint32Array(data.buffer) // data
+            );
+        }
+        // =========================
+        // treeChildrenTex
+        // =========================
+        // {
+        //     let data = new Int32Array(texSize * texSize * 4)
+        //
+        //     let offset = 0
+        //
+        //     for (let i = 0; i < leafCount; i++) {
+        //         const tree = leafTrees[i]
+        //
+        //         for (let j = 0; j < 4; j++) {
+        //             const child = tree.childrenTrees[j]
+        //             if (child === null) {
+        //                 data[offset + j] = -1
+        //             } else {
+        //                 data[offset + j] = child.id
+        //             }
+        //         }
+        //
+        //         offset += 4
+        //     }
+        //
+        //     gpu.setDataTextureData(
+        //         this.gl,
+        //         this.treeChildrenTex,
+        //         this.gl.RGBA32I, // internal format
+        //         texSize, texSize, // width, height
+        //         this.gl.RGBA_INTEGER, // format
+        //         this.gl.INT, // type
+        //         data // data
+        //     )
+        // }
+        // =========================
+        // treeCenterOfMassTex
+        // =========================
+        {
+            let data = new Float32Array(texSize * texSize * 4);
+            let offset = 0;
+            for (let i = 0; i < leafCount; i++) {
+                const tree = leafTrees[i];
+                data[offset + 0] = tree.centerOfMassX;
+                data[offset + 1] = tree.centerOfMassY;
+                data[offset + 2] = tree.mass;
+                data[offset + 3] = 0; // reserved
+                offset += 4;
+            }
+            gpu.setDataTextureData(this.gl, this.treeCenterOfMassTex, this.gl.RGBA32UI, // internal format
+            texSize, texSize, // width, height
+            this.gl.RGBA_INTEGER, // format
+            this.gl.UNSIGNED_INT, // type
+            new Uint32Array(data.buffer) // data
+            );
+        }
+        // ==================================
+        // treeNodesHeaderTex & treeNodesTex
+        // ==================================
+        {
+            const nodesTexSize = Math.max(gpu.capacityToEdge(this.nodeLength), 128);
+            let nodesData = new Uint32Array(nodesTexSize * nodesTexSize);
+            let headerData = new Uint32Array(texSize * texSize * 4);
+            let nodesDataCursor = 0;
+            let headerOffset = 0;
+            for (let i = 0; i < leafCount; i++) {
+                const tree = leafTrees[i];
+                if (tree === null) {
+                    continue;
+                }
+                headerData[headerOffset + 0] = nodesDataCursor;
+                for (const node of tree.nodes) {
+                    nodesData[nodesDataCursor] = manager.getIndexFromId(node.id);
+                    nodesDataCursor++;
+                }
+                headerData[headerOffset + 1] = tree.nodes.length;
+                headerData[headerOffset + 2] = 0; // reserved
+                headerData[headerOffset + 3] = 0; // reserved
+                headerOffset += 4;
+            }
+            gpu.setDataTextureData(this.gl, this.treeNodesHeaderTex, this.gl.RGBA32UI, // internal format
+            texSize, texSize, // width, height
+            this.gl.RGBA_INTEGER, // format
+            this.gl.UNSIGNED_INT, // type
+            headerData // data
+            );
+            gpu.setDataTextureData(this.gl, this.treeNodesTex, this.gl.R32UI, // internal format
+            nodesTexSize, nodesTexSize, // width, height
+            this.gl.RED_INTEGER, // format
+            this.gl.UNSIGNED_INT, // type
+            nodesData // data
+            );
+        }
+        return leafCount;
     }
 }

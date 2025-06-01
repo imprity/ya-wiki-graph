@@ -5,7 +5,12 @@ import * as math from "./math.js"
 import * as assets from "./assets.js"
 import * as color from "./color.js"
 import { GpuRenderer, RenderSyncFlags } from "./gpu_render.js"
-import { GpuSimulator, SimulationParameter } from "./gpu_simulate.js"
+import {
+    GpuSimulator,
+    SimulationParameter,
+    QuadTree,
+    QuadTreeBuilder
+} from "./gpu_simulate.js"
 import { clearDebugPrint, debugPrint, renderDebugPrint } from './debug_print.js'
 import {
     ColorTable,
@@ -76,6 +81,10 @@ class App {
     _animations: Map<number, Animation> = new Map()
 
     colorTable: ColorTable = new ColorTable()
+
+    // TEST TEST TEST TEST TEST TEST
+    testBuilder: QuadTreeBuilder = new QuadTreeBuilder()
+    // TEST TEST TEST TEST TEST TEST
 
     // ========================
     // input states
@@ -816,6 +825,52 @@ class App {
                 )
             }
         })
+
+        // TEST TEST TEST TEST TEST TEST TEST
+        // if (false) {
+        //     const root = this.testBuilder.buildTree(this.nodeManager)
+        //     const drawTree = (tree: QuadTree, margin: number) => {
+        //         const min = this.worldToViewport(tree.minX + margin, tree.minY + margin)
+        //         const max = this.worldToViewport(tree.maxX - margin, tree.maxY - margin)
+        //
+        //         const clr = color.getRandomColorSeeded(tree.id)
+        //         clr.a = 255
+        //         const clrString = clr.toCssString()
+        //
+        //         cd.strokeRect(
+        //             this.overlayCtx,
+        //             min.x, min.y,
+        //             max.x - min.x, max.y - min.y,
+        //             1 * this.zoom,
+        //             clrString
+        //         )
+        //
+        //         // const cx = tree.centerOfMassX
+        //         // const cy = tree.centerOfMassY
+        //         const cx = tree.centerX
+        //         const cy = tree.centerY
+        //         const mass = tree.mass
+        //
+        //         const cp = this.worldToViewport(cx, cy)
+        //
+        //         // cd.strokeCircle(
+        //         //     this.overlayCtx,
+        //         //     cp.x, cp.y, DocNode.nodeMassToRadius(mass) * this.zoom,
+        //         //     5 * this.zoom,
+        //         //     clrString
+        //         // )
+        //
+        //         for (const child of tree.childrenTrees) {
+        //             if (child !== null) {
+        //                 drawTree(child, margin)
+        //             }
+        //         }
+        //     }
+        //
+        //     drawTree(root, 0)
+        //     debugPrint('tree count', `${this.testBuilder.treeCount()}`)
+        // }
+        // TEST TEST TEST TEST TEST TEST TEST
     }
 
     setColorTable(table: ColorTable) {
@@ -1559,6 +1614,13 @@ async function main() {
             1,
             "forceCap",
             (value) => { app.simParam.forceCap = value }
+        )
+        addSlider(
+            0.1,
+            0, 5,
+            0.01,
+            "Barnes Hut threshold",
+            (value) => { app.simParam.bhThreshold = value }
         )
 
         addButton(

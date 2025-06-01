@@ -77,6 +77,15 @@ export function getRandomColor() {
     c.a = Math.round(Math.random() * 255);
     return c;
 }
+export function getRandomColorSeeded(seed) {
+    const rng = math.splitmix32(seed);
+    const c = new Color();
+    c.r = Math.round(rng() * 255);
+    c.g = Math.round(rng() * 255);
+    c.b = Math.round(rng() * 255);
+    c.a = Math.round(rng() * 255);
+    return c;
+}
 export function colorToHSV(clr) {
     const norm = clr.getNormalized();
     const cMax = Math.max(norm.r, norm.g, norm.b);

@@ -16,7 +16,7 @@ export function strokeCircle(ctx, x, y, r, lineWidth, color) {
     ctx.lineWidth = lineWidth;
     ctx.strokeStyle = color;
     ctx.beginPath();
-    ctx.ellipse(x, y, r, r, 0, 0, Math.PI);
+    ctx.ellipse(x, y, r, r, 0, 0, Math.PI * 2);
     ctx.stroke();
 }
 export function fillCircle(ctx, x, y, r, color) {

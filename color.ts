@@ -100,6 +100,18 @@ export function getRandomColor(): Color {
     return c
 }
 
+export function getRandomColorSeeded(seed: number): Color {
+    const rng = math.splitmix32(seed)
+
+    const c = new Color()
+    c.r = Math.round(rng() * 255)
+    c.g = Math.round(rng() * 255)
+    c.b = Math.round(rng() * 255)
+    c.a = Math.round(rng() * 255)
+
+    return c
+}
+
 export interface HSV {
     hue: number
     saturation: number
