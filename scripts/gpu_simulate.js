@@ -8,6 +8,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 import * as gpu from './gpu_common.js';
+import * as util from './util.js';
 import { DocNode, } from "./graph_objects.js";
 const forceCalcVShaderSrc = `#version 300 es
 in vec4 a_vertex;
@@ -40,7 +41,6 @@ uniform float u_bh_threshold;
 
 uniform int u_tree_count;
 uniform highp usampler2D u_tree_boundary_tex;
-// uniform highp isampler2D u_tree_children_tex;
 uniform highp usampler2D u_tree_center_of_mass_tex;
 uniform highp usampler2D u_tree_nodes_header_tex;
 uniform highp usampler2D u_tree_nodes_tex;
@@ -281,13 +281,6 @@ void main() {
 
     return;
 }`;
-var TreeDirection;
-(function (TreeDirection) {
-    TreeDirection[TreeDirection["TopLeft"] = 0] = "TopLeft";
-    TreeDirection[TreeDirection["TopRight"] = 1] = "TopRight";
-    TreeDirection[TreeDirection["BottomLeft"] = 2] = "BottomLeft";
-    TreeDirection[TreeDirection["BottomRight"] = 3] = "BottomRight";
-})(TreeDirection || (TreeDirection = {}));
 export class QuadTree {
     constructor() {
         this.id = -1;
@@ -300,9 +293,7 @@ export class QuadTree {
         this.centerOfMassX = 0;
         this.centerOfMassY = 0;
         this.mass = 0;
-        this.hasChildren = false;
-        this.childrenTrees = new Array(4).fill(null);
-        this.nodes = [];
+        this.nodes = null;
     }
     reset() {
         this.minX = 0;
@@ -314,10 +305,8 @@ export class QuadTree {
         this.centerOfMassX = 0;
         this.centerOfMassY = 0;
         this.mass = 0;
-        this.hasChildren = false;
-        this.childrenTrees.fill(null);
         this.id = -1;
-        this.nodes = [];
+        this.nodes = null;
     }
     setRect(minX, minY, maxX, maxY) {
         this.minX = minX;
@@ -333,32 +322,6 @@ export class QuadTree {
     dy() {
         return this.maxY - this.minY;
     }
-    getPosDirection(posX, posY) {
-        let onLeft = false;
-        let onTop = false;
-        if (posX < this.centerX) {
-            onLeft = true;
-        }
-        if (posY < this.centerY) {
-            onTop = true;
-        }
-        if (onLeft) { // left
-            if (onTop) { // top
-                return TreeDirection.TopLeft;
-            }
-            else { // bottom
-                return TreeDirection.BottomLeft;
-            }
-        }
-        else { // right
-            if (onTop) { // top
-                return TreeDirection.TopRight;
-            }
-            else { // bottom
-                return TreeDirection.BottomRight;
-            }
-        }
-    }
 }
 export class QuadTreeBuilder {
     constructor() {
@@ -370,7 +333,7 @@ export class QuadTreeBuilder {
             this._treePool[i] = new QuadTree();
         }
     }
-    getNewTree() {
+    createNewTree() {
         if (this._treePoolCursor >= this._treePool.length) {
             const oldLen = this._treePool.length;
             const newLen = oldLen * 2;
@@ -385,142 +348,85 @@ export class QuadTreeBuilder {
         this._treePoolCursor++;
         return tree;
     }
-    _createTreeChild(tree, dir) {
-        const child = this.getNewTree();
-        switch (dir) {
-            case TreeDirection.TopLeft:
-                {
-                    child.setRect(tree.minX, tree.minY, tree.centerX, tree.centerY);
-                }
-                break;
-            case TreeDirection.TopRight:
-                {
-                    child.setRect(tree.centerX, tree.minY, tree.maxX, tree.centerY);
-                }
-                break;
-            case TreeDirection.BottomLeft:
-                {
-                    child.setRect(tree.minX, tree.centerY, tree.centerX, tree.maxY);
-                }
-                break;
-            case TreeDirection.BottomRight:
-                {
-                    child.setRect(tree.centerX, tree.centerY, tree.maxX, tree.maxY);
-                }
-                break;
-            default: {
-                console.error('unknown direction');
-                break;
-            }
-        }
-        return child;
-    }
-    _pushNodeToTree(tree, node) {
-        if ((tree.dx() < this.minD || tree.dy() < this.minD) ||
-            (tree.nodes.length <= 0 && !tree.hasChildren)) {
-            tree.nodes.push(node);
+    _cacheCenterOfMass(tree) {
+        if (tree.nodes === null) {
             return;
         }
-        tree.hasChildren = true;
-        if (tree.nodes.length > 0) {
-            for (const ogNode of tree.nodes) {
-                const direction = tree.getPosDirection(ogNode.posX, ogNode.posY);
-                if (tree.childrenTrees[direction] === null) {
-                    tree.childrenTrees[direction] = this._createTreeChild(tree, direction);
-                }
-                this._pushNodeToTree(tree.childrenTrees[direction], ogNode);
-            }
-            tree.nodes = [];
+        let x = 0;
+        let y = 0;
+        let mass = 0;
+        for (const node of tree.nodes) {
+            x += node.posX * node.mass;
+            y += node.posY * node.mass;
+            mass += node.mass;
         }
-        const nodeDirection = tree.getPosDirection(node.posX, node.posY);
-        if (tree.childrenTrees[nodeDirection] === null) {
-            tree.childrenTrees[nodeDirection] = this._createTreeChild(tree, nodeDirection);
-        }
-        this._pushNodeToTree(tree.childrenTrees[nodeDirection], node);
-    }
-    _cacheCenterOfMass(tree) {
-        if (tree.hasChildren) {
-            for (const child of tree.childrenTrees) {
-                if (child === null) {
-                    continue;
-                }
-                this._cacheCenterOfMass(child);
-            }
-            let x = 0;
-            let y = 0;
-            let mass = 0;
-            for (const child of tree.childrenTrees) {
-                if (child === null) {
-                    continue;
-                }
-                x += child.centerOfMassX * child.mass;
-                y += child.centerOfMassY * child.mass;
-                mass += child.mass;
-            }
-            tree.centerOfMassX = x / mass;
-            tree.centerOfMassY = y / mass;
-            tree.mass = mass;
-        }
-        else if (tree.nodes.length > 0) {
-            let x = 0;
-            let y = 0;
-            let mass = 0;
-            for (const node of tree.nodes) {
-                x += node.posX * node.mass;
-                y += node.posY * node.mass;
-                mass += node.mass;
-            }
-            tree.centerOfMassX = x / mass;
-            tree.centerOfMassY = y / mass;
-            tree.mass = mass;
-        }
+        tree.centerOfMassX = x / mass;
+        tree.centerOfMassY = y / mass;
+        tree.mass = mass;
     }
     buildTree(nodeManager) {
         this._treePoolCursor = 0;
         if (nodeManager.nodes.length <= 0) {
-            const tree = this.getNewTree();
+            const tree = this.createNewTree();
             tree.setRect(0, 0, 0, 0);
-            return tree;
+            return new util.ArrayView(this._treePool, 0, 1);
         }
-        const root = this.getNewTree();
-        // calculate root rect
-        {
-            let minX = Number.MAX_VALUE;
-            let minY = Number.MAX_VALUE;
-            let maxX = -Number.MAX_VALUE;
-            let maxY = -Number.MAX_VALUE;
-            for (let i = 0; i < nodeManager.nodes.length; i++) {
-                const node = nodeManager.nodes[i];
-                minX = Math.min(node.posX, minX);
-                minY = Math.min(node.posY, minY);
-                maxX = Math.max(node.posX, maxX);
-                maxY = Math.max(node.posY, maxY);
-            }
-            const width = maxX - minX;
-            const height = maxY - minY;
-            const maxD = Math.max(width, height);
-            const centerX = minX + width * 0.5;
-            const centerY = minY + height * 0.5;
-            root.setRect(centerX - maxD * 0.5, centerY - maxD * 0.5, centerX + maxD * 0.5, centerY + maxD * 0.5);
-        }
+        // calculate node boundary
+        let boundMinX = Number.MAX_VALUE;
+        let boundMinY = Number.MAX_VALUE;
+        let boundMaxX = -Number.MAX_VALUE;
+        let boundMaxY = -Number.MAX_VALUE;
         for (let i = 0; i < nodeManager.nodes.length; i++) {
             const node = nodeManager.nodes[i];
-            this._pushNodeToTree(root, node);
+            boundMinX = Math.min(node.posX, boundMinX);
+            boundMinY = Math.min(node.posY, boundMinY);
+            boundMaxX = Math.max(node.posX, boundMaxX);
+            boundMaxY = Math.max(node.posY, boundMaxY);
         }
-        this._cacheCenterOfMass(root);
-        for (let i = 0; i < this.treeCount(); i++) {
+        // make boundary square
+        {
+            const centerX = (boundMinX + boundMaxX) * 0.5;
+            const centerY = (boundMinY + boundMaxY) * 0.5;
+            let dimension = Math.max(boundMaxX - boundMinX, boundMaxY - boundMinY);
+            dimension += 50;
+            dimension = Math.max(dimension, this.minD);
+            boundMinX = centerX - dimension * 0.5;
+            boundMinY = centerY - dimension * 0.5;
+            boundMaxX = centerX + dimension * 0.5;
+            boundMaxY = centerY + dimension * 0.5;
+        }
+        const boundWidth = boundMaxX - boundMinX;
+        const boundHeight = boundMaxY - boundMinY;
+        const gridWidth = Math.ceil(boundWidth / this.minD);
+        const gridHeight = Math.ceil(boundHeight / this.minD);
+        const cellWidth = boundWidth / gridWidth;
+        const cellHeight = boundHeight / gridHeight;
+        // create trees
+        for (let y = 0; y < gridHeight; y++) {
+            for (let x = 0; x < gridWidth; x++) {
+                const tree = this.createNewTree();
+                tree.setRect(boundMinX + x * cellWidth, boundMinY + y * cellHeight, boundMinX + (x + 1) * cellWidth, boundMinY + (y + 1) * cellHeight);
+            }
+        }
+        for (const node of nodeManager.nodes) {
+            let x = node.posX;
+            let y = node.posY;
+            x -= boundMinX;
+            y -= boundMinY;
+            x = Math.floor(x / cellWidth);
+            y = Math.floor(y / cellHeight);
+            let i = x + y * gridWidth;
             const tree = this._treePool[i];
+            if (tree.nodes === null) {
+                tree.nodes = [];
+            }
+            tree.nodes.push(node);
         }
-        return root;
-    }
-    treeCount() {
-        return this._treePoolCursor;
-    }
-    getTreeWithId(id) {
-        if (0 <= id && id < this._treePoolCursor && id < this._treePool.length) {
-            return this._treePool[id];
+        for (let i = 0; i < this._treePoolCursor; i++) {
+            const tree = this._treePool[i];
+            this._cacheCenterOfMass(tree);
         }
-        return null;
+        return new util.ArrayView(this._treePool, 0, this._treePoolCursor);
     }
 }
 export class SimulationParameter {
@@ -594,13 +500,6 @@ export class GpuSimulator {
         // create textures to hold tree informations
         // ===========================================
         this.treeBoundaryTex = gpu.createDataTexture(this.gl, this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
-        // this.treeChildrenTex = gpu.createDataTexture(
-        //     this.gl,
-        //     this.gl.RGBA32I,
-        //     texInitSize, texInitSize,
-        //     this.gl.RGBA_INTEGER,
-        //     this.gl.INT,
-        // )
         this.treeCenterOfMassTex = gpu.createDataTexture(this.gl, this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
         this.treeNodesHeaderTex = gpu.createDataTexture(this.gl, this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
         this.treeNodesTex = gpu.createDataTexture(this.gl, this.gl.R32UI, texInitSize, texInitSize, this.gl.RED_INTEGER, this.gl.UNSIGNED_INT);
@@ -612,8 +511,8 @@ export class GpuSimulator {
     simulatePhysics(manager) {
         return __awaiter(this, void 0, void 0, function* () {
             this.submitNodes(manager);
-            this.treeBuilder.buildTree(manager);
-            const leafCount = this.writeTreeInfosToTexture(manager);
+            const trees = this.treeBuilder.buildTree(manager);
+            const leafCount = this.writeTreeInfosToTexture(trees, manager);
             // =====================
             // calculate forces
             // =====================
@@ -793,14 +692,14 @@ export class GpuSimulator {
             );
         }
     }
-    writeTreeInfosToTexture(manager) {
+    writeTreeInfosToTexture(trees, manager) {
         const leafTrees = [];
-        for (let i = 0; i < this.treeBuilder.treeCount(); i++) {
-            const tree = this.treeBuilder.getTreeWithId(i);
+        for (let i = 0; i < trees.length; i++) {
+            const tree = trees.get(i);
             if (tree === null) {
                 continue;
             }
-            if (tree.nodes.length > 0) {
+            if (tree.nodes !== null && tree.nodes.length > 0) {
                 leafTrees.push(tree);
             }
         }
@@ -827,42 +726,6 @@ export class GpuSimulator {
             new Uint32Array(data.buffer) // data
             );
         }
-        // =========================
-        // treeChildrenTex
-        // =========================
-        // {
-        //     let data = new Int32Array(texSize * texSize * 4)
-        //
-        //     let offset = 0
-        //
-        //     for (let i = 0; i < leafCount; i++) {
-        //         const tree = leafTrees[i]
-        //
-        //         for (let j = 0; j < 4; j++) {
-        //             const child = tree.childrenTrees[j]
-        //             if (child === null) {
-        //                 data[offset + j] = -1
-        //             } else {
-        //                 data[offset + j] = child.id
-        //             }
-        //         }
-        //
-        //         offset += 4
-        //     }
-        //
-        //     gpu.setDataTextureData(
-        //         this.gl,
-        //         this.treeChildrenTex,
-        //         this.gl.RGBA32I, // internal format
-        //         texSize, texSize, // width, height
-        //         this.gl.RGBA_INTEGER, // format
-        //         this.gl.INT, // type
-        //         data // data
-        //     )
-        // }
-        // =========================
-        // treeCenterOfMassTex
-        // =========================
         {
             let data = new Float32Array(texSize * texSize * 4);
             let offset = 0;
@@ -893,6 +756,9 @@ export class GpuSimulator {
             for (let i = 0; i < leafCount; i++) {
                 const tree = leafTrees[i];
                 if (tree === null) {
+                    continue;
+                }
+                if (tree.nodes === null) {
                     continue;
                 }
                 headerData[headerOffset + 0] = nodesDataCursor;

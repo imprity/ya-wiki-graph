@@ -1616,7 +1616,7 @@ async function main() {
             (value) => { app.simParam.forceCap = value }
         )
         addSlider(
-            0.1,
+            0.5,
             0, 5,
             0.01,
             "Barnes Hut threshold",

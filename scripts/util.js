@@ -83,3 +83,17 @@ export class Stack {
         this.length = 0;
     }
 }
+export class ArrayView {
+    constructor(data, start, length) {
+        this.start = start;
+        this.length = length;
+        this.data = data;
+    }
+    get(at) {
+        if (!(0 <= at && at < this.length)) {
+            throw new Error(`index ${at} out of bound, length: ${this.length}`);
+        }
+        at -= this.start;
+        return this.data[at];
+    }
+}

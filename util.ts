@@ -94,3 +94,23 @@ export class Stack<T> {
         this.length = 0
     }
 }
+
+export class ArrayView<T> {
+    start: number
+    length: number
+    data: Array<T>
+
+    constructor(data: Array<T>, start: number, length: number) {
+        this.start = start
+        this.length = length
+        this.data = data
+    }
+
+    get(at: number) {
+        if (!(0 <= at && at < this.length)) {
+            throw new Error(`index ${at} out of bound, length: ${this.length}`)
+        }
+        at -= this.start
+        return this.data[at]
+    }
+}

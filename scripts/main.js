@@ -1148,7 +1148,7 @@ function main() {
             addSlider(5, 0, 50, 0.0001, "spring", (value) => { app.simParam.spring = value; });
             addSlider(600, 1, 1000, 1, "springDist", (value) => { app.simParam.springDist = value; });
             addSlider(100, 1, 1000, 1, "forceCap", (value) => { app.simParam.forceCap = value; });
-            addSlider(0.1, 0, 5, 0.01, "Barnes Hut threshold", (value) => { app.simParam.bhThreshold = value; });
+            addSlider(0.5, 0, 5, 0.01, "Barnes Hut threshold", (value) => { app.simParam.bhThreshold = value; });
             addButton('recolor graph', () => { app.recolorWholeGraph(); });
             let isShowing = true;
             const debugUIHideShowButton = document.getElementById('debug-ui-hide-show-button');
