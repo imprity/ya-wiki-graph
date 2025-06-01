@@ -170,7 +170,7 @@ class App {
             })
         }
 
-        this.gpuSimulator.submitConnections(
+        this.gpuSimulator.submitNodeManager(
             this.nodeManager,
         )
         this.gpuRenderer.submitNodeManager(
@@ -602,7 +602,7 @@ class App {
                         }
 
 
-                        this.gpuSimulator.submitConnections(
+                        this.gpuSimulator.submitNodeManager(
                             this.nodeManager,
                         )
                         this.gpuRenderer.submitNodeManager(
@@ -1173,7 +1173,7 @@ class App {
 
                 this.recolorWholeGraph()
 
-                this.gpuSimulator.submitConnections(
+                this.gpuSimulator.submitNodeManager(
                     this.nodeManager,
                 )
                 this.gpuRenderer.submitNodeManager(

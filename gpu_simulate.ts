@@ -341,12 +341,15 @@ export class QuadTreeBuilder {
     _treePool: Array<QuadTree>
     _treePoolCursor: number = 0
 
+    _returnArray: Array<QuadTree>
+
     minD: number = 500
 
     constructor() {
         const initCapacity = 512
 
         this._treePool = new Array(initCapacity)
+        this._returnArray = new Array(initCapacity)
 
         for (let i = 0; i < initCapacity; i++) {
             this._treePool[i] = new QuadTree()
@@ -392,10 +395,10 @@ export class QuadTreeBuilder {
         tree.mass = mass
     }
 
-    buildTree(nodeManager: NodeManager): util.ArrayView<QuadTree> {
+    buildTree(nodeManager: NodeManager, knownNodeLength: number): util.ArrayView<QuadTree> {
         this._treePoolCursor = 0
 
-        if (nodeManager.nodes.length <= 0) {
+        if (knownNodeLength <= 0) {
             const tree = this.createNewTree()
             tree.setRect(0, 0, 0, 0)
             return new util.ArrayView<QuadTree>(this._treePool, 0, 1)
@@ -408,7 +411,7 @@ export class QuadTreeBuilder {
         let boundMaxX: number = -Number.MAX_VALUE
         let boundMaxY: number = -Number.MAX_VALUE
 
-        for (let i = 0; i < nodeManager.nodes.length; i++) {
+        for (let i = 0; i < knownNodeLength; i++) {
             const node = nodeManager.nodes[i]
 
             boundMinX = Math.min(node.posX, boundMinX)
@@ -418,7 +421,7 @@ export class QuadTreeBuilder {
             boundMaxY = Math.max(node.posY, boundMaxY)
         }
 
-        // make boundary square
+        // make boundary from rectangle to square
         {
             const centerX = (boundMinX + boundMaxX) * 0.5
             const centerY = (boundMinY + boundMaxY) * 0.5
@@ -454,7 +457,11 @@ export class QuadTreeBuilder {
             }
         }
 
-        for (const node of nodeManager.nodes) {
+        // push nodes to trees
+        //for (const node of nodeManager.nodes) {
+        for (let i = 0; i < knownNodeLength; i++) {
+            const node = nodeManager.nodes[i]
+
             let x = node.posX
             let y = node.posY
 
@@ -464,20 +471,38 @@ export class QuadTreeBuilder {
             x = Math.floor(x / cellWidth)
             y = Math.floor(y / cellHeight)
 
-            let i = x + y * gridWidth
-            const tree = this._treePool[i]
+            let treeIndex = x + y * gridWidth
+            const tree = this._treePool[treeIndex]
             if (tree.nodes === null) {
                 tree.nodes = []
             }
             tree.nodes.push(node)
         }
 
+        // cache center of mass
         for (let i = 0; i < this._treePoolCursor; i++) {
             const tree = this._treePool[i]
             this._cacheCenterOfMass(tree)
         }
 
-        return new util.ArrayView(this._treePool, 0, this._treePoolCursor)
+        // filter trees without nodes
+        let treesWithNodes = 0
+        const pushTree = (tree: QuadTree) => {
+            if (treesWithNodes >= this._returnArray.length) {
+                this._returnArray.length *= 2
+            }
+            this._returnArray[treesWithNodes] = tree
+            treesWithNodes++
+        }
+
+        for (let i = 0; i < this._treePoolCursor; i++) {
+            const tree = this._treePool[i]
+            if (tree.nodes !== null && tree.nodes.length > 0) {
+                pushTree(tree)
+            }
+        }
+
+        return new util.ArrayView(this._returnArray, 0, treesWithNodes)
     }
 }
 
@@ -653,8 +678,8 @@ export class GpuSimulator {
     async simulatePhysics(manager: NodeManager) {
         this.submitNodes(manager)
 
-        const trees = this.treeBuilder.buildTree(manager)
-        const leafCount = this.writeTreeInfosToTexture(trees, manager)
+        const trees = this.treeBuilder.buildTree(manager, this.nodeLength)
+        this.writeTreeInfosToTexture(trees, manager)
 
         // =====================
         // calculate forces
@@ -685,7 +710,7 @@ export class GpuSimulator {
             gpu.useTexture(this.gl, this.forceCalcUnit, this.treeCenterOfMassTex, 'u_tree_center_of_mass_tex')
             gpu.useTexture(this.gl, this.forceCalcUnit, this.treeNodesHeaderTex, 'u_tree_nodes_header_tex')
             gpu.useTexture(this.gl, this.forceCalcUnit, this.treeNodesTex, 'u_tree_nodes_tex')
-            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_tree_count'), leafCount)
+            this.gl.uniform1i(this.forceCalcUnit.locs.uLoc('u_tree_count'), trees.length)
             this.gl.uniform1f(this.forceCalcUnit.locs.uLoc('u_bh_threshold'), this.simParam.bhThreshold)
 
             // physics parameters
@@ -783,8 +808,6 @@ export class GpuSimulator {
     }
 
     submitConnections(manager: NodeManager) {
-        this.submitNodes(manager)
-
         this.connectionLength = manager.connections.length
 
         // =======================================
@@ -893,22 +916,13 @@ export class GpuSimulator {
         }
     }
 
-    writeTreeInfosToTexture(trees: util.ArrayView<QuadTree>, manager: NodeManager): number {
-        const leafTrees: Array<QuadTree> = []
+    submitNodeManager(manager: NodeManager) {
+        this.submitNodes(manager)
+        this.submitConnections(manager)
+    }
 
-        for (let i = 0; i < trees.length; i++) {
-            const tree = trees.get(i)
-            if (tree === null) {
-                continue
-            }
-            if (tree.nodes !== null && tree.nodes.length > 0) {
-                leafTrees.push(tree)
-            }
-        }
-
-        const leafCount = leafTrees.length
-
-        const texSize = Math.max(gpu.capacityToEdge(leafCount), 128)
+    writeTreeInfosToTexture(trees: util.ArrayView<QuadTree>, manager: NodeManager) {
+        const texSize = Math.max(gpu.capacityToEdge(trees.length), 128)
         // =========================
         // treeBoundaryTex
         // =========================
@@ -917,8 +931,8 @@ export class GpuSimulator {
 
             let offset = 0
 
-            for (let i = 0; i < leafCount; i++) {
-                const tree = leafTrees[i]
+            for (let i = 0; i < trees.length; i++) {
+                const tree = trees.get(i)
 
                 data[offset + 0] = tree.minX
                 data[offset + 1] = tree.minY
@@ -944,8 +958,8 @@ export class GpuSimulator {
 
             let offset = 0
 
-            for (let i = 0; i < leafCount; i++) {
-                const tree = leafTrees[i]
+            for (let i = 0; i < trees.length; i++) {
+                const tree = trees.get(i)
 
                 data[offset + 0] = tree.centerOfMassX
                 data[offset + 1] = tree.centerOfMassY
@@ -978,8 +992,8 @@ export class GpuSimulator {
             let nodesDataCursor = 0
 
             let headerOffset = 0
-            for (let i = 0; i < leafCount; i++) {
-                const tree = leafTrees[i]
+            for (let i = 0; i < trees.length; i++) {
+                const tree = trees.get(i)
 
                 if (tree === null) {
                     continue
@@ -1023,7 +1037,5 @@ export class GpuSimulator {
                 nodesData // data
             )
         }
-
-        return leafCount
     }
 }

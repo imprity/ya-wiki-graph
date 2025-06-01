@@ -125,7 +125,7 @@ class App {
                 this.handleEvent(e);
             });
         }
-        this.gpuSimulator.submitConnections(this.nodeManager);
+        this.gpuSimulator.submitNodeManager(this.nodeManager);
         this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
     }
     handleEvent(e) {
@@ -468,7 +468,7 @@ class App {
                                 otherNode.mass += 1;
                             }
                         }
-                        this.gpuSimulator.submitConnections(this.nodeManager);
+                        this.gpuSimulator.submitNodeManager(this.nodeManager);
                         this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
                     }
                 });
@@ -862,7 +862,7 @@ class App {
                 this.offset.y = container.offsetY;
                 this.zoom = container.zoom;
                 this.recolorWholeGraph();
-                this.gpuSimulator.submitConnections(this.nodeManager);
+                this.gpuSimulator.submitNodeManager(this.nodeManager);
                 this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
             }
             catch (err) {
