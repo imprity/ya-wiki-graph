@@ -1,5 +1,6 @@
 import * as gpu from './gpu_common.js'
 import * as util from './util.js'
+import { debugPrint } from './debug_print.js'
 import {
     NodeManager,
     DocNode,
@@ -552,7 +553,13 @@ export class GpuSimulator {
         // create opengl context
         // =========================
         {
-            const gl = canvas.getContext('webgl2')
+            const gl = canvas.getContext(
+                'webgl2',
+                {
+                    'desynchronized': true,
+                    'preserveDrawingBuffer': true,
+                }
+            )
             if (gl === null) {
                 throw new Error('failed to get webgl2 context')
             }
@@ -675,7 +682,17 @@ export class GpuSimulator {
         this.nodePhysicsFB1 = gpu.createFramebuffer(this.gl, this.nodePhysicsTex1)
     }
 
+    _updateTimer: number = 0
+
     async simulatePhysics(manager: NodeManager) {
+        {
+            const now = Date.now()
+            const delta = now - this._updateTimer
+            const fps = 1000 / delta
+            debugPrint('SIM FPS', Math.round(fps).toString())
+            this._updateTimer = now
+        }
+
         this.submitNodes(manager)
 
         const trees = this.treeBuilder.buildTree(manager, this.nodeLength)

@@ -9,6 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 import * as gpu from './gpu_common.js';
 import * as util from './util.js';
+import { debugPrint } from './debug_print.js';
 import { DocNode, } from "./graph_objects.js";
 const forceCalcVShaderSrc = `#version 300 es
 in vec4 a_vertex;
@@ -465,11 +466,15 @@ export class GpuSimulator {
         this.connectionLength = 0;
         this.simParam = new SimulationParameter();
         this.treeBuilder = new QuadTreeBuilder();
+        this._updateTimer = 0;
         // =========================
         // create opengl context
         // =========================
         {
-            const gl = canvas.getContext('webgl2');
+            const gl = canvas.getContext('webgl2', {
+                'desynchronized': true,
+                'preserveDrawingBuffer': true,
+            });
             if (gl === null) {
                 throw new Error('failed to get webgl2 context');
             }
@@ -530,6 +535,13 @@ export class GpuSimulator {
     }
     simulatePhysics(manager) {
         return __awaiter(this, void 0, void 0, function* () {
+            {
+                const now = Date.now();
+                const delta = now - this._updateTimer;
+                const fps = 1000 / delta;
+                debugPrint('SIM FPS', Math.round(fps).toString());
+                this._updateTimer = now;
+            }
             this.submitNodes(manager);
             const trees = this.treeBuilder.buildTree(manager, this.nodeLength);
             this.writeTreeInfosToTexture(trees, manager);
