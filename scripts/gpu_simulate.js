@@ -340,12 +340,15 @@ export class QuadTreeBuilder {
             const oldLen = this._treePool.length;
             const newLen = oldLen * 2;
             this._treePool.length = newLen;
-            for (let i = oldLen; i < newLen; i++) {
-                this._treePool[i] = new QuadTree();
-            }
         }
-        const tree = this._treePool[this._treePoolCursor];
-        tree.reset();
+        let tree = this._treePool[this._treePoolCursor];
+        if (tree === undefined) {
+            tree = new QuadTree();
+            this._treePool[this._treePoolCursor] = tree;
+        }
+        else {
+            tree.reset();
+        }
         tree.id = this._treePoolCursor;
         this._treePoolCursor++;
         return tree;
@@ -447,6 +450,8 @@ export class QuadTreeBuilder {
                 pushTree(tree);
             }
         }
+        debugPrint('tree pool count', `${this._treePoolCursor}`);
+        debugPrint('tree pool size ', `${this._treePool.length}`);
         return new util.ArrayView(this._returnArray, 0, treesWithNodes);
     }
 }
