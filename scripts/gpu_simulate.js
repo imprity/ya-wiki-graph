@@ -823,7 +823,7 @@ export class GpuSimulator {
                 for (let link = tree.nodes; link !== null; link = link.next) {
                     const node = link.value;
                     treeNodeLength++;
-                    nodesData[nodesDataCursor] = manager.getIndexFromId(node.id);
+                    nodesData[nodesDataCursor] = node.index;
                     nodesDataCursor++;
                 }
                 headerData[headerOffset + 1] = treeNodeLength;

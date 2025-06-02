@@ -228,7 +228,7 @@ class App {
             const focusedNode = this.focusedNode();
             if (focusedNode !== null) {
                 // expand node
-                const nodeIndex = this.nodeManager.getIndexFromId(focusedNode.id);
+                const nodeIndex = focusedNode.index;
                 this.expandNode(nodeIndex);
                 this.unfocusNode();
             }
@@ -438,7 +438,7 @@ class App {
                         // not an accurate mass of node that will expand
                         // but good enough
                         const offsetV = { x: 0, y: -(100 + DocNode.nodeMassToRadius(req.node.mass + req.links.length)) };
-                        let index = this.nodeManager.getIndexFromId(req.node.id);
+                        let index = req.node.index;
                         const colorGenerator = this.getConnectedNodeColorGenerator(req.node.color);
                         for (let i = 0; i < req.links.length; i++) {
                             const link = req.links[i];
@@ -770,7 +770,7 @@ class App {
                 if (otherNode.mass >= node.mass) {
                     break;
                 }
-                if (this.nodeManager.isConnected(this.nodeManager.getIndexFromId(node.id), this.nodeManager.getIndexFromId(otherNode.id))) {
+                if (this.nodeManager.isConnected(node.index, otherNode.index)) {
                     otherNode.color = generator();
                     alreadyColored[j] = true;
                 }

@@ -308,7 +308,7 @@ class App {
             const focusedNode = this.focusedNode()
             if (focusedNode !== null) {
                 // expand node
-                const nodeIndex = this.nodeManager.getIndexFromId(focusedNode.id)
+                const nodeIndex = focusedNode.index
                 this.expandNode(nodeIndex)
 
                 this.unfocusNode()
@@ -562,7 +562,7 @@ class App {
                         // but good enough
                         const offsetV = { x: 0, y: - (100 + DocNode.nodeMassToRadius(req.node.mass + req.links.length)) }
 
-                        let index = this.nodeManager.getIndexFromId(req.node.id)
+                        let index = req.node.index
 
                         const colorGenerator = this.getConnectedNodeColorGenerator(req.node.color)
 
@@ -1011,8 +1011,8 @@ class App {
                 }
 
                 if (this.nodeManager.isConnected(
-                    this.nodeManager.getIndexFromId(node.id),
-                    this.nodeManager.getIndexFromId(otherNode.id)
+                    node.index,
+                    otherNode.index
                 )) {
                     otherNode.color = generator()
                     alreadyColored[j] = true

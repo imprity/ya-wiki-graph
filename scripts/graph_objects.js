@@ -22,6 +22,7 @@ export class DocNode {
         this.isExpanding = false;
         this.syncedToRender = false;
         this.id = 0;
+        this.index = 0; // index of this node in node manager
         this.title = "";
         this.id = DocNode.getNewNodeId();
     }
@@ -61,13 +62,6 @@ export class NodeManager {
         this._idToNodeIndex = new Map();
         this.nodes.length = 0;
         this.connections.length = 0;
-    }
-    getIndexFromId(id) {
-        const index = this._idToNodeIndex.get(id);
-        if (index === undefined) {
-            return -1;
-        }
-        return index;
     }
     isConnected(nodeIndexA, nodeIndexB) {
         if (nodeIndexA === nodeIndexB) {
@@ -135,6 +129,7 @@ export class NodeManager {
         }
         this._titleToNodes.set(node.title, this.nodes.length);
         this._idToNodeIndex.set(node.id, this.nodes.length);
+        node.index = this.nodes.length;
         this.nodes.push(node);
     }
     findNodeFromTitle(title) {

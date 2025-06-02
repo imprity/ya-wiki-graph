@@ -1078,7 +1078,7 @@ export class GpuSimulator {
                 ) {
                     const node = link.value
                     treeNodeLength++
-                    nodesData[nodesDataCursor] = manager.getIndexFromId(node.id)
+                    nodesData[nodesDataCursor] = node.index
                     nodesDataCursor++
                 }
 

@@ -40,6 +40,7 @@ export class DocNode {
     syncedToRender: boolean = false
 
     id: number = 0
+    index: number = 0 // index of this node in node manager
 
     title: string = ""
 
@@ -93,15 +94,6 @@ export class NodeManager {
 
         this.nodes.length = 0
         this.connections.length = 0
-    }
-
-    getIndexFromId(id: number): number {
-        const index = this._idToNodeIndex.get(id)
-        if (index === undefined) {
-            return -1
-        }
-
-        return index
     }
 
     isConnected(nodeIndexA: number, nodeIndexB: number): boolean {
@@ -192,6 +184,7 @@ export class NodeManager {
 
         this._titleToNodes.set(node.title, this.nodes.length)
         this._idToNodeIndex.set(node.id, this.nodes.length)
+        node.index = this.nodes.length
         this.nodes.push(node)
     }
 
