@@ -173,6 +173,18 @@ export function useTexture(gl, renderUnit, tex, name) {
     gl.bindTexture(gl.TEXTURE_2D, tex.texture);
     gl.uniform1i(renderUnit.locs.uLoc(name), tex.unit);
 }
+export function allocDataTexture(gl, tex, internalformat, width, height, format, type) {
+    if (!(width === tex.width && height === tex.height)) {
+        gl.activeTexture(gl.TEXTURE0 + tex.unit);
+        gl.bindTexture(gl.TEXTURE_2D, tex.texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, // level
+        internalformat, width, height, // width, height
+        0, // border
+        format, type, null);
+        tex.width = width;
+        tex.height = height;
+    }
+}
 export function setDataTextureData(gl, tex, internalformat, width, height, format, type, data) {
     gl.activeTexture(gl.TEXTURE0 + tex.unit);
     gl.bindTexture(gl.TEXTURE_2D, tex.texture);

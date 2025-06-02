@@ -813,14 +813,13 @@ export class GpuSimulator {
             this.gl.UNSIGNED_INT, // type
             new Uint32Array(data.buffer) // data
         )
-        gpu.setDataTextureData(
+        gpu.allocDataTexture(
             this.gl,
             this.nodePhysicsTex1,
             this.gl.RGBA32UI, // internal format
             nodeTexSize, nodeTexSize, // width, height
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
-            new Uint32Array(data.buffer) // data
         )
     }
 

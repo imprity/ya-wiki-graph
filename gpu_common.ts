@@ -259,6 +259,32 @@ export function useTexture(
     gl.uniform1i(renderUnit.locs.uLoc(name), tex.unit)
 }
 
+export function allocDataTexture(
+    gl: WebGL2RenderingContext,
+    tex: Texture,
+    internalformat: GLint,
+    width: number, height: number,
+    format: GLenum,
+    type: GLenum,
+) {
+    if (!(width === tex.width && height === tex.height)) {
+        gl.activeTexture(gl.TEXTURE0 + tex.unit)
+        gl.bindTexture(gl.TEXTURE_2D, tex.texture)
+        gl.texImage2D(
+            gl.TEXTURE_2D,
+            0, // level
+            internalformat,
+            width, height, // width, height
+            0, // border
+            format,
+            type,
+            null
+        )
+        tex.width = width
+        tex.height = height
+    }
+}
+
 export function setDataTextureData(
     gl: WebGL2RenderingContext,
     tex: Texture,
