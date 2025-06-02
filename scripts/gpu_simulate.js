@@ -294,7 +294,9 @@ export class QuadTree {
         this.centerOfMassX = 0;
         this.centerOfMassY = 0;
         this.mass = 0;
+        //nodes: Array<DocNode> | null = null
         this.nodes = null;
+        this.lastLink = null;
     }
     reset() {
         this.minX = 0;
@@ -308,6 +310,7 @@ export class QuadTree {
         this.mass = 0;
         this.id = -1;
         this.nodes = null;
+        this.lastLink = null;
     }
     setRect(minX, minY, maxX, maxY) {
         this.minX = minX;
@@ -327,19 +330,19 @@ export class QuadTree {
 export class QuadTreeBuilder {
     constructor() {
         this._treePoolCursor = 0;
-        this.minD = 500;
+        this._linkedListPoolCursor = 0;
+        this.minD = 1000;
         const initCapacity = 512;
         this._treePool = new Array(initCapacity);
         this._returnArray = new Array(initCapacity);
+        this._linkedListPool = new Array(initCapacity);
         for (let i = 0; i < initCapacity; i++) {
             this._treePool[i] = new QuadTree();
         }
     }
     createNewTree() {
         if (this._treePoolCursor >= this._treePool.length) {
-            const oldLen = this._treePool.length;
-            const newLen = oldLen * 2;
-            this._treePool.length = newLen;
+            this._treePool.length *= 2;
         }
         let tree = this._treePool[this._treePoolCursor];
         if (tree === undefined) {
@@ -353,6 +356,22 @@ export class QuadTreeBuilder {
         this._treePoolCursor++;
         return tree;
     }
+    getNewLinkedList(node) {
+        if (this._linkedListPoolCursor >= this._linkedListPool.length) {
+            this._linkedListPool.length *= 2;
+        }
+        let link = this._linkedListPool[this._linkedListPoolCursor];
+        if (link === undefined) {
+            link = new util.LinkedList(node);
+            this._linkedListPool[this._linkedListPoolCursor] = link;
+        }
+        else {
+            link.value = node;
+            link.next = null;
+        }
+        this._linkedListPoolCursor++;
+        return link;
+    }
     _cacheCenterOfMass(tree) {
         if (tree.nodes === null) {
             return;
@@ -360,7 +379,9 @@ export class QuadTreeBuilder {
         let x = 0;
         let y = 0;
         let mass = 0;
-        for (const node of tree.nodes) {
+        //for (const node of tree.nodes) {
+        for (let link = tree.nodes; link !== null; link = link.next) {
+            const node = link.value;
             x += node.posX * node.mass;
             y += node.posY * node.mass;
             mass += node.mass;
@@ -371,6 +392,7 @@ export class QuadTreeBuilder {
     }
     buildTree(nodeManager, knownNodeLength) {
         this._treePoolCursor = 0;
+        this._linkedListPoolCursor = 0;
         if (knownNodeLength <= 0) {
             const tree = this.createNewTree();
             tree.setRect(0, 0, 0, 0);
@@ -413,6 +435,17 @@ export class QuadTreeBuilder {
                 tree.setRect(boundMinX + x * cellWidth, boundMinY + y * cellHeight, boundMinX + (x + 1) * cellWidth, boundMinY + (y + 1) * cellHeight);
             }
         }
+        const pushNodeToTree = (node, tree) => {
+            const link = this.getNewLinkedList(node);
+            if (tree.nodes === null) {
+                tree.nodes = link;
+                tree.lastLink = link;
+            }
+            else if (tree.lastLink !== null) {
+                tree.lastLink.next = link;
+                tree.lastLink = link;
+            }
+        };
         // push nodes to trees
         //for (const node of nodeManager.nodes) {
         for (let i = 0; i < knownNodeLength; i++) {
@@ -425,10 +458,7 @@ export class QuadTreeBuilder {
             y = Math.floor(y / cellHeight);
             let treeIndex = x + y * gridWidth;
             const tree = this._treePool[treeIndex];
-            if (tree.nodes === null) {
-                tree.nodes = [];
-            }
-            tree.nodes.push(node);
+            pushNodeToTree(node, tree);
         }
         // cache center of mass
         for (let i = 0; i < this._treePoolCursor; i++) {
@@ -446,7 +476,7 @@ export class QuadTreeBuilder {
         };
         for (let i = 0; i < this._treePoolCursor; i++) {
             const tree = this._treePool[i];
-            if (tree.nodes !== null && tree.nodes.length > 0) {
+            if (tree.nodes !== null) {
                 pushTree(tree);
             }
         }
@@ -789,11 +819,14 @@ export class GpuSimulator {
                     continue;
                 }
                 headerData[headerOffset + 0] = nodesDataCursor;
-                for (const node of tree.nodes) {
+                let treeNodeLength = 0;
+                for (let link = tree.nodes; link !== null; link = link.next) {
+                    const node = link.value;
+                    treeNodeLength++;
                     nodesData[nodesDataCursor] = manager.getIndexFromId(node.id);
                     nodesDataCursor++;
                 }
-                headerData[headerOffset + 1] = tree.nodes.length;
+                headerData[headerOffset + 1] = treeNodeLength;
                 headerData[headerOffset + 2] = 0; // reserved
                 headerData[headerOffset + 3] = 0; // reserved
                 headerOffset += 4;

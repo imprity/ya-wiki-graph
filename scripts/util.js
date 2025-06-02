@@ -97,3 +97,9 @@ export class ArrayView {
         return this.data[at];
     }
 }
+export class LinkedList {
+    constructor(value) {
+        this.next = null;
+        this.value = value;
+    }
+}

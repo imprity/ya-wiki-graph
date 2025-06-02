@@ -114,3 +114,12 @@ export class ArrayView<T> {
         return this.data[at]
     }
 }
+
+export class LinkedList<T> {
+    next: LinkedList<T> | null = null
+    value: T
+
+    constructor(value: T) {
+        this.value = value
+    }
+}
