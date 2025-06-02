@@ -186,7 +186,7 @@ export function disableMips(
 
 let textureUnitCounter: number = 0
 
-function getNewTextureUnitNumber(): number {
+export function getNewTextureUnitNumber(): number {
     let toReturn = textureUnitCounter
     textureUnitCounter += 1
     return textureUnitCounter

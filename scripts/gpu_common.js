@@ -135,7 +135,7 @@ export function disableMips(gl) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
 let textureUnitCounter = 0;
-function getNewTextureUnitNumber() {
+export function getNewTextureUnitNumber() {
     let toReturn = textureUnitCounter;
     textureUnitCounter += 1;
     return textureUnitCounter;

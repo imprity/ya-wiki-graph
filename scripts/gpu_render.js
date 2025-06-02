@@ -1,45 +1,7 @@
 import * as math from "./math.js";
+import * as gpu from "./gpu_common.js";
 import * as assets from "./assets.js";
 import { ColorTable } from "./color_table.js";
-const glslCommon = `
-#ifndef _GLSL_COMMON_HEADER_GUARD_
-#define _GLSL_COMMON_HEADER_GUARD_
-
-#define SMALL_NUMBER 0.001f
-
-#define PI 3.14159265359
-
-vec2 rotate_v(vec2 v, float angle) {
-    float sinv = sin(angle);
-    float cosv = cos(angle);
-
-    float x2 = v.x * cosv - v.y * sinv;
-    float y2 = v.x * sinv + v.y * cosv;
-
-    v.x = x2;
-    v.y = y2;
-
-    return v;
-}
-
-uvec4 get_data_from_tex(highp usampler2D data_tex, int index) {
-    ivec2 tex_size = textureSize(data_tex, 0);
-    int x = index % tex_size.x;
-    int y = index / tex_size.x;
-
-    return texelFetch(data_tex, ivec2(x, y), 0);
-}
-
-float length_squared(vec2 v) {
-    return dot(v, v);
-}
-
-float distance_squared(vec2 v1, vec2 v2) {
-    return length_squared(v1 - v2);
-}
-
-#endif
-`;
 const glslViewportTransform = `
 #ifndef _GLSL_VIEWPORT_HEADER_GUARD_
 #define _GLSL_VIEWPORT_HEADER_GUARD_
@@ -68,11 +30,11 @@ vec2 viewport_to_world(vec2 pos) {
 
 #endif
 `;
-const glslNodeUtils = `
+const glslNodeCommon = `
 #ifndef _GLSL_NODE_HEADER_GUARD_
 #define _GLSL_NODE_HEADER_GUARD_
 
-${glslCommon}
+${gpu.glslCommon}
 
 uniform int u_node_count;
 
@@ -101,11 +63,11 @@ float get_node_render_radius(uvec4 render) {
 
 #endif
 `;
-const glslConUtils = `
+const glslConCommon = `
 #ifndef _GLSL_CONNECTION_HEADER_GUARD_
 #define _GLSL_CONNECTION_HEADER_GUARD_
 
-${glslCommon}
+${gpu.glslCommon}
 
 uniform int u_con_count;
 
@@ -133,7 +95,7 @@ out vec4 v_color;
 out vec2 v_uv;
 
 ${glslViewportTransform}
-${glslNodeUtils}
+${glslNodeCommon}
 
 void main() {
     float x = a_vertex.x;
@@ -197,7 +159,7 @@ uniform bool u_draw_outline;
 
 out vec4 out_color;
 
-${glslCommon}
+${gpu.glslCommon}
 
 void main() {
     vec4 node_c = texture(u_node_tex, v_uv) * v_color;
@@ -211,10 +173,10 @@ in vec2 a_uv;
 
 uniform float u_line_thickness;
 
-${glslCommon}
+${gpu.glslCommon}
 
-${glslNodeUtils}
-${glslConUtils}
+${glslNodeCommon}
+${glslConCommon}
 
 ${glslViewportTransform}
 
@@ -325,32 +287,6 @@ export var RenderSyncFlags;
     RenderSyncFlags[RenderSyncFlags["NodeRenderPos"] = 8] = "NodeRenderPos";
     RenderSyncFlags[RenderSyncFlags["Everything"] = -1] = "Everything";
 })(RenderSyncFlags || (RenderSyncFlags = {}));
-class LocationGroup {
-    constructor(gl, program) {
-        this.uniformLocs = new Map();
-        this.attribLocs = new Map();
-        this.gl = gl;
-        this.program = program;
-    }
-    // uniform locations
-    uLoc(name) {
-        if (this.uniformLocs.has(name)) {
-            return this.uniformLocs.get(name);
-        }
-        const loc = this.gl.getUniformLocation(this.program, name);
-        this.uniformLocs.set(name, loc);
-        return loc;
-    }
-    // attribute locations
-    aLoc(name) {
-        if (this.attribLocs.has(name)) {
-            return this.attribLocs.get(name);
-        }
-        const loc = this.gl.getAttribLocation(this.program, name);
-        this.attribLocs.set(name, loc);
-        return loc;
-    }
-}
 export class GpuRenderer {
     constructor(canvas) {
         this.nodeLength = 0;
@@ -387,54 +323,8 @@ export class GpuRenderer {
             this.canvas.width = rect.width;
             this.canvas.height = rect.height;
         }
-        // =========================
-        // create render units
-        // =========================
-        const createShader = (type, src) => {
-            const shader = this.gl.createShader(type);
-            let shader_type = 'vertex';
-            if (type == this.gl.FRAGMENT_SHADER) {
-                let shader_type = 'fragment';
-            }
-            if (shader === null) {
-                throw new Error(`failed to create a ${shader_type} shader`);
-            }
-            this.gl.shaderSource(shader, src);
-            this.gl.compileShader(shader);
-            if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
-                let log = this.gl.getShaderInfoLog(shader);
-                if (log === null) {
-                    log = `failed to create a ${shader_type} shader`;
-                }
-                throw new Error(log);
-            }
-            return shader;
-        };
-        const createRenderUnit = (vShaderSrc, fShaderSrc, name) => {
-            console.log(`creating ${name} RenderUnit`);
-            const program = this.gl.createProgram();
-            const vShader = createShader(this.gl.VERTEX_SHADER, vShaderSrc);
-            const fShader = createShader(this.gl.FRAGMENT_SHADER, fShaderSrc);
-            this.gl.attachShader(program, vShader);
-            this.gl.attachShader(program, fShader);
-            this.gl.linkProgram(program);
-            if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
-                let log = this.gl.getProgramInfoLog(program);
-                if (log === null) {
-                    log = 'failed to link program';
-                }
-                throw new Error(log);
-            }
-            const locs = new LocationGroup(this.gl, program);
-            const vao = this.gl.createVertexArray();
-            return {
-                program: program,
-                locs: locs,
-                vao: vao
-            };
-        };
-        this.drawNodeUnit = createRenderUnit(drawNodeVShaderSrc, drawNodeFShaderSrc, 'drawNodeUnit');
-        this.drawConUint = createRenderUnit(drawConVSahderSrc, drawConFSahderSrc, 'drawConUint');
+        this.drawNodeUnit = gpu.createRenderUnit(this.gl, drawNodeVShaderSrc, drawNodeFShaderSrc, 'drawNodeUnit');
+        this.drawConUint = gpu.createRenderUnit(this.gl, drawConVSahderSrc, drawConFSahderSrc, 'drawConUint');
         // =========================
         // create buffers
         // =========================
@@ -474,35 +364,22 @@ export class GpuRenderer {
         // =====================================
         // bind buffers to vao
         // =====================================
-        const bindBufferToVAO = (buffer, unit, locName, size, type, normalized, stride = 0, offset = 0) => {
-            this.gl.bindVertexArray(unit.vao);
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer);
-            this.gl.enableVertexAttribArray(unit.locs.aLoc(locName));
-            this.gl.vertexAttribPointer(unit.locs.aLoc(locName), // location
-            size, // size
-            type, // type
-            normalized, // normalize
-            stride, // stride
-            offset);
-            this.gl.bindVertexArray(null);
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
-        };
-        bindBufferToVAO(this.rect1Buf, this.drawNodeUnit, 'a_vertex', 4, // size
+        gpu.bindBufferToVAO(this.gl, this.rect1Buf, this.drawNodeUnit, 'a_vertex', 4, // size
         this.gl.FLOAT, // type
         false, // normalize
         0, // stride
         0);
-        bindBufferToVAO(this.rect1Buf, this.drawConUint, 'a_vertex', 4, // size
+        gpu.bindBufferToVAO(this.gl, this.rect1Buf, this.drawConUint, 'a_vertex', 4, // size
         this.gl.FLOAT, // type
         false, // normalize
         0, // stride
         0);
-        bindBufferToVAO(this.rectUVBuf, this.drawConUint, 'a_uv', 2, // size
+        gpu.bindBufferToVAO(this.gl, this.rectUVBuf, this.drawConUint, 'a_uv', 2, // size
         this.gl.FLOAT, // type
         false, // normalize
         0, // stride
         0);
-        bindBufferToVAO(this.rectUVBuf, this.drawNodeUnit, 'a_uv', 2, // size
+        gpu.bindBufferToVAO(this.gl, this.rectUVBuf, this.drawNodeUnit, 'a_uv', 2, // size
         this.gl.FLOAT, // type
         false, // normalize
         0, // stride
@@ -516,46 +393,22 @@ export class GpuRenderer {
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         };
-        let textureUnitMax = 0;
-        const getNewTextureUnitNumber = () => {
-            let toReturn = textureUnitMax;
-            textureUnitMax += 1;
-            return toReturn;
-        };
-        const createDataTexture = (internalformat, w, h, format, type) => {
-            const texture = this.gl.createTexture();
-            let unit = getNewTextureUnitNumber();
-            // set up texture parameters
-            // set the filtering so we don't need mips
-            this.gl.activeTexture(this.gl.TEXTURE0 + unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
-            disableMips();
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-            internalformat, w, h, // width, height
-            0, // border
-            format, type, null // data
-            );
-            return {
-                texture: texture,
-                unit: unit,
-                width: w, height: h
-            };
-        };
+        gpu.resetTextureUnitCounter();
         const texInitSize = 4;
         // create textures to hold node informations
-        this.nodeColorsTex = createDataTexture(this.gl.RGBA8, // internal format
+        this.nodeColorsTex = gpu.createDataTexture(this.gl, this.gl.RGBA8, // internal format
         texInitSize, texInitSize, // width, height
         this.gl.RGBA, // format
         this.gl.UNSIGNED_BYTE);
         // create texture to hold node render poses
-        this.nodeRenderPosTex = createDataTexture(this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
+        this.nodeRenderPosTex = gpu.createDataTexture(this.gl, this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
         // create textures to hold connection informations
-        this.conInfosTex = createDataTexture(this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
+        this.conInfosTex = gpu.createDataTexture(this.gl, this.gl.RGBA32UI, texInitSize, texInitSize, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT);
         // create dummy texture
         let dummyTexture;
         {
             const texture = this.gl.createTexture();
-            let unit = getNewTextureUnitNumber();
+            let unit = gpu.getNewTextureUnitNumber();
             this.gl.activeTexture(this.gl.TEXTURE0 + unit);
             this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
             this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
@@ -583,7 +436,7 @@ export class GpuRenderer {
                 return dummyTexture;
             }
             const texture = this.gl.createTexture();
-            let unit = getNewTextureUnitNumber();
+            let unit = gpu.getNewTextureUnitNumber();
             this.gl.activeTexture(this.gl.TEXTURE0 + unit);
             this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
             this.gl.texImage2D(this.gl.TEXTURE_2D, // taget
@@ -604,18 +457,13 @@ export class GpuRenderer {
         this.circleTex = createImageTexture(assets.circleImage);
     }
     render() {
-        const useTexture = (renderUnit, tex, name) => {
-            this.gl.activeTexture(this.gl.TEXTURE0 + tex.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, tex.texture);
-            this.gl.uniform1i(renderUnit.locs.uLoc(name), tex.unit);
-        };
         const supplyNodeInfos = (renderUnit) => {
-            useTexture(renderUnit, this.nodeRenderPosTex, 'u_node_render_pos_tex');
-            useTexture(renderUnit, this.nodeColorsTex, 'u_node_colors_tex');
+            gpu.useTexture(this.gl, renderUnit, this.nodeRenderPosTex, 'u_node_render_pos_tex');
+            gpu.useTexture(this.gl, renderUnit, this.nodeColorsTex, 'u_node_colors_tex');
             this.gl.uniform1i(renderUnit.locs.uLoc('u_node_count'), this.nodeLength);
         };
         const supplyConInfos = (renderUnit) => {
-            useTexture(renderUnit, this.conInfosTex, 'u_con_infos_tex');
+            gpu.useTexture(this.gl, renderUnit, this.conInfosTex, 'u_con_infos_tex');
             this.gl.uniform1i(renderUnit.locs.uLoc('u_con_count'), this.connectionLength);
         };
         // match canvas width and height to
@@ -660,7 +508,7 @@ export class GpuRenderer {
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
             this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
             supplyNodeInfos(this.drawNodeUnit);
-            useTexture(this.drawNodeUnit, this.circleTex, 'u_node_tex');
+            gpu.useTexture(this.gl, this.drawNodeUnit, this.circleTex, 'u_node_tex');
             this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
             this.gl.uniform1f(this.drawNodeUnit.locs.uLoc('u_zoom'), this.zoom);
             this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_offset'), this.offset.x, this.offset.y);
@@ -686,25 +534,8 @@ export class GpuRenderer {
     submitNodeManager(manager, flag) {
         this.nodeLength = manager.nodes.length;
         this.connectionLength = manager.connections.length;
-        let nodeTexSize = this.capacityToEdge(this.nodeLength);
+        let nodeTexSize = gpu.capacityToEdge(this.nodeLength);
         nodeTexSize = Math.max(nodeTexSize, 128); // prevent creating empty texture
-        const texImage = (tex, internalformat, width, height, format, type, data) => {
-            this.gl.activeTexture(this.gl.TEXTURE0 + tex.unit);
-            this.gl.bindTexture(this.gl.TEXTURE_2D, tex.texture);
-            if (width === tex.width && height === tex.height) {
-                this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, // level
-                0, 0, width, height, // x, y, width, height
-                format, type, data);
-            }
-            else {
-                this.gl.texImage2D(this.gl.TEXTURE_2D, 0, // level
-                internalformat, width, height, // width, height
-                0, // border
-                format, type, data);
-            }
-            tex.width = width;
-            tex.height = height;
-        };
         // supply texture with node colors
         if ((flag & RenderSyncFlags.NodeColors) > 0) {
             let data = new Uint8Array(nodeTexSize * nodeTexSize * 4);
@@ -718,7 +549,7 @@ export class GpuRenderer {
                 data[offset + 3] = c.a;
                 offset += 4;
             }
-            texImage(this.nodeColorsTex, this.gl.RGBA8, // internal format
+            gpu.setDataTextureData(this.gl, this.nodeColorsTex, this.gl.RGBA8, // internal format
             nodeTexSize, nodeTexSize, // width, height
             this.gl.RGBA, // format
             this.gl.UNSIGNED_BYTE, // type
@@ -737,7 +568,7 @@ export class GpuRenderer {
                 data[offset + 3] = node.renderRadiusScale * node.getRadius();
                 offset += 4;
             }
-            texImage(this.nodeRenderPosTex, this.gl.RGBA32UI, // internal format
+            gpu.setDataTextureData(this.gl, this.nodeRenderPosTex, this.gl.RGBA32UI, // internal format
             nodeTexSize, nodeTexSize, // width, height
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
@@ -746,7 +577,7 @@ export class GpuRenderer {
         }
         // supply texture with connection infos
         if ((flag & RenderSyncFlags.Connections) > 0) {
-            let texSize = this.capacityToEdge(this.connectionLength);
+            let texSize = gpu.capacityToEdge(this.connectionLength);
             texSize = Math.max(texSize, 128); // prevent creating empty texture
             let data = new Uint32Array(texSize * texSize * 4);
             // write connections
@@ -759,15 +590,12 @@ export class GpuRenderer {
                 data[offset + 3] = 0; // reserved
                 offset += 4;
             }
-            texImage(this.conInfosTex, this.gl.RGBA32UI, // internal format
+            gpu.setDataTextureData(this.gl, this.conInfosTex, this.gl.RGBA32UI, // internal format
             texSize, texSize, // width, height
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
             new Uint32Array(data.buffer) // data
             );
         }
-    }
-    capacityToEdge(cap) {
-        return Math.ceil(Math.sqrt(cap));
     }
 }
