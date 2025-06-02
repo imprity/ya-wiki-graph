@@ -123,3 +123,62 @@ export class LinkedList<T> {
         this.value = value
     }
 }
+
+type TypedArray =
+    | Int8Array
+    | Uint8Array
+    | Uint8ClampedArray
+    | Int16Array
+    | Uint16Array
+    | Int32Array
+    | Uint32Array
+    | Float32Array
+    | Float64Array
+
+interface TypedArrayConstructor {
+    BYTES_PER_ELEMENT: number
+    new(elementCount: number): TypedArray
+    new(buffer: ArrayBuffer): TypedArray
+}
+
+export class ByteBuffer {
+    _buffer: TypedArray
+    _type: TypedArrayConstructor
+    _length = 0
+
+    constructor(type: TypedArrayConstructor) {
+        this._buffer = new type(512)
+        this._type = type
+    }
+
+    length(): number {
+        return this._length
+    }
+
+    setLength(length: number) {
+        if (this._buffer.length < length) {
+            let capacity = this._buffer.length
+            while (capacity < length) {
+                capacity *= 2
+            }
+            this._buffer = new this._type(capacity)
+        }
+        this._length = length
+    }
+
+    get(at: number): number {
+        return this._buffer[at]
+    }
+
+    set(at: number, value: number) {
+        // if (!(0 <= at && at < this._length)) {
+        //     throw new Error(`index out of bound !(0 <= at < ${this._length})`)
+        // }
+        this._buffer[at] = value
+    }
+
+    cast(type: TypedArrayConstructor, elementCount: number = this._length): TypedArray {
+        let view = new type(this._buffer.buffer)
+        return view.subarray(0, elementCount)
+    }
+}

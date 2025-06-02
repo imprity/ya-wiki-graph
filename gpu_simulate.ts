@@ -730,7 +730,8 @@ export class GpuSimulator {
         this.nodePhysicsFB1 = gpu.createFramebuffer(this.gl, this.nodePhysicsTex1)
     }
 
-    _updateTimer: number = 0
+    _updateTimer: number = 0;
+    gpuReadBuf: util.ByteBuffer = new util.ByteBuffer(Uint32Array)
 
     async simulatePhysics(manager: NodeManager) {
         {
@@ -797,20 +798,23 @@ export class GpuSimulator {
 
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, fb)
 
-            let nodeInfos: any = new Uint32Array(
-                tex.width * tex.height * 4);
+            // let nodeInfos: any = new Uint32Array(
+            //     tex.width * tex.height * 4);
+            this.gpuReadBuf.setLength(tex.width * tex.height * 4)
 
             await gpu.readPixelsAsync(
                 this.gl,
                 0, 0, tex.width, tex.height,
                 this.gl.RGBA_INTEGER,
                 this.gl.UNSIGNED_INT,
-                nodeInfos
+                //nodeInfos
+                this.gpuReadBuf.cast(Uint32Array)
             )
 
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null)
 
-            nodeInfos = new Float32Array(nodeInfos.buffer)
+            // nodeInfos = new Float32Array(nodeInfos.buffer)
+            const nodeInfos = this.gpuReadBuf.cast(Float32Array)
 
             const nodeLength = Math.min(this.nodeLength, manager.nodes.length)
 
@@ -833,21 +837,23 @@ export class GpuSimulator {
         }
     }
 
+    _nodePhysicsTexBuf: util.ByteBuffer = new util.ByteBuffer(Float32Array)
+
     submitNodes(manager: NodeManager) {
         this.nodeLength = manager.nodes.length
         // =====================
         // supply node infos
         // =====================
         let nodeTexSize = Math.max(gpu.capacityToEdge(this.nodeLength), 128)
-        let data = new Float32Array(nodeTexSize * nodeTexSize * 4)
+        this._nodePhysicsTexBuf.setLength(nodeTexSize * nodeTexSize * 4)
 
         let offset = 0
         for (let i = 0; i < this.nodeLength; i++) {
             const node = manager.nodes[i]
-            data[offset + 0] = node.posX
-            data[offset + 1] = node.posY
-            data[offset + 2] = node.mass
-            data[offset + 3] = node.temp
+            this._nodePhysicsTexBuf.set(offset + 0, node.posX)
+            this._nodePhysicsTexBuf.set(offset + 1, node.posY)
+            this._nodePhysicsTexBuf.set(offset + 2, node.mass)
+            this._nodePhysicsTexBuf.set(offset + 3, node.temp)
 
             offset += 4
         }
@@ -859,7 +865,7 @@ export class GpuSimulator {
             nodeTexSize, nodeTexSize, // width, height
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
-            new Uint32Array(data.buffer) // data
+            this._nodePhysicsTexBuf.cast(Uint32Array)
         )
         gpu.allocDataTexture(
             this.gl,
@@ -985,23 +991,28 @@ export class GpuSimulator {
         this.submitConnections(manager)
     }
 
+    _treeBoundaryBuf: util.ByteBuffer = new util.ByteBuffer(Float32Array)
+    _treeCenterOfMassBuf: util.ByteBuffer = new util.ByteBuffer(Float32Array)
+    _treeNodesHeaderBuf: util.ByteBuffer = new util.ByteBuffer(Uint32Array)
+    _treeNodesBuf: util.ByteBuffer = new util.ByteBuffer(Uint32Array)
+
     writeTreeInfosToTexture(trees: util.ArrayView<QuadTree>, manager: NodeManager) {
         const texSize = Math.max(gpu.capacityToEdge(trees.length), 128)
         // =========================
         // treeBoundaryTex
         // =========================
         {
-            let data = new Float32Array(texSize * texSize * 4)
+            this._treeBoundaryBuf.setLength(texSize * texSize * 4)
 
             let offset = 0
 
             for (let i = 0; i < trees.length; i++) {
                 const tree = trees.get(i)
 
-                data[offset + 0] = tree.minX
-                data[offset + 1] = tree.minY
-                data[offset + 2] = tree.maxX
-                data[offset + 3] = tree.maxY
+                this._treeBoundaryBuf.set(offset + 0, tree.minX)
+                this._treeBoundaryBuf.set(offset + 1, tree.minY)
+                this._treeBoundaryBuf.set(offset + 2, tree.maxX)
+                this._treeBoundaryBuf.set(offset + 3, tree.maxY)
 
                 offset += 4
             }
@@ -1013,22 +1024,25 @@ export class GpuSimulator {
                 texSize, texSize, // width, height
                 this.gl.RGBA_INTEGER, // format
                 this.gl.UNSIGNED_INT, // type
-                new Uint32Array(data.buffer) // data
+                this._treeBoundaryBuf.cast(Uint32Array)
             )
         }
 
+        // =========================
+        // treeCenterOfMassTex
+        // =========================
         {
-            let data = new Float32Array(texSize * texSize * 4)
+            this._treeCenterOfMassBuf.setLength(texSize * texSize * 4)
 
             let offset = 0
 
             for (let i = 0; i < trees.length; i++) {
                 const tree = trees.get(i)
 
-                data[offset + 0] = tree.centerOfMassX
-                data[offset + 1] = tree.centerOfMassY
-                data[offset + 2] = tree.mass
-                data[offset + 3] = 0 // reserved
+                this._treeBoundaryBuf.set(offset + 0, tree.centerOfMassX)
+                this._treeBoundaryBuf.set(offset + 1, tree.centerOfMassY)
+                this._treeBoundaryBuf.set(offset + 2, tree.mass)
+                this._treeBoundaryBuf.set(offset + 3, 0) // reserved
 
                 offset += 4
             }
@@ -1040,7 +1054,7 @@ export class GpuSimulator {
                 texSize, texSize, // width, height
                 this.gl.RGBA_INTEGER, // format
                 this.gl.UNSIGNED_INT, // type
-                new Uint32Array(data.buffer) // data
+                this._treeBoundaryBuf.cast(Uint32Array)
             )
         }
 
@@ -1050,8 +1064,8 @@ export class GpuSimulator {
         {
             const nodesTexSize = Math.max(gpu.capacityToEdge(this.nodeLength), 128)
 
-            let nodesData = new Uint32Array(nodesTexSize * nodesTexSize)
-            let headerData = new Uint32Array(texSize * texSize * 4)
+            this._treeNodesBuf.setLength(nodesTexSize * nodesTexSize)
+            this._treeNodesHeaderBuf.setLength(texSize * texSize * 4)
 
             let nodesDataCursor = 0
 
@@ -1067,7 +1081,7 @@ export class GpuSimulator {
                     continue
                 }
 
-                headerData[headerOffset + 0] = nodesDataCursor
+                this._treeNodesHeaderBuf.set(headerOffset + 0, nodesDataCursor)
 
                 let treeNodeLength = 0
 
@@ -1078,13 +1092,13 @@ export class GpuSimulator {
                 ) {
                     const node = link.value
                     treeNodeLength++
-                    nodesData[nodesDataCursor] = node.index
+                    this._treeNodesBuf.set(nodesDataCursor, node.index)
                     nodesDataCursor++
                 }
 
-                headerData[headerOffset + 1] = treeNodeLength
-                headerData[headerOffset + 2] = 0 // reserved
-                headerData[headerOffset + 3] = 0 // reserved
+                this._treeNodesHeaderBuf.set(headerOffset + 1, treeNodeLength)
+                this._treeNodesHeaderBuf.set(headerOffset + 2, 0) // reserved
+                this._treeNodesHeaderBuf.set(headerOffset + 3, 0) // reserved
 
                 headerOffset += 4
             }
@@ -1096,7 +1110,7 @@ export class GpuSimulator {
                 texSize, texSize, // width, height
                 this.gl.RGBA_INTEGER, // format
                 this.gl.UNSIGNED_INT, // type
-                headerData // data
+                this._treeNodesHeaderBuf.cast(Uint32Array)
             )
 
             gpu.setDataTextureData(
@@ -1106,7 +1120,7 @@ export class GpuSimulator {
                 nodesTexSize, nodesTexSize, // width, height
                 this.gl.RED_INTEGER, // format
                 this.gl.UNSIGNED_INT, // type
-                nodesData // data
+                this._treeNodesBuf.cast(Uint32Array)
             )
         }
     }

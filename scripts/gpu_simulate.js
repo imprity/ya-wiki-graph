@@ -502,6 +502,12 @@ export class GpuSimulator {
         this.simParam = new SimulationParameter();
         this.treeBuilder = new QuadTreeBuilder();
         this._updateTimer = 0;
+        this.gpuReadBuf = new util.ByteBuffer(Uint32Array);
+        this._nodePhysicsTexBuf = new util.ByteBuffer(Float32Array);
+        this._treeBoundaryBuf = new util.ByteBuffer(Float32Array);
+        this._treeCenterOfMassBuf = new util.ByteBuffer(Float32Array);
+        this._treeNodesHeaderBuf = new util.ByteBuffer(Uint32Array);
+        this._treeNodesBuf = new util.ByteBuffer(Uint32Array);
         // =========================
         // create opengl context
         // =========================
@@ -620,10 +626,15 @@ export class GpuSimulator {
                 let fb = this.nodePhysicsFB1;
                 let tex = this.nodePhysicsTex1;
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, fb);
-                let nodeInfos = new Uint32Array(tex.width * tex.height * 4);
-                yield gpu.readPixelsAsync(this.gl, 0, 0, tex.width, tex.height, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT, nodeInfos);
+                // let nodeInfos: any = new Uint32Array(
+                //     tex.width * tex.height * 4);
+                this.gpuReadBuf.setLength(tex.width * tex.height * 4);
+                yield gpu.readPixelsAsync(this.gl, 0, 0, tex.width, tex.height, this.gl.RGBA_INTEGER, this.gl.UNSIGNED_INT, 
+                //nodeInfos
+                this.gpuReadBuf.cast(Uint32Array));
                 this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-                nodeInfos = new Float32Array(nodeInfos.buffer);
+                // nodeInfos = new Float32Array(nodeInfos.buffer)
+                const nodeInfos = this.gpuReadBuf.cast(Float32Array);
                 const nodeLength = Math.min(this.nodeLength, manager.nodes.length);
                 let offset = 0;
                 for (let i = 0; i < nodeLength; i++) {
@@ -647,22 +658,21 @@ export class GpuSimulator {
         // supply node infos
         // =====================
         let nodeTexSize = Math.max(gpu.capacityToEdge(this.nodeLength), 128);
-        let data = new Float32Array(nodeTexSize * nodeTexSize * 4);
+        this._nodePhysicsTexBuf.setLength(nodeTexSize * nodeTexSize * 4);
         let offset = 0;
         for (let i = 0; i < this.nodeLength; i++) {
             const node = manager.nodes[i];
-            data[offset + 0] = node.posX;
-            data[offset + 1] = node.posY;
-            data[offset + 2] = node.mass;
-            data[offset + 3] = node.temp;
+            this._nodePhysicsTexBuf.set(offset + 0, node.posX);
+            this._nodePhysicsTexBuf.set(offset + 1, node.posY);
+            this._nodePhysicsTexBuf.set(offset + 2, node.mass);
+            this._nodePhysicsTexBuf.set(offset + 3, node.temp);
             offset += 4;
         }
         gpu.setDataTextureData(this.gl, this.nodePhysicsTex0, this.gl.RGBA32UI, // internal format
         nodeTexSize, nodeTexSize, // width, height
         this.gl.RGBA_INTEGER, // format
         this.gl.UNSIGNED_INT, // type
-        new Uint32Array(data.buffer) // data
-        );
+        this._nodePhysicsTexBuf.cast(Uint32Array));
         gpu.allocDataTexture(this.gl, this.nodePhysicsTex1, this.gl.RGBA32UI, // internal format
         nodeTexSize, nodeTexSize, // width, height
         this.gl.RGBA_INTEGER, // format
@@ -766,48 +776,49 @@ export class GpuSimulator {
         // treeBoundaryTex
         // =========================
         {
-            let data = new Float32Array(texSize * texSize * 4);
+            this._treeBoundaryBuf.setLength(texSize * texSize * 4);
             let offset = 0;
             for (let i = 0; i < trees.length; i++) {
                 const tree = trees.get(i);
-                data[offset + 0] = tree.minX;
-                data[offset + 1] = tree.minY;
-                data[offset + 2] = tree.maxX;
-                data[offset + 3] = tree.maxY;
+                this._treeBoundaryBuf.set(offset + 0, tree.minX);
+                this._treeBoundaryBuf.set(offset + 1, tree.minY);
+                this._treeBoundaryBuf.set(offset + 2, tree.maxX);
+                this._treeBoundaryBuf.set(offset + 3, tree.maxY);
                 offset += 4;
             }
             gpu.setDataTextureData(this.gl, this.treeBoundaryTex, this.gl.RGBA32UI, // internal format
             texSize, texSize, // width, height
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
-            new Uint32Array(data.buffer) // data
-            );
+            this._treeBoundaryBuf.cast(Uint32Array));
         }
+        // =========================
+        // treeCenterOfMassTex
+        // =========================
         {
-            let data = new Float32Array(texSize * texSize * 4);
+            this._treeCenterOfMassBuf.setLength(texSize * texSize * 4);
             let offset = 0;
             for (let i = 0; i < trees.length; i++) {
                 const tree = trees.get(i);
-                data[offset + 0] = tree.centerOfMassX;
-                data[offset + 1] = tree.centerOfMassY;
-                data[offset + 2] = tree.mass;
-                data[offset + 3] = 0; // reserved
+                this._treeBoundaryBuf.set(offset + 0, tree.centerOfMassX);
+                this._treeBoundaryBuf.set(offset + 1, tree.centerOfMassY);
+                this._treeBoundaryBuf.set(offset + 2, tree.mass);
+                this._treeBoundaryBuf.set(offset + 3, 0); // reserved
                 offset += 4;
             }
             gpu.setDataTextureData(this.gl, this.treeCenterOfMassTex, this.gl.RGBA32UI, // internal format
             texSize, texSize, // width, height
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
-            new Uint32Array(data.buffer) // data
-            );
+            this._treeBoundaryBuf.cast(Uint32Array));
         }
         // ==================================
         // treeNodesHeaderTex & treeNodesTex
         // ==================================
         {
             const nodesTexSize = Math.max(gpu.capacityToEdge(this.nodeLength), 128);
-            let nodesData = new Uint32Array(nodesTexSize * nodesTexSize);
-            let headerData = new Uint32Array(texSize * texSize * 4);
+            this._treeNodesBuf.setLength(nodesTexSize * nodesTexSize);
+            this._treeNodesHeaderBuf.setLength(texSize * texSize * 4);
             let nodesDataCursor = 0;
             let headerOffset = 0;
             for (let i = 0; i < trees.length; i++) {
@@ -818,31 +829,29 @@ export class GpuSimulator {
                 if (tree.nodes === null) {
                     continue;
                 }
-                headerData[headerOffset + 0] = nodesDataCursor;
+                this._treeNodesHeaderBuf.set(headerOffset + 0, nodesDataCursor);
                 let treeNodeLength = 0;
                 for (let link = tree.nodes; link !== null; link = link.next) {
                     const node = link.value;
                     treeNodeLength++;
-                    nodesData[nodesDataCursor] = node.index;
+                    this._treeNodesBuf.set(nodesDataCursor, node.index);
                     nodesDataCursor++;
                 }
-                headerData[headerOffset + 1] = treeNodeLength;
-                headerData[headerOffset + 2] = 0; // reserved
-                headerData[headerOffset + 3] = 0; // reserved
+                this._treeNodesHeaderBuf.set(headerOffset + 1, treeNodeLength);
+                this._treeNodesHeaderBuf.set(headerOffset + 2, 0); // reserved
+                this._treeNodesHeaderBuf.set(headerOffset + 3, 0); // reserved
                 headerOffset += 4;
             }
             gpu.setDataTextureData(this.gl, this.treeNodesHeaderTex, this.gl.RGBA32UI, // internal format
             texSize, texSize, // width, height
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
-            headerData // data
-            );
+            this._treeNodesHeaderBuf.cast(Uint32Array));
             gpu.setDataTextureData(this.gl, this.treeNodesTex, this.gl.R32UI, // internal format
             nodesTexSize, nodesTexSize, // width, height
             this.gl.RED_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
-            nodesData // data
-            );
+            this._treeNodesBuf.cast(Uint32Array));
         }
     }
 }

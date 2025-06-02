@@ -103,3 +103,36 @@ export class LinkedList {
         this.value = value;
     }
 }
+export class ByteBuffer {
+    constructor(type) {
+        this._length = 0;
+        this._buffer = new type(512);
+        this._type = type;
+    }
+    length() {
+        return this._length;
+    }
+    setLength(length) {
+        if (this._buffer.length < length) {
+            let capacity = this._buffer.length;
+            while (capacity < length) {
+                capacity *= 2;
+            }
+            this._buffer = new this._type(capacity);
+        }
+        this._length = length;
+    }
+    get(at) {
+        return this._buffer[at];
+    }
+    set(at, value) {
+        // if (!(0 <= at && at < this._length)) {
+        //     throw new Error(`index out of bound !(0 <= at < ${this._length})`)
+        // }
+        this._buffer[at] = value;
+    }
+    cast(type, elementCount = this._length) {
+        let view = new type(this._buffer.buffer);
+        return view.subarray(0, elementCount);
+    }
+}

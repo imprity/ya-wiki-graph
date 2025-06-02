@@ -1,4 +1,5 @@
 import * as math from "./math.js";
+import * as util from "./util.js";
 import * as gpu from "./gpu_common.js";
 import * as assets from "./assets.js";
 import { ColorTable } from "./color_table.js";
@@ -301,6 +302,7 @@ export class GpuRenderer {
         this.colorTable = new ColorTable();
         this.nodeOutlineWidth = 0;
         this.connectionLineWidth = 1;
+        this._nodeRenderPosBuf = new util.ByteBuffer(Float32Array);
         // =========================
         // create opengl context
         // =========================
@@ -558,22 +560,21 @@ export class GpuRenderer {
         }
         // supply texture with node render positions
         if ((flag & RenderSyncFlags.NodeRenderPos) > 0) {
-            let data = new Float32Array(nodeTexSize * nodeTexSize * 4);
+            this._nodeRenderPosBuf.setLength(nodeTexSize * nodeTexSize * 4);
             let offset = 0;
             for (let i = 0; i < this.nodeLength; i++) {
                 const node = manager.nodes[i];
-                data[offset + 0] = node.renderX;
-                data[offset + 1] = node.renderY;
-                data[offset + 2] = node.syncedToRender ? 1 : 0;
-                data[offset + 3] = node.renderRadiusScale * node.getRadius();
+                this._nodeRenderPosBuf.set(offset + 0, node.renderX);
+                this._nodeRenderPosBuf.set(offset + 1, node.renderY);
+                this._nodeRenderPosBuf.set(offset + 2, node.syncedToRender ? 1 : 0);
+                this._nodeRenderPosBuf.set(offset + 3, node.renderRadiusScale * node.getRadius());
                 offset += 4;
             }
             gpu.setDataTextureData(this.gl, this.nodeRenderPosTex, this.gl.RGBA32UI, // internal format
             nodeTexSize, nodeTexSize, // width, height
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
-            new Uint32Array(data.buffer) // data
-            );
+            this._nodeRenderPosBuf.cast(Uint32Array));
         }
         // supply texture with connection infos
         if ((flag & RenderSyncFlags.Connections) > 0) {
