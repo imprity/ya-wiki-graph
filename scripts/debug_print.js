@@ -24,9 +24,6 @@ export function renderDebugPrint() {
         }
         p.remove();
     }
-    if (debugPrintBox.children.length !== debugMsgs.size) {
-        console.log('fuck shit shit ass fuck');
-    }
     const children = debugPrintBox.children;
     let cursor = 0;
     debugMsgs.forEach((value, key, map) => {
@@ -36,4 +33,21 @@ export function renderDebugPrint() {
         }
         cursor++;
     });
+}
+export function setDebugPrintVisible(visible) {
+    if (debugPrintBox === null) {
+        return;
+    }
+    if (visible) {
+        debugPrintBox.style.display = 'block';
+    }
+    else {
+        debugPrintBox.style.display = 'none';
+    }
+}
+export function isDebugPrintVisible() {
+    if (debugPrintBox === null) {
+        return false;
+    }
+    return debugPrintBox.style.display !== 'none';
 }

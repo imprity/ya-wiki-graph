@@ -14,7 +14,7 @@ import * as assets from "./assets.js";
 import * as color from "./color.js";
 import { GpuRenderer, RenderSyncFlags } from "./gpu_render.js";
 import { GpuSimulator, SimulationParameter, QuadTreeBuilder } from "./gpu_simulate.js";
-import { debugPrint, renderDebugPrint } from './debug_print.js';
+import { debugPrint, renderDebugPrint, setDebugPrintVisible, } from './debug_print.js';
 import { ColorTable, serializeColorTable, deserializeColorTable, loadColorTable, tableNodeColors } from "./color_table.js";
 import { NodeManager, DocNode, SerializationContainer, isSerializationContainer, } from "./graph_objects.js";
 const FirstTitle = "English language";
@@ -624,51 +624,6 @@ class App {
                 this.overlayCtx.fillText(node.title, pos.x, pos.y - (node.getRenderRadius() + 5.0) * this.zoom);
             }
         });
-        // TEST TEST TEST TEST TEST TEST TEST
-        // if (false) {
-        //     const root = this.testBuilder.buildTree(this.nodeManager)
-        //     const drawTree = (tree: QuadTree, margin: number) => {
-        //         const min = this.worldToViewport(tree.minX + margin, tree.minY + margin)
-        //         const max = this.worldToViewport(tree.maxX - margin, tree.maxY - margin)
-        //
-        //         const clr = color.getRandomColorSeeded(tree.id)
-        //         clr.a = 255
-        //         const clrString = clr.toCssString()
-        //
-        //         cd.strokeRect(
-        //             this.overlayCtx,
-        //             min.x, min.y,
-        //             max.x - min.x, max.y - min.y,
-        //             1 * this.zoom,
-        //             clrString
-        //         )
-        //
-        //         // const cx = tree.centerOfMassX
-        //         // const cy = tree.centerOfMassY
-        //         const cx = tree.centerX
-        //         const cy = tree.centerY
-        //         const mass = tree.mass
-        //
-        //         const cp = this.worldToViewport(cx, cy)
-        //
-        //         // cd.strokeCircle(
-        //         //     this.overlayCtx,
-        //         //     cp.x, cp.y, DocNode.nodeMassToRadius(mass) * this.zoom,
-        //         //     5 * this.zoom,
-        //         //     clrString
-        //         // )
-        //
-        //         for (const child of tree.childrenTrees) {
-        //             if (child !== null) {
-        //                 drawTree(child, margin)
-        //             }
-        //         }
-        //     }
-        //
-        //     drawTree(root, 0)
-        //     debugPrint('tree count', `${this.testBuilder.treeCount()}`)
-        // }
-        // TEST TEST TEST TEST TEST TEST TEST
     }
     setColorTable(table) {
         this.colorTable = table;
@@ -1094,6 +1049,12 @@ function main() {
                 onValueChange(startingValue);
                 return setToColor;
             };
+            // =============================
+            // debug UI start
+            // =============================
+            addCheckBox(false, 'view debug msgs', (visible) => {
+                setDebugPrintVisible(visible);
+            });
             addButton('download graph', () => __awaiter(this, void 0, void 0, function* () {
                 const jsonString = yield app.serialize();
                 util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.graph');

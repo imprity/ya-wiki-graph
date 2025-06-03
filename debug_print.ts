@@ -31,10 +31,6 @@ export function renderDebugPrint() {
         p.remove()
     }
 
-    if (debugPrintBox.children.length !== debugMsgs.size) {
-        console.log('fuck shit shit ass fuck')
-    }
-
     const children = debugPrintBox.children
     let cursor = 0
 
@@ -47,3 +43,20 @@ export function renderDebugPrint() {
     })
 }
 
+export function setDebugPrintVisible(visible: boolean) {
+    if (debugPrintBox === null) {
+        return
+    }
+    if (visible) {
+        debugPrintBox.style.display = 'block'
+    } else {
+        debugPrintBox.style.display = 'none'
+    }
+}
+
+export function isDebugPrintVisible(): boolean {
+    if (debugPrintBox === null) {
+        return false
+    }
+    return debugPrintBox.style.display !== 'none'
+}
