@@ -12,10 +12,10 @@ import * as util from "./util.js";
 import * as math from "./math.js";
 import * as assets from "./assets.js";
 import * as color from "./color.js";
-import { GpuRenderer, RenderSyncFlags } from "./gpu_render.js";
-import { GpuSimulator, SimulationParameter, QuadTreeBuilder } from "./gpu_simulate.js";
+import { GpuRenderer, RenderSyncFlags, RenderParameter } from "./gpu_render.js";
+import { GpuSimulator, SimulationParameter, } from "./gpu_simulate.js";
 import { debugPrint, renderDebugPrint, setDebugPrintVisible, } from './debug_print.js';
-import { ColorTable, serializeColorTable, deserializeColorTable, loadColorTable, tableNodeColors } from "./color_table.js";
+import { ColorTable, serializeColorTable, deserializeColorTable, loadColorTable, tableNodeColors, copyTable } from "./color_table.js";
 import { NodeManager, DocNode, SerializationContainer, isSerializationContainer, } from "./graph_objects.js";
 const FirstTitle = "English language";
 class App {
@@ -35,9 +35,6 @@ class App {
         this._expandRequests = [];
         this._animations = new Map();
         this.colorTable = new ColorTable();
-        // TEST TEST TEST TEST TEST TEST
-        this.testBuilder = new QuadTreeBuilder();
-        // TEST TEST TEST TEST TEST TEST
         // ========================
         // input states
         // ========================
@@ -59,6 +56,10 @@ class App {
         // simulation parameters
         // ========================
         this.simParam = new SimulationParameter();
+        // ========================
+        // render parameters
+        // ========================
+        this.renderParam = new RenderParameter();
         this._visibleNodeCache = new util.Stack();
         this.expandNode = (nodeIndex) => __awaiter(this, void 0, void 0, function* () {
             if (!(0 <= nodeIndex && nodeIndex < this.nodeManager.nodes.length)) {
@@ -97,10 +98,11 @@ class App {
         }
         this.updateWidthAndHeight();
         this.nodeManager = new NodeManager();
+        this.renderParam.colorTable = this.colorTable;
+        this.renderParam.nodeOutlineWidth = 3;
+        this.renderParam.connectionLineWidth = 1.2;
         this.gpuRenderer = new GpuRenderer(this.mainCanvas);
-        this.gpuRenderer.colorTable = this.colorTable;
-        this.gpuRenderer.nodeOutlineWidth = 3;
-        this.gpuRenderer.connectionLineWidth = 1.2;
+        this.gpuRenderer.renderParam = this.renderParam;
         this.gpuSimulator = new GpuSimulator(simCanvas);
         this.gpuSimulator.simParam = this.simParam;
         // NOTE: we have to add it to window because canvas
@@ -366,13 +368,13 @@ class App {
             case "mousedown":
             case "mouseup":
             case "mouseleave":
-                this.gpuRenderer.doHover = true;
+                this.renderParam.doHover = true;
                 break;
             case "touchstart":
             case "touchmove":
             case "touchcancel":
             case "touchend":
-                this.gpuRenderer.doHover = false;
+                this.renderParam.doHover = false;
                 break;
         }
     }
@@ -388,7 +390,7 @@ class App {
         debugPrint('connection count', this.nodeManager.connections.length.toString());
         debugPrint('zoom', this.zoom.toFixed(2));
         debugPrint('animation count', this._animations.size.toString());
-        debugPrint('do hover', this.gpuRenderer.doHover.toString());
+        debugPrint('do hover', this.renderParam.doHover.toString());
         // ================================
         // node position updating
         // ================================
@@ -461,13 +463,28 @@ class App {
                                 newNode.mass += 1;
                                 newNode.color = colorGenerator();
                             }
-                            else if (!this.nodeManager.isConnected(index, otherIndex)) { // we have to make a new connection
+                            else {
                                 const otherNode = this.nodeManager.nodes[otherIndex];
-                                this.nodeManager.setConnected(index, otherIndex, true);
-                                req.node.mass += 1;
-                                otherNode.mass += 1;
+                                // we have to make a new connection
+                                if (!this.nodeManager.isConnected(index, otherIndex)) {
+                                    this.nodeManager.setConnected(index, otherIndex, true);
+                                    req.node.mass += 1;
+                                    otherNode.mass += 1;
+                                }
                             }
                         }
+                        // ==========================
+                        // make connected nodes glow
+                        // ==========================
+                        req.node.glow = 1;
+                        for (const node of this.nodeManager.nodes) {
+                            if (this.nodeManager.isConnected(req.node.index, node.index)) {
+                                node.glow = 1;
+                            }
+                        }
+                        // ==========================
+                        // submit to gpu
+                        // ==========================
                         this.gpuSimulator.submitNodeManager(this.nodeManager);
                         this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
                     }
@@ -496,6 +513,10 @@ class App {
             const y = math.lerp(node.renderY, node.posY, t2);
             node.renderX = x;
             node.renderY = y;
+            let newGlow = math.lerp(0, node.glow, 0.995);
+            // let newGlow = node.glow - 0.001
+            node.glow = newGlow;
+            node.glow = math.clamp(node.glow, 0, 1);
         }
         // ================================
         // update animations
@@ -522,11 +543,11 @@ class App {
                 this.unfocusNode();
             }
         }
-        this.gpuRenderer.zoom = this.zoom;
-        this.gpuRenderer.offset.x = this.offset.x;
-        this.gpuRenderer.offset.y = this.offset.y;
-        this.gpuRenderer.mouse.x = this.mouse.x;
-        this.gpuRenderer.mouse.y = this.mouse.y;
+        this.renderParam.zoom = this.zoom;
+        this.renderParam.offset.x = this.offset.x;
+        this.renderParam.offset.y = this.offset.y;
+        this.renderParam.mouse.x = this.mouse.x;
+        this.renderParam.mouse.y = this.mouse.y;
     }
     draw(deltaTime) {
         this.gpuRenderer.render();
@@ -626,8 +647,7 @@ class App {
         });
     }
     setColorTable(table) {
-        this.colorTable = table;
-        this.gpuRenderer.colorTable = table;
+        copyTable(table, this.colorTable);
     }
     addNodeAnimation(nodeId, anim) {
         if (this._animations.has(nodeId)) {
@@ -1073,6 +1093,12 @@ function main() {
             }));
             addButton('reset', () => {
                 app.resetAndAddFirstNode(FirstTitle);
+            });
+            addSlider(1.8, 0, 5, 0.05, 'glowSize', (val) => {
+                app.renderParam.glowSize = val;
+            });
+            addSlider(0.8, 0, 2, 0.05, 'glowBoost', (val) => {
+                app.renderParam.glowBoost = val;
             });
             const colorTablePickerSetters = [];
             for (const key in app.colorTable) {

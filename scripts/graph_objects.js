@@ -17,6 +17,7 @@ export class DocNode {
         this.color = new color.Color();
         this.renderX = 0;
         this.renderY = 0;
+        this.glow = 0;
         this.renderRadiusScale = 1;
         this.doDraw = true;
         this.isExpanding = false;

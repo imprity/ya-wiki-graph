@@ -31,6 +31,12 @@ export function tableNodeColors(table: ColorTable): Array<color.Color> {
     return _nodeColorArray
 }
 
+export function copyTable(src: ColorTable, dst: ColorTable) {
+    for (const key in src) {
+        dst[key as keyof ColorTable] = src[key as keyof ColorTable].copy()
+    }
+}
+
 export function serializeColorTable(table: ColorTable): string {
     return JSON.stringify(table)
 }

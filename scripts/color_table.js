@@ -33,6 +33,11 @@ export function tableNodeColors(table) {
     _nodeColorArray[4] = table.node4;
     return _nodeColorArray;
 }
+export function copyTable(src, dst) {
+    for (const key in src) {
+        dst[key] = src[key].copy();
+    }
+}
 export function serializeColorTable(table) {
     return JSON.stringify(table);
 }

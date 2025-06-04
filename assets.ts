@@ -1,6 +1,7 @@
 import * as util from "./util.js"
 
 export let circleImage: ImageBitmap | null = null
+export let glowImage: ImageBitmap | null = null
 export let loadingCircleImage: ImageBitmap | null = null
 
 export async function loadAssets() {
@@ -10,5 +11,6 @@ export async function loadAssets() {
     }
 
     circleImage = await loadImage('assets/circle.png')
+    glowImage = await loadImage('assets/glow.png')
     loadingCircleImage = await loadImage('assets/loading-circle.png')
 }

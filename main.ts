@@ -4,12 +4,14 @@ import * as util from "./util.js"
 import * as math from "./math.js"
 import * as assets from "./assets.js"
 import * as color from "./color.js"
-import { GpuRenderer, RenderSyncFlags } from "./gpu_render.js"
+import {
+    GpuRenderer,
+    RenderSyncFlags,
+    RenderParameter
+} from "./gpu_render.js"
 import {
     GpuSimulator,
     SimulationParameter,
-    QuadTree,
-    QuadTreeBuilder
 } from "./gpu_simulate.js"
 import {
     clearDebugPrint,
@@ -23,7 +25,8 @@ import {
     serializeColorTable,
     deserializeColorTable,
     loadColorTable,
-    tableNodeColors
+    tableNodeColors,
+    copyTable
 } from "./color_table.js"
 import {
     NodeManager,
@@ -88,10 +91,6 @@ class App {
 
     colorTable: ColorTable = new ColorTable()
 
-    // TEST TEST TEST TEST TEST TEST
-    testBuilder: QuadTreeBuilder = new QuadTreeBuilder()
-    // TEST TEST TEST TEST TEST TEST
-
     // ========================
     // input states
     // ========================
@@ -122,6 +121,11 @@ class App {
     // ========================
     simParam: SimulationParameter = new SimulationParameter()
 
+    // ========================
+    // render parameters
+    // ========================
+    renderParam: RenderParameter = new RenderParameter()
+
     constructor(
         mainCanvas: HTMLCanvasElement,
         overlayCanvas: HTMLCanvasElement,
@@ -142,10 +146,12 @@ class App {
 
         this.nodeManager = new NodeManager()
 
+        this.renderParam.colorTable = this.colorTable
+        this.renderParam.nodeOutlineWidth = 3
+        this.renderParam.connectionLineWidth = 1.2
+
         this.gpuRenderer = new GpuRenderer(this.mainCanvas)
-        this.gpuRenderer.colorTable = this.colorTable
-        this.gpuRenderer.nodeOutlineWidth = 3
-        this.gpuRenderer.connectionLineWidth = 1.2
+        this.gpuRenderer.renderParam = this.renderParam
 
         this.gpuSimulator = new GpuSimulator(simCanvas)
         this.gpuSimulator.simParam = this.simParam
@@ -485,13 +491,13 @@ class App {
             case "mousedown":
             case "mouseup":
             case "mouseleave":
-                this.gpuRenderer.doHover = true
+                this.renderParam.doHover = true
                 break
             case "touchstart":
             case "touchmove":
             case "touchcancel":
             case "touchend":
-                this.gpuRenderer.doHover = false
+                this.renderParam.doHover = false
                 break
         }
     }
@@ -509,7 +515,7 @@ class App {
         debugPrint('connection count', this.nodeManager.connections.length.toString())
         debugPrint('zoom', this.zoom.toFixed(2))
         debugPrint('animation count', this._animations.size.toString())
-        debugPrint('do hover', this.gpuRenderer.doHover.toString())
+        debugPrint('do hover', this.renderParam.doHover.toString())
 
         // ================================
         // node position updating
@@ -599,15 +605,30 @@ class App {
                                 newNode.mass += 1
 
                                 newNode.color = colorGenerator()
-                            } else if (!this.nodeManager.isConnected(index, otherIndex)) { // we have to make a new connection
+                            } else {
                                 const otherNode = this.nodeManager.nodes[otherIndex]
-                                this.nodeManager.setConnected(index, otherIndex, true)
-                                req.node.mass += 1
-                                otherNode.mass += 1
+
+                                // we have to make a new connection
+                                if (!this.nodeManager.isConnected(index, otherIndex)) {
+                                    this.nodeManager.setConnected(index, otherIndex, true)
+                                    req.node.mass += 1
+                                    otherNode.mass += 1
+                                }
+                            }
+                        }
+                        // ==========================
+                        // make connected nodes glow
+                        // ==========================
+                        req.node.glow = 1
+                        for (const node of this.nodeManager.nodes) {
+                            if (this.nodeManager.isConnected(req.node.index, node.index)) {
+                                node.glow = 1
                             }
                         }
 
-
+                        // ==========================
+                        // submit to gpu
+                        // ==========================
                         this.gpuSimulator.submitNodeManager(
                             this.nodeManager,
                         )
@@ -650,6 +671,11 @@ class App {
 
             node.renderX = x
             node.renderY = y
+
+            let newGlow = math.lerp(0, node.glow, 0.995)
+            // let newGlow = node.glow - 0.001
+            node.glow = newGlow
+            node.glow = math.clamp(node.glow, 0, 1)
         }
 
         // ================================
@@ -685,11 +711,11 @@ class App {
             }
         }
 
-        this.gpuRenderer.zoom = this.zoom
-        this.gpuRenderer.offset.x = this.offset.x
-        this.gpuRenderer.offset.y = this.offset.y
-        this.gpuRenderer.mouse.x = this.mouse.x
-        this.gpuRenderer.mouse.y = this.mouse.y
+        this.renderParam.zoom = this.zoom
+        this.renderParam.offset.x = this.offset.x
+        this.renderParam.offset.y = this.offset.y
+        this.renderParam.mouse.x = this.mouse.x
+        this.renderParam.mouse.y = this.mouse.y
     }
 
     _visibleNodeCache: util.Stack<DocNode> = new util.Stack()
@@ -834,8 +860,7 @@ class App {
     }
 
     setColorTable(table: ColorTable) {
-        this.colorTable = table
-        this.gpuRenderer.colorTable = table
+        copyTable(table, this.colorTable)
     }
 
     addNodeAnimation(nodeId: number, anim: Animation) {
@@ -1495,6 +1520,25 @@ async function main() {
         addButton(
             'reset', () => {
                 app.resetAndAddFirstNode(FirstTitle)
+            }
+        )
+
+        addSlider(
+            1.8,
+            0, 5,
+            0.05,
+            'glowSize',
+            (val: number) => {
+                app.renderParam.glowSize = val
+            }
+        )
+        addSlider(
+            0.8,
+            0, 2,
+            0.05,
+            'glowBoost',
+            (val: number) => {
+                app.renderParam.glowBoost = val
             }
         )
 

@@ -31,6 +31,8 @@ export class DocNode {
     renderX: number = 0
     renderY: number = 0
 
+    glow: number = 0
+
     renderRadiusScale: number = 1
 
     doDraw: boolean = true

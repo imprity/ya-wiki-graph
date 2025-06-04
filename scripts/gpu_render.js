@@ -37,25 +37,20 @@ const glslNodeCommon = `
 
 ${gpu.glslCommon}
 
-uniform int u_node_count;
-
-uniform highp usampler2D u_node_render_pos_tex;
-uniform sampler2D u_node_colors_tex;
-
-bool is_node_synced_to_rencer(uvec4 render) {
-    return render.z > uint(0);
+float get_node_glow(uvec4 render) {
+    return uintBitsToFloat(render.z);
 }
 
 vec2 get_node_render_pos(uvec4 render) {
     return uintBitsToFloat(render.xy);
 }
 
-vec4 get_node_color(int index) {
-    ivec2 tex_size = textureSize(u_node_colors_tex, 0);
+vec4 get_node_color(sampler2D color_tex, int index) {
+    ivec2 tex_size = textureSize(color_tex, 0);
     int x = index % tex_size.x;
     int y = index / tex_size.x;
 
-    return texelFetch(u_node_colors_tex, ivec2(x, y), 0);
+    return texelFetch(color_tex, ivec2(x, y), 0);
 }
 
 float get_node_render_radius(uvec4 render) {
@@ -64,26 +59,13 @@ float get_node_render_radius(uvec4 render) {
 
 #endif
 `;
-const glslConCommon = `
-#ifndef _GLSL_CONNECTION_HEADER_GUARD_
-#define _GLSL_CONNECTION_HEADER_GUARD_
-
-${gpu.glslCommon}
-
-uniform int u_con_count;
-
-uniform highp usampler2D u_con_infos_tex;
-
-ivec2 get_connected_nodes(int con_index) {
-    uvec4 con = get_data_from_tex(u_con_infos_tex, con_index);
-    return ivec2(con.xy);
-}
-
-#endif
-`;
 const drawNodeVShaderSrc = `#version 300 es
 in vec4 a_vertex;
 in vec2 a_uv;
+
+${glslViewportTransform}
+
+${glslNodeCommon}
 
 uniform vec2 u_mouse;
 
@@ -92,18 +74,14 @@ uniform vec4 u_outline_color;
 uniform float u_outline_width;
 uniform bool u_do_hover;
 
+uniform highp usampler2D u_node_render_pos_tex;
+uniform sampler2D u_node_colors_tex;
+
 out vec4 v_color;
 out vec2 v_uv;
 
-${glslViewportTransform}
-${glslNodeCommon}
-
 void main() {
-    float x = a_vertex.x;
-    float y = a_vertex.y;
-
     uvec4 node_render = get_data_from_tex(u_node_render_pos_tex, gl_InstanceID);
-
     vec2 node_pos = get_node_render_pos(node_render);
 
     float node_radius = get_node_render_radius(node_render);
@@ -113,22 +91,16 @@ void main() {
         node_radius = node_radius_with_outline;
     }
 
-    vec4 node_color = get_node_color(gl_InstanceID);
+    vec4 node_color = get_node_color(u_node_colors_tex, gl_InstanceID);
 
-    // if (u_draw_outline) {
-    //     node_color = u_outline_color;
-    // }
     if (u_draw_outline) {
         node_color.rgb *= 0.8; // TODO: parameterize
     }
 
-    x *= node_radius * 2.0f;
-    y *= node_radius * 2.0f;
+    vec2 pos = a_vertex.xy;
 
-    x += node_pos.x;
-    y += node_pos.y;
-
-    vec2 pos = vec2(x, y);
+    pos *= node_radius * 2.0f;
+    pos += node_pos;
     pos = world_to_viewport(pos);
 
     gl_Position = vec4(
@@ -142,7 +114,6 @@ void main() {
     vec2 mouse = viewport_to_world(u_mouse);
 
     if (u_do_hover && distance_squared(node_pos, mouse) < node_radius_with_outline * node_radius_with_outline) {
-        //v_color = vec4(0, 0, 0, 1);
         node_color.rgb *= 0.3; // TODO: parameterize
         v_color = node_color;
     }
@@ -154,13 +125,13 @@ precision highp float;
 in vec4 v_color;
 in vec2 v_uv;
 
+${gpu.glslCommon}
+
 uniform sampler2D u_node_tex;
 
 uniform bool u_draw_outline;
 
 out vec4 out_color;
-
-${gpu.glslCommon}
 
 void main() {
     vec4 node_c = texture(u_node_tex, v_uv) * v_color;
@@ -172,14 +143,23 @@ const drawConVSahderSrc = `#version 300 es
 in vec4 a_vertex;
 in vec2 a_uv;
 
-uniform float u_line_thickness;
-
 ${gpu.glslCommon}
 
 ${glslNodeCommon}
-${glslConCommon}
 
 ${glslViewportTransform}
+
+uniform float u_line_thickness;
+
+uniform highp usampler2D u_node_render_pos_tex;
+uniform sampler2D u_node_colors_tex;
+
+uniform highp usampler2D u_con_infos_tex;
+
+ivec2 get_connected_nodes(int con_index) {
+    uvec4 con = get_data_from_tex(u_con_infos_tex, con_index);
+    return ivec2(con.xy);
+}
 
 out vec4 v_color;
 out vec2 v_uv;
@@ -245,8 +225,8 @@ void main() {
         x, y, 0, 1
     );
 
-    vec4 color_a = get_node_color(node_ab.x);
-    vec4 color_b = get_node_color(node_ab.y);
+    vec4 color_a = get_node_color(u_node_colors_tex, node_ab.x);
+    vec4 color_b = get_node_color(u_node_colors_tex, node_ab.y);
 
     switch (gl_VertexID){
         case 0:
@@ -279,6 +259,68 @@ void main() {
     out_color = v_color * alpha;
 }
 `;
+const drawGlowVShaderSrc = `#version 300 es
+in vec4 a_vertex;
+in vec2 a_uv;
+
+${gpu.glslCommon}
+
+${glslNodeCommon}
+
+${glslViewportTransform}
+
+uniform float u_glow_size;
+uniform float u_glow_boost;
+
+uniform highp usampler2D u_node_render_pos_tex;
+uniform sampler2D u_node_colors_tex;
+
+out float v_glow;
+out vec4 v_color;
+out vec2 v_uv;
+
+void main() {
+    uvec4 node_render = get_data_from_tex(u_node_render_pos_tex, gl_InstanceID);
+    vec2 node_pos = get_node_render_pos(node_render);
+    float node_radius = get_node_render_radius(node_render);
+    vec4 node_color = get_node_color(u_node_colors_tex, gl_InstanceID);
+    float node_glow = get_node_glow(node_render);
+
+    vec2 pos = a_vertex.xy;
+
+    // radius * how big glow is to a node
+    pos *= node_radius * 2.0f * u_glow_size;
+    pos += node_pos;
+    pos = world_to_viewport(pos);
+
+    gl_Position = vec4(
+        pos.x, pos.y, 0, 1
+    );
+
+    v_glow = node_glow;
+    v_color = node_color + vec4(1,1,1,1) * u_glow_boost;
+    v_uv = a_uv;
+}
+`;
+const drawGlowFShaderSrc = `#version 300 es
+precision highp float;
+
+in float v_glow;
+in vec4 v_color;
+in vec2 v_uv;
+
+${gpu.glslCommon}
+
+uniform sampler2D u_glow_tex;
+
+out vec4 out_color;
+
+void main() {
+    vec4 glow_c = texture(u_glow_tex, v_uv) * v_color * v_glow;
+
+    out_color = glow_c;
+}
+`;
 // controls what data to sync with gpu
 export var RenderSyncFlags;
 (function (RenderSyncFlags) {
@@ -288,13 +330,8 @@ export var RenderSyncFlags;
     RenderSyncFlags[RenderSyncFlags["NodeRenderPos"] = 8] = "NodeRenderPos";
     RenderSyncFlags[RenderSyncFlags["Everything"] = -1] = "Everything";
 })(RenderSyncFlags || (RenderSyncFlags = {}));
-export class GpuRenderer {
-    constructor(canvas) {
-        this.nodeLength = 0;
-        this.connectionLength = 0;
-        // ==========================
-        // constrol parameters
-        // ==========================
+export class RenderParameter {
+    constructor() {
         this.zoom = 1;
         this.offset = new math.Vector2(0, 0);
         this.mouse = new math.Vector2(0, 0);
@@ -302,6 +339,18 @@ export class GpuRenderer {
         this.colorTable = new ColorTable();
         this.nodeOutlineWidth = 0;
         this.connectionLineWidth = 1;
+        this.glowSize = 1;
+        this.glowBoost = 0.2;
+    }
+}
+export class GpuRenderer {
+    constructor(canvas) {
+        this.nodeLength = 0;
+        this.connectionLength = 0;
+        // ==========================
+        // constrol parameters
+        // ==========================
+        this.renderParam = new RenderParameter();
         this._nodeRenderPosBuf = new util.ByteBuffer(Float32Array);
         // =========================
         // create opengl context
@@ -325,8 +374,9 @@ export class GpuRenderer {
             this.canvas.width = rect.width;
             this.canvas.height = rect.height;
         }
-        this.drawNodeUnit = gpu.createRenderUnit(this.gl, drawNodeVShaderSrc, drawNodeFShaderSrc, 'drawNodeUnit');
         this.drawConUint = gpu.createRenderUnit(this.gl, drawConVSahderSrc, drawConFSahderSrc, 'drawConUint');
+        this.drawGlowUnit = gpu.createRenderUnit(this.gl, drawGlowVShaderSrc, drawGlowFShaderSrc, 'drawGlowUnit');
+        this.drawNodeUnit = gpu.createRenderUnit(this.gl, drawNodeVShaderSrc, drawNodeFShaderSrc, 'drawNodeUnit');
         // =========================
         // create buffers
         // =========================
@@ -371,12 +421,22 @@ export class GpuRenderer {
         false, // normalize
         0, // stride
         0);
+        gpu.bindBufferToVAO(this.gl, this.rect1Buf, this.drawGlowUnit, 'a_vertex', 4, // size
+        this.gl.FLOAT, // type
+        false, // normalize
+        0, // stride
+        0);
         gpu.bindBufferToVAO(this.gl, this.rect1Buf, this.drawConUint, 'a_vertex', 4, // size
         this.gl.FLOAT, // type
         false, // normalize
         0, // stride
         0);
         gpu.bindBufferToVAO(this.gl, this.rectUVBuf, this.drawConUint, 'a_uv', 2, // size
+        this.gl.FLOAT, // type
+        false, // normalize
+        0, // stride
+        0);
+        gpu.bindBufferToVAO(this.gl, this.rectUVBuf, this.drawGlowUnit, 'a_uv', 2, // size
         this.gl.FLOAT, // type
         false, // normalize
         0, // stride
@@ -457,16 +517,13 @@ export class GpuRenderer {
             };
         };
         this.circleTex = createImageTexture(assets.circleImage);
+        this.glowTex = createImageTexture(assets.glowImage);
     }
     render() {
-        const supplyNodeInfos = (renderUnit) => {
-            gpu.useTexture(this.gl, renderUnit, this.nodeRenderPosTex, 'u_node_render_pos_tex');
-            gpu.useTexture(this.gl, renderUnit, this.nodeColorsTex, 'u_node_colors_tex');
-            this.gl.uniform1i(renderUnit.locs.uLoc('u_node_count'), this.nodeLength);
-        };
-        const supplyConInfos = (renderUnit) => {
-            gpu.useTexture(this.gl, renderUnit, this.conInfosTex, 'u_con_infos_tex');
-            this.gl.uniform1i(renderUnit.locs.uLoc('u_con_count'), this.connectionLength);
+        const supplyViewportInfo = (renderUnit) => {
+            this.gl.uniform2f(renderUnit.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
+            this.gl.uniform1f(renderUnit.locs.uLoc('u_zoom'), this.renderParam.zoom);
+            this.gl.uniform2f(renderUnit.locs.uLoc('u_offset'), this.renderParam.offset.x, this.renderParam.offset.y);
         };
         // match canvas width and height to
         // canvas element width and height
@@ -482,7 +539,8 @@ export class GpuRenderer {
         // clear background
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         {
-            const bg = this.colorTable.background.getPreMultiplied().getNormalized();
+            let bg = this.renderParam.colorTable.background;
+            bg = bg.getPreMultiplied().getNormalized();
             this.gl.clearColor(bg.r, bg.g, bg.b, bg.a);
         }
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
@@ -492,35 +550,35 @@ export class GpuRenderer {
             this.gl.bindVertexArray(this.drawConUint.vao);
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
             this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
-            supplyNodeInfos(this.drawConUint);
-            supplyConInfos(this.drawConUint);
-            this.gl.uniform2f(this.drawConUint.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
-            this.gl.uniform1f(this.drawConUint.locs.uLoc('u_zoom'), this.zoom);
-            this.gl.uniform2f(this.drawConUint.locs.uLoc('u_offset'), this.offset.x, this.offset.y);
-            this.gl.uniform1f(this.drawConUint.locs.uLoc('u_line_thickness'), this.connectionLineWidth);
+            supplyViewportInfo(this.drawConUint);
+            gpu.useTexture(this.gl, this.drawConUint, this.nodeRenderPosTex, 'u_node_render_pos_tex');
+            gpu.useTexture(this.gl, this.drawConUint, this.nodeColorsTex, 'u_node_colors_tex');
+            gpu.useTexture(this.gl, this.drawConUint, this.conInfosTex, 'u_con_infos_tex');
+            this.gl.uniform1f(this.drawConUint.locs.uLoc('u_line_thickness'), this.renderParam.connectionLineWidth);
             this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, // offset
             6, // num vertices per instance
             this.connectionLength // num instances
             );
         }
+        this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
         // draw nodes
         const drawNodes = (drawOutline) => {
             this.gl.useProgram(this.drawNodeUnit.program);
             this.gl.bindVertexArray(this.drawNodeUnit.vao);
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
             this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
-            supplyNodeInfos(this.drawNodeUnit);
+            supplyViewportInfo(this.drawNodeUnit);
+            gpu.useTexture(this.gl, this.drawNodeUnit, this.nodeRenderPosTex, 'u_node_render_pos_tex');
+            gpu.useTexture(this.gl, this.drawNodeUnit, this.nodeColorsTex, 'u_node_colors_tex');
             gpu.useTexture(this.gl, this.drawNodeUnit, this.circleTex, 'u_node_tex');
-            this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
-            this.gl.uniform1f(this.drawNodeUnit.locs.uLoc('u_zoom'), this.zoom);
-            this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_offset'), this.offset.x, this.offset.y);
-            this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_mouse'), this.mouse.x, this.mouse.y);
-            this.gl.uniform1i(this.drawNodeUnit.locs.uLoc('u_do_hover'), this.doHover ? 1 : 0);
+            this.gl.uniform2f(this.drawNodeUnit.locs.uLoc('u_mouse'), this.renderParam.mouse.x, this.renderParam.mouse.y);
+            this.gl.uniform1i(this.drawNodeUnit.locs.uLoc('u_do_hover'), this.renderParam.doHover ? 1 : 0);
             if (drawOutline) {
                 this.gl.uniform1i(this.drawNodeUnit.locs.uLoc('u_draw_outline'), 1);
-                const ns = this.colorTable.nodeStroke.getPreMultiplied().getNormalized();
+                let ns = this.renderParam.colorTable.nodeStroke;
+                ns = ns.getPreMultiplied().getNormalized();
                 this.gl.uniform4f(this.drawNodeUnit.locs.uLoc('u_outline_color'), ns.r, ns.g, ns.b, ns.a);
-                this.gl.uniform1f(this.drawNodeUnit.locs.uLoc('u_outline_width'), this.nodeOutlineWidth);
+                this.gl.uniform1f(this.drawNodeUnit.locs.uLoc('u_outline_width'), this.renderParam.nodeOutlineWidth);
             }
             else {
                 this.gl.uniform1i(this.drawNodeUnit.locs.uLoc('u_draw_outline'), 0);
@@ -532,6 +590,24 @@ export class GpuRenderer {
         };
         drawNodes(true);
         drawNodes(false);
+        // draw glows
+        {
+            this.gl.blendFunc(this.gl.ONE, this.gl.ONE);
+            this.gl.useProgram(this.drawGlowUnit.program);
+            this.gl.bindVertexArray(this.drawGlowUnit.vao);
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+            this.gl.viewport(0, 0, this.gl.canvas.width, this.gl.canvas.height);
+            this.gl.uniform1f(this.drawGlowUnit.locs.uLoc('u_glow_size'), this.renderParam.glowSize);
+            this.gl.uniform1f(this.drawGlowUnit.locs.uLoc('u_glow_boost'), this.renderParam.glowBoost);
+            supplyViewportInfo(this.drawGlowUnit);
+            gpu.useTexture(this.gl, this.drawGlowUnit, this.nodeRenderPosTex, 'u_node_render_pos_tex');
+            gpu.useTexture(this.gl, this.drawGlowUnit, this.nodeColorsTex, 'u_node_colors_tex');
+            gpu.useTexture(this.gl, this.drawGlowUnit, this.glowTex, 'u_glow_tex');
+            this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, // offset
+            6, // num vertices per instance
+            this.nodeLength // num instances
+            );
+        }
     }
     submitNodeManager(manager, flag) {
         this.nodeLength = manager.nodes.length;
@@ -566,7 +642,7 @@ export class GpuRenderer {
                 const node = manager.nodes[i];
                 this._nodeRenderPosBuf.set(offset + 0, node.renderX);
                 this._nodeRenderPosBuf.set(offset + 1, node.renderY);
-                this._nodeRenderPosBuf.set(offset + 2, node.syncedToRender ? 1 : 0);
+                this._nodeRenderPosBuf.set(offset + 2, node.glow);
                 this._nodeRenderPosBuf.set(offset + 3, node.renderRadiusScale * node.getRadius());
                 offset += 4;
             }
