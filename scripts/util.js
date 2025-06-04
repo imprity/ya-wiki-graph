@@ -136,3 +136,21 @@ export class ByteBuffer {
         return view.subarray(0, elementCount);
     }
 }
+export function arrayRemove(array, toRemove) {
+    if (!(0 <= toRemove && toRemove < array.length)) {
+        return array;
+    }
+    for (let i = toRemove; i + 1 < array.length; i++) {
+        array[i] = array[i + 1];
+    }
+    array.length -= 1;
+    return array;
+}
+export function arrayRemoveFast(array, toRemove) {
+    if (!(0 <= toRemove && toRemove < array.length)) {
+        return array;
+    }
+    array[toRemove] = array[array.length - 1];
+    array.length -= 1;
+    return array;
+}

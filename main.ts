@@ -253,7 +253,7 @@ class App {
                     } else if (focusedNode.id !== node.id) {
                         isFocused = false
                     }
-                    let isExpanding = node.isExpanding
+                    let isExpanding = this.nodeManager.isNodeExpanding(node)
                     let gotBigger = node.mass > prevMass
 
                     let targetRadius = ogRadius
@@ -644,7 +644,8 @@ class App {
             // nodes with finished request are no longer expanding
             // =====================================================
             for (const req of finished) {
-                req.node.isExpanding = false
+                this.nodeManager.setNodeExpanding(req.node, false)
+                this.nodeManager.setNodeOnTop(req.node, false)
             }
 
             this._expandRequests = unfinished
@@ -721,7 +722,7 @@ class App {
     _visibleNodeCache: util.Stack<DocNode> = new util.Stack()
 
     draw(deltaTime: DOMHighResTimeStamp) {
-        this.gpuRenderer.render()
+        this.gpuRenderer.render(this.nodeManager.drawOnTopNodes)
 
         // =======================
         // cache node visibility
@@ -776,24 +777,22 @@ class App {
         if (assets.loadingCircleImage !== null) {
             this.resetTransform()
 
-            forVisibleNodes((node: DocNode) => {
-                if (node.isExpanding) {
-                    const image = assets.loadingCircleImage as ImageBitmap
-                    this.resetTransform()
+            for (const node of this.nodeManager.expandingNodes) {
+                const image = assets.loadingCircleImage as ImageBitmap
+                this.resetTransform()
 
-                    const pos = this.worldToViewport(node.renderX, node.renderY)
-                    this.overlayCtx.translate(pos.x, pos.y)
+                const pos = this.worldToViewport(node.renderX, node.renderY)
+                this.overlayCtx.translate(pos.x, pos.y)
 
-                    let scaleX = node.getRenderRadius() * this.zoom / (image.width * 0.5)
-                    let scaleY = node.getRenderRadius() * this.zoom / (image.height * 0.5)
+                let scaleX = node.getRenderRadius() * this.zoom / (image.width * 0.5)
+                let scaleY = node.getRenderRadius() * this.zoom / (image.height * 0.5)
 
-                    this.overlayCtx.scale(scaleX, scaleY)
+                this.overlayCtx.scale(scaleX, scaleY)
 
-                    this.overlayCtx.rotate(this.globalTick * 0.008)
+                this.overlayCtx.rotate(this.globalTick * 0.008)
 
-                    this.overlayCtx.drawImage(image, -image.width * 0.5, -image.height * 0.5)
-                }
-            })
+                this.overlayCtx.drawImage(image, -image.width * 0.5, -image.height * 0.5)
+            }
         }
         this.resetTransform()
 
@@ -1056,7 +1055,8 @@ class App {
             doneRequesting: false
         }
 
-        node.isExpanding = true
+        this.nodeManager.setNodeExpanding(node, true)
+        this.nodeManager.setNodeOnTop(node, true)
 
         this._expandRequests.push(request)
 

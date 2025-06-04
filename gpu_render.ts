@@ -58,6 +58,14 @@ vec4 get_node_color(sampler2D color_tex, int index) {
     return texelFetch(color_tex, ivec2(x, y), 0);
 }
 
+bool get_node_render_skip(lowp usampler2D skip_tex, int index) {
+    ivec2 tex_size = textureSize(skip_tex, 0);
+    int x = index % tex_size.x;
+    int y = index / tex_size.x;
+
+    return texelFetch(skip_tex, ivec2(x, y), 0).x > uint(0);
+}
+
 float get_node_render_radius(uvec4 render) {
     return uintBitsToFloat(render.w);
 }
@@ -82,12 +90,21 @@ uniform bool u_do_hover;
 
 uniform highp usampler2D u_node_render_pos_tex;
 uniform sampler2D u_node_colors_tex;
+uniform lowp usampler2D u_node_render_skip_tex;
+
+uniform int u_node_index_override;
 
 out vec4 v_color;
 out vec2 v_uv;
 
 void main() {
-    uvec4 node_render = get_data_from_tex(u_node_render_pos_tex, gl_InstanceID);
+    int node_index = gl_InstanceID;
+
+    if (u_node_index_override >= 0) {
+        node_index = u_node_index_override;
+    }
+
+    uvec4 node_render = get_data_from_tex(u_node_render_pos_tex, node_index);
     vec2 node_pos = get_node_render_pos(node_render);
 
     float node_radius = get_node_render_radius(node_render);
@@ -97,7 +114,7 @@ void main() {
         node_radius = node_radius_with_outline;
     }
 
-    vec4 node_color = get_node_color(u_node_colors_tex, gl_InstanceID);
+    vec4 node_color = get_node_color(u_node_colors_tex, node_index);
 
     if (u_draw_outline) {
         node_color.rgb *= 0.8; // TODO: parameterize
@@ -123,6 +140,11 @@ void main() {
         node_color.rgb *= 0.3; // TODO: parameterize
         v_color = node_color;
     }
+
+    v_color *= max(
+        step(0.0f, float(u_node_index_override)),
+        (1.0 - float(get_node_render_skip(u_node_render_skip_tex, node_index)))
+    );
 }
 `
 
@@ -284,16 +306,25 @@ uniform float u_glow_boost;
 
 uniform highp usampler2D u_node_render_pos_tex;
 uniform sampler2D u_node_colors_tex;
+uniform lowp usampler2D u_node_render_skip_tex;
+
+uniform int u_node_index_override;
 
 out float v_glow;
 out vec4 v_color;
 out vec2 v_uv;
 
 void main() {
-    uvec4 node_render = get_data_from_tex(u_node_render_pos_tex, gl_InstanceID);
+    int node_index = gl_InstanceID;
+
+    if (u_node_index_override >= 0) {
+        node_index = u_node_index_override;
+    }
+
+    uvec4 node_render = get_data_from_tex(u_node_render_pos_tex, node_index);
     vec2 node_pos = get_node_render_pos(node_render);
     float node_radius = get_node_render_radius(node_render);
-    vec4 node_color = get_node_color(u_node_colors_tex, gl_InstanceID);
+    vec4 node_color = get_node_color(u_node_colors_tex, node_index);
     float node_glow = get_node_glow(node_render);
 
     vec2 pos = a_vertex.xy;
@@ -310,6 +341,11 @@ void main() {
     v_glow = node_glow;
     v_color = node_color + vec4(1,1,1,1) * u_glow_boost;
     v_uv = a_uv;
+
+    v_color *= max(
+        step(0.0f, float(u_node_index_override)),
+        (1.0 - float(get_node_render_skip(u_node_render_skip_tex, node_index)))
+    );
 }
 `
 
@@ -373,6 +409,8 @@ export class GpuRenderer {
     nodeColorsTex: gpu.Texture
 
     nodeRenderPosTex: gpu.Texture
+
+    nodeRenderSkipTex: gpu.Texture
 
     conInfosTex: gpu.Texture
 
@@ -558,6 +596,15 @@ export class GpuRenderer {
             this.gl.UNSIGNED_INT,
         )
 
+        // create textures to hold node to skip in instance drawing
+        this.nodeRenderSkipTex = gpu.createDataTexture(
+            this.gl,
+            this.gl.R8UI,
+            texInitSize, texInitSize,
+            this.gl.RED_INTEGER,
+            this.gl.UNSIGNED_BYTE,
+        )
+
         // create textures to hold connection informations
         this.conInfosTex = gpu.createDataTexture(
             this.gl,
@@ -635,7 +682,7 @@ export class GpuRenderer {
         this.glowTex = createImageTexture(assets.glowImage)
     }
 
-    render() {
+    render(drawOnTopNodes: Array<DocNode>) {
         const supplyViewportInfo = (renderUnit: gpu.RenderUnit) => {
             this.gl.uniform2f(
                 renderUnit.locs.uLoc('u_screen_size'),
@@ -705,7 +752,10 @@ export class GpuRenderer {
         this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
 
         // draw nodes
-        const drawNodes = (drawOutline: boolean) => {
+        const drawNodes = (
+            drawOutline: boolean,
+            drawSpecificNode: number, // if number is >= 0, draw that node
+        ) => {
             this.gl.useProgram(this.drawNodeUnit.program)
             this.gl.bindVertexArray(this.drawNodeUnit.vao)
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null)
@@ -718,6 +768,8 @@ export class GpuRenderer {
             gpu.useTexture(this.gl, this.drawNodeUnit, this.nodeColorsTex, 'u_node_colors_tex')
 
             gpu.useTexture(this.gl, this.drawNodeUnit, this.circleTex, 'u_node_tex')
+
+            gpu.useTexture(this.gl, this.drawNodeUnit, this.nodeRenderSkipTex, 'u_node_render_skip_tex')
 
             this.gl.uniform2f(
                 this.drawNodeUnit.locs.uLoc('u_mouse'),
@@ -745,20 +797,37 @@ export class GpuRenderer {
                     this.drawNodeUnit.locs.uLoc('u_draw_outline'), 0)
             }
 
-            this.gl.drawArraysInstanced(
-                this.gl.TRIANGLES,
-                0, // offset
-                6, // num vertices per instance
-                this.nodeLength // num instances
-            )
+            this.gl.uniform1i(
+                this.drawNodeUnit.locs.uLoc('u_node_index_override'), drawSpecificNode)
+
+            if (drawSpecificNode >= 0) {
+                this.gl.drawArrays(
+                    this.gl.TRIANGLES,
+                    0,
+                    6,
+                )
+            } else {
+                this.gl.drawArraysInstanced(
+                    this.gl.TRIANGLES,
+                    0, // offset
+                    6, // num vertices per instance
+                    this.nodeLength // num instances
+                )
+            }
         }
 
-        drawNodes(true)
-        drawNodes(false)
+        // ==========================
+        // draw nodes instanced
+        // ==========================
+        drawNodes(true, -1)
+        drawNodes(false, -1)
 
         // draw glows
-        {
-            this.gl.blendFunc(this.gl.ONE, this.gl.ONE);
+        this.gl.blendFunc(this.gl.ONE, this.gl.ONE);
+
+        const drawGlow = (
+            drawSpecificNode: number, // if number is >= 0, draw that node
+        ) => {
 
             this.gl.useProgram(this.drawGlowUnit.program)
             this.gl.bindVertexArray(this.drawGlowUnit.vao)
@@ -781,16 +850,48 @@ export class GpuRenderer {
 
             gpu.useTexture(this.gl, this.drawGlowUnit, this.glowTex, 'u_glow_tex')
 
-            this.gl.drawArraysInstanced(
-                this.gl.TRIANGLES,
-                0, // offset
-                6, // num vertices per instance
-                this.nodeLength // num instances
-            )
+            this.gl.uniform1i(
+                this.drawGlowUnit.locs.uLoc('u_node_index_override'), drawSpecificNode)
+
+            if (drawSpecificNode >= 0) {
+                this.gl.drawArrays(
+                    this.gl.TRIANGLES,
+                    0,
+                    6,
+                )
+            } else {
+                this.gl.drawArraysInstanced(
+                    this.gl.TRIANGLES,
+                    0, // offset
+                    6, // num vertices per instance
+                    this.nodeLength // num instances
+                )
+            }
         }
+
+        drawGlow(-1)
+
+        // =======================================
+        // draw nodes that needst to be on top
+        // =======================================
+
+        for (const node of drawOnTopNodes) {
+            if (node.index < this.nodeLength) {
+                this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
+
+                drawNodes(true, node.index)
+                drawNodes(false, node.index)
+
+                this.gl.blendFunc(this.gl.ONE, this.gl.ONE);
+
+                drawGlow(node.index)
+            }
+        }
+
     }
 
     _nodeRenderPosBuf: util.ByteBuffer = new util.ByteBuffer(Float32Array)
+    _nodeRenderSkipBuf: util.ByteBuffer = new util.ByteBuffer(Uint8Array)
 
     submitNodeManager(
         manager: NodeManager,
@@ -853,6 +954,28 @@ export class GpuRenderer {
                 this.gl.UNSIGNED_INT, // type
                 this._nodeRenderPosBuf.cast(Uint32Array)
             )
+
+            // supply nodes with which nodes to skip
+            this._nodeRenderSkipBuf.setLength(nodeTexSize * nodeTexSize)
+            const buf = this._nodeRenderSkipBuf.cast(Uint8Array)
+            buf.fill(0)
+            for (const node of manager.drawOnTopNodes) {
+                if (node.index < this.nodeLength) {
+                    buf[node.index] = 1
+                }
+            }
+
+            this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
+            gpu.setDataTextureData(
+                this.gl,
+                this.nodeRenderSkipTex,
+                this.gl.R8UI, // internal format
+                nodeTexSize, nodeTexSize, // width, height
+                this.gl.RED_INTEGER, // format
+                this.gl.UNSIGNED_BYTE, // type
+                buf
+            )
+            this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 4);
         }
 
         // supply texture with connection infos

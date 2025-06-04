@@ -19,8 +19,6 @@ export class DocNode {
         this.renderY = 0;
         this.glow = 0;
         this.renderRadiusScale = 1;
-        this.doDraw = true;
-        this.isExpanding = false;
         this.syncedToRender = false;
         this.id = 0;
         this.index = 0; // index of this node in node manager
@@ -54,6 +52,8 @@ export class NodeManager {
         this._titleToNodes = new Map();
         this._idToNodeIndex = new Map();
         this.connections = [];
+        this.expandingNodes = [];
+        this.drawOnTopNodes = [];
         this.reset();
     }
     reset() {
@@ -63,6 +63,8 @@ export class NodeManager {
         this._idToNodeIndex = new Map();
         this.nodes.length = 0;
         this.connections.length = 0;
+        this.expandingNodes = [];
+        this.drawOnTopNodes = [];
     }
     isConnected(nodeIndexA, nodeIndexB) {
         if (nodeIndexA === nodeIndexB) {
@@ -87,10 +89,7 @@ export class NodeManager {
                     }
                 }
                 if (toRemoveAt >= 0) {
-                    if (this.connections.length > 0) {
-                        this.connections[toRemoveAt] = this.connections[this.connections.length - 1];
-                    }
-                    this.connections.length--;
+                    util.arrayRemoveFast(this.connections, toRemoveAt);
                 }
             }
             else { // we have to add connection
@@ -139,6 +138,56 @@ export class NodeManager {
             return -1;
         }
         return index;
+    }
+    // returns index if node is in array
+    // returns -1 if not
+    _isNodeInPropertyArr(node, array) {
+        for (let i = 0; i < array.length; i++) {
+            const other = array[i];
+            if (node.id === other.id) {
+                return i;
+            }
+        }
+        return -1;
+    }
+    _addNodeToPropertyArr(node, array) {
+        const exists = this._isNodeInPropertyArr(node, array) >= 0;
+        if (!exists) {
+            array.push(node);
+        }
+    }
+    _removeNodeFromPropertyArr(node, array, maintainOrder) {
+        const index = this._isNodeInPropertyArr(node, array);
+        if (index >= 0) {
+            if (maintainOrder) {
+                util.arrayRemove(array, index);
+            }
+            else {
+                util.arrayRemoveFast(array, index);
+            }
+        }
+    }
+    setNodeExpanding(node, expanding) {
+        if (expanding) {
+            this._addNodeToPropertyArr(node, this.expandingNodes);
+        }
+        else {
+            this._removeNodeFromPropertyArr(node, this.expandingNodes, true);
+        }
+    }
+    isNodeExpanding(node) {
+        return this._isNodeInPropertyArr(node, this.expandingNodes) >= 0;
+    }
+    setNodeOnTop(node, onTop) {
+        if (onTop) {
+            this._addNodeToPropertyArr(node, this.drawOnTopNodes);
+        }
+        else {
+            this._removeNodeFromPropertyArr(node, this.drawOnTopNodes, false);
+        }
+    }
+    isNodeOnTop(node) {
+        return this._isNodeInPropertyArr(node, this.drawOnTopNodes) >= 0;
     }
 }
 export class DocNodeContainer {
