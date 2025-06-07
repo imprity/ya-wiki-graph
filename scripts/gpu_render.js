@@ -361,9 +361,8 @@ void main() {
 export var RenderSyncFlags;
 (function (RenderSyncFlags) {
     RenderSyncFlags[RenderSyncFlags["Connections"] = 1] = "Connections";
-    //NodePhysics = 1 << 1, // nodes' position, mass, temp
-    RenderSyncFlags[RenderSyncFlags["NodeColors"] = 4] = "NodeColors";
-    RenderSyncFlags[RenderSyncFlags["NodeRenderPos"] = 8] = "NodeRenderPos";
+    RenderSyncFlags[RenderSyncFlags["NodeColors"] = 2] = "NodeColors";
+    RenderSyncFlags[RenderSyncFlags["NodeRenderPosAndOrder"] = 4] = "NodeRenderPosAndOrder";
     RenderSyncFlags[RenderSyncFlags["Everything"] = -1] = "Everything";
 })(RenderSyncFlags || (RenderSyncFlags = {}));
 export class RenderParameter {
@@ -383,6 +382,7 @@ export class GpuRenderer {
     constructor(canvas) {
         this.nodeLength = 0;
         this.connectionLength = 0;
+        this.nodesToDrawOnTop = new util.Stack();
         // ==========================
         // constrol parameters
         // ==========================
@@ -558,7 +558,7 @@ export class GpuRenderer {
         this.circleTex = createImageTexture(assets.circleImage);
         this.glowTex = createImageTexture(assets.glowImage);
     }
-    render(drawOnTopNodes) {
+    render() {
         const supplyViewportInfo = (renderUnit) => {
             this.gl.uniform2f(renderUnit.locs.uLoc('u_screen_size'), this.gl.canvas.width, this.gl.canvas.height);
             this.gl.uniform1f(renderUnit.locs.uLoc('u_zoom'), this.renderParam.zoom);
@@ -667,7 +667,9 @@ export class GpuRenderer {
         // =======================================
         // draw nodes that needst to be on top
         // =======================================
-        for (const node of drawOnTopNodes) {
+        //for (const node of this.nodesToDrawOnTop) {
+        for (let i = 0; i < this.nodesToDrawOnTop.length; i++) {
+            const node = this.nodesToDrawOnTop.peekAt(i);
             if (node.index < this.nodeLength) {
                 this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
                 drawNodes(true, node.index);
@@ -703,37 +705,37 @@ export class GpuRenderer {
             );
         }
         // supply texture with node render positions
-        if ((flag & RenderSyncFlags.NodeRenderPos) > 0) {
+        if ((flag & RenderSyncFlags.NodeRenderPosAndOrder) > 0) {
+            this.nodesToDrawOnTop.clear();
             this._nodeRenderPosBuf.setLength(nodeTexSize * nodeTexSize * 4);
+            this._nodeRenderSkipBuf.setLength(nodeTexSize * nodeTexSize);
             let offset = 0;
             for (let i = 0; i < this.nodeLength; i++) {
                 const node = manager.nodes[i];
                 this._nodeRenderPosBuf.set(offset + 0, node.renderX);
                 this._nodeRenderPosBuf.set(offset + 1, node.renderY);
                 this._nodeRenderPosBuf.set(offset + 2, node.glow);
-                this._nodeRenderPosBuf.set(offset + 3, node.renderRadiusScale * node.getRadius());
+                this._nodeRenderPosBuf.set(offset + 3, node.renderRadius);
                 offset += 4;
+                if (node.drawOnTop) {
+                    this._nodeRenderSkipBuf.set(i, 1);
+                    this.nodesToDrawOnTop.push(node);
+                }
+                else {
+                    this._nodeRenderSkipBuf.set(i, 0);
+                }
             }
             gpu.setDataTextureData(this.gl, this.nodeRenderPosTex, this.gl.RGBA32UI, // internal format
             nodeTexSize, nodeTexSize, // width, height
             this.gl.RGBA_INTEGER, // format
             this.gl.UNSIGNED_INT, // type
             this._nodeRenderPosBuf.cast(Uint32Array));
-            // supply nodes with which nodes to skip
-            this._nodeRenderSkipBuf.setLength(nodeTexSize * nodeTexSize);
-            const buf = this._nodeRenderSkipBuf.cast(Uint8Array);
-            buf.fill(0);
-            for (const node of manager.drawOnTopNodes) {
-                if (node.index < this.nodeLength) {
-                    buf[node.index] = 1;
-                }
-            }
             this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
             gpu.setDataTextureData(this.gl, this.nodeRenderSkipTex, this.gl.R8UI, // internal format
             nodeTexSize, nodeTexSize, // width, height
             this.gl.RED_INTEGER, // format
             this.gl.UNSIGNED_BYTE, // type
-            buf);
+            this._nodeRenderSkipBuf.cast(Uint8Array));
             this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 4);
         }
         // supply texture with connection infos

@@ -372,9 +372,8 @@ void main() {
 // controls what data to sync with gpu
 export enum RenderSyncFlags {
     Connections = 1 << 0, // connections
-    //NodePhysics = 1 << 1, // nodes' position, mass, temp
-    NodeColors = 1 << 2, // nodes' colors
-    NodeRenderPos = 1 << 3, // node render positions
+    NodeColors = 1 << 1, // nodes' colors
+    NodeRenderPosAndOrder = 1 << 2, // node render positions
     Everything = ~0
 }
 
@@ -421,6 +420,8 @@ export class GpuRenderer {
 
     circleTex: gpu.Texture
     glowTex: gpu.Texture
+
+    nodesToDrawOnTop: util.Stack<DocNode> = new util.Stack<DocNode>()
 
     // ==========================
     // constrol parameters
@@ -682,7 +683,7 @@ export class GpuRenderer {
         this.glowTex = createImageTexture(assets.glowImage)
     }
 
-    render(drawOnTopNodes: Array<DocNode>) {
+    render() {
         const supplyViewportInfo = (renderUnit: gpu.RenderUnit) => {
             this.gl.uniform2f(
                 renderUnit.locs.uLoc('u_screen_size'),
@@ -875,7 +876,10 @@ export class GpuRenderer {
         // draw nodes that needst to be on top
         // =======================================
 
-        for (const node of drawOnTopNodes) {
+        //for (const node of this.nodesToDrawOnTop) {
+        for (let i = 0; i < this.nodesToDrawOnTop.length; i++) {
+            const node = this.nodesToDrawOnTop.peekAt(i)
+
             if (node.index < this.nodeLength) {
                 this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
 
@@ -931,8 +935,12 @@ export class GpuRenderer {
         }
 
         // supply texture with node render positions
-        if ((flag & RenderSyncFlags.NodeRenderPos) > 0) {
+        if ((flag & RenderSyncFlags.NodeRenderPosAndOrder) > 0) {
+            this.nodesToDrawOnTop.clear()
+
             this._nodeRenderPosBuf.setLength(nodeTexSize * nodeTexSize * 4)
+
+            this._nodeRenderSkipBuf.setLength(nodeTexSize * nodeTexSize)
 
             let offset = 0
             for (let i = 0; i < this.nodeLength; i++) {
@@ -940,9 +948,16 @@ export class GpuRenderer {
                 this._nodeRenderPosBuf.set(offset + 0, node.renderX)
                 this._nodeRenderPosBuf.set(offset + 1, node.renderY)
                 this._nodeRenderPosBuf.set(offset + 2, node.glow)
-                this._nodeRenderPosBuf.set(offset + 3, node.renderRadiusScale * node.getRadius())
+                this._nodeRenderPosBuf.set(offset + 3, node.renderRadius)
 
                 offset += 4
+
+                if (node.drawOnTop) {
+                    this._nodeRenderSkipBuf.set(i, 1)
+                    this.nodesToDrawOnTop.push(node)
+                } else {
+                    this._nodeRenderSkipBuf.set(i, 0)
+                }
             }
 
             gpu.setDataTextureData(
@@ -955,16 +970,6 @@ export class GpuRenderer {
                 this._nodeRenderPosBuf.cast(Uint32Array)
             )
 
-            // supply nodes with which nodes to skip
-            this._nodeRenderSkipBuf.setLength(nodeTexSize * nodeTexSize)
-            const buf = this._nodeRenderSkipBuf.cast(Uint8Array)
-            buf.fill(0)
-            for (const node of manager.drawOnTopNodes) {
-                if (node.index < this.nodeLength) {
-                    buf[node.index] = 1
-                }
-            }
-
             this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
             gpu.setDataTextureData(
                 this.gl,
@@ -973,7 +978,7 @@ export class GpuRenderer {
                 nodeTexSize, nodeTexSize, // width, height
                 this.gl.RED_INTEGER, // format
                 this.gl.UNSIGNED_BYTE, // type
-                buf
+                this._nodeRenderSkipBuf.cast(Uint8Array)
             )
             this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 4);
         }

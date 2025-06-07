@@ -56,27 +56,40 @@ interface Animation {
 }
 
 class App {
+    // ==========================
+    // canvas stuff
+    // ==========================
     mainCanvas: HTMLCanvasElement
     overlayCanvas: HTMLCanvasElement
 
-    width: number = 0
-    height: number = 0
+    overlayCtx: CanvasRenderingContext2D
 
     dpiAdujustScaleX: number = 2
     dpiAdujustScaleY: number = 2
 
-    zoom: number = 1
-    offset: math.Vector2 = new math.Vector2(0, 0)
-
-    globalTick: number = 0
-
+    // ==========================
+    // components
+    // ==========================
     gpuRenderer: GpuRenderer
     gpuSimulator: GpuSimulator
 
+    renderParam: RenderParameter = new RenderParameter()
+    simParam: SimulationParameter = new SimulationParameter()
+
     nodeManager: NodeManager
 
-    overlayCtx: CanvasRenderingContext2D
+    // ==========================
+    // viewport stuff
+    // ==========================
+    width: number = 0
+    height: number = 0
 
+    zoom: number = 1
+    offset: math.Vector2 = new math.Vector2(0, 0)
+
+    // ==========================
+    // simulation stuff
+    // ==========================
     _simulating: boolean = false
 
     _doingBeforeSimCBs: boolean = false
@@ -84,12 +97,6 @@ class App {
 
     _doingAfterSimCBS: boolean = false
     _afterSimCBS: Array<() => void> = []
-
-    _expandRequests: Array<ExpandRequest> = []
-
-    _animations: Map<number, Animation> = new Map()
-
-    colorTable: ColorTable = new ColorTable()
 
     // ========================
     // input states
@@ -112,19 +119,18 @@ class App {
     _focusedNode: DocNode | null = null
     focusedTick: number = 0
 
+    // ========================
+    // misc
+    // ========================
+    globalTick: number = 0
+
+    expandRequests: Array<ExpandRequest> = []
+
+    colorTable: ColorTable = new ColorTable()
+
     // how long a user has to hold node
     // before we open the wikipedia link
     linkOpenDuration: number = 1000 // constant
-
-    // ========================
-    // simulation parameters
-    // ========================
-    simParam: SimulationParameter = new SimulationParameter()
-
-    // ========================
-    // render parameters
-    // ========================
-    renderParam: RenderParameter = new RenderParameter()
 
     constructor(
         mainCanvas: HTMLCanvasElement,
@@ -191,6 +197,382 @@ class App {
         )
     }
 
+    update(deltaTime: DOMHighResTimeStamp) {
+        this.updateWidthAndHeight()
+        this.globalTick += deltaTime
+
+        // debug print stuff
+        {
+            let estimate = 1000.0 / deltaTime
+            debugPrint('FPS', Math.round(estimate).toString())
+        }
+        debugPrint('node count', this.nodeManager.nodes.length.toString())
+        debugPrint('connection count', this.nodeManager.connections.length.toString())
+        debugPrint('zoom', this.zoom.toFixed(2))
+        // debugPrint('animation count', this._animations.size.toString())
+        debugPrint('do hover', this.renderParam.doHover.toString())
+
+        // ================================
+        // reset node attributes
+        // ================================
+        for (const node of this.nodeManager.nodes) {
+            node.glowMin = 0
+            node.renderRadiusMin = 0
+            node.drawOnTop = false
+        }
+
+        // ================================
+        // node position updating
+        // ================================
+        debugPrint('before cb count', this._beforeSimCBs.length.toString())
+
+        if (!this._simulating) {
+            this._doingBeforeSimCBs = true
+            for (const cb of this._beforeSimCBs) {
+                cb()
+            }
+            this._doingBeforeSimCBs = false
+            this._beforeSimCBs.length = 0
+
+            this._simulating = true
+            this.gpuSimulator.simulatePhysics(this.nodeManager).then(() => {
+                this._simulating = false
+
+                this._doingAfterSimCBS = true
+                for (const cb of this._afterSimCBS) {
+                    cb()
+                }
+                this._doingAfterSimCBS = false
+                this._afterSimCBS.length = 0
+            })
+        }
+
+        // ================================
+        // handle expand requests
+        // ================================
+        {
+            let finished: Array<ExpandRequest> = []
+            let unfinished: Array<ExpandRequest> = []
+
+            for (const req of this.expandRequests) {
+                if (req.doneRequesting) {
+                    finished.push(req)
+                } else {
+                    unfinished.push(req)
+                }
+            }
+
+            // =======================================
+            // actually add nodes from links we got
+            // =======================================
+            if (finished.length > 0) {
+                this.beforeSimulation(() => {
+                    for (const req of finished) {
+                        if (req.links === null) {
+                            continue
+                        }
+
+                        const angle: number = Math.PI * 2 / req.links.length
+
+                        // not an accurate mass of node that will expand
+                        // but good enough
+                        const offsetV = { x: 0, y: - (100 + DocNode.nodeMassToRadius(req.node.mass + req.links.length)) }
+
+                        let index = req.node.index
+
+                        const colorGenerator = this.getConnectedNodeColorGenerator(req.node.color)
+
+                        for (let i = 0; i < req.links.length; i++) {
+                            const link = req.links[i]
+
+                            const otherIndex = this.nodeManager.findNodeFromTitle(link)
+
+                            if (index === otherIndex) {
+                                continue;
+                            }
+
+                            if (otherIndex < 0) { // we have to make a new node
+                                const newNode = new DocNode()
+                                const newNodeIndex = this.nodeManager.nodes.length
+                                newNode.title = link
+
+                                const v = math.vector2Rotate(offsetV, angle * i)
+                                newNode.posX = req.node.posX + v.x
+                                newNode.posY = req.node.posY + v.y
+                                newNode.renderX = newNode.posX
+                                newNode.renderY = newNode.posY
+
+                                this.nodeManager.pushNode(newNode)
+                                this.nodeManager.setConnected(index, newNodeIndex, true)
+
+                                req.node.mass += 1
+                                newNode.mass += 1
+
+                                newNode.renderRadius = newNode.getRadius()
+                                newNode.color = colorGenerator()
+                            } else {
+                                const otherNode = this.nodeManager.nodes[otherIndex]
+
+                                // we have to make a new connection
+                                if (!this.nodeManager.isConnected(index, otherIndex)) {
+                                    this.nodeManager.setConnected(index, otherIndex, true)
+                                    req.node.mass += 1
+                                    otherNode.mass += 1
+                                }
+                            }
+                        }
+                        // ==========================
+                        // make connected nodes glow
+                        // ==========================
+                        req.node.glow = 1
+                        for (const node of this.nodeManager.nodes) {
+                            if (this.nodeManager.isConnected(req.node.index, node.index)) {
+                                node.glow = 1
+                            }
+                        }
+
+                        // ==========================
+                        // submit to gpu
+                        // ==========================
+                        this.gpuSimulator.submitNodeManager(
+                            this.nodeManager,
+                        )
+                        this.gpuRenderer.submitNodeManager(
+                            this.nodeManager,
+                            RenderSyncFlags.Everything
+                        )
+                    }
+                })
+            }
+
+            this.expandRequests = unfinished
+        }
+
+        // ======================================
+        // open wikipedia article
+        // if user held on to node long enough
+        // ======================================
+        {
+            const focusedNode = this.focusedNode()
+            if (
+                focusedNode !== null &&
+                this.globalTick - this.focusedTick > this.linkOpenDuration
+            ) {
+                wiki.openWikipedia(focusedNode.title)
+                this.unfocusNode()
+            }
+        }
+
+        // ================================
+        // focused node styling
+        // ================================
+        {
+            const focusedNode = this.focusedNode()
+            if (focusedNode !== null) {
+                focusedNode.wishRenderRadius(90)
+                focusedNode.wishDrawOnTop()
+            }
+        }
+
+        // =================================
+        // expanding nodes styling
+        // =================================
+        for (const req of this.expandRequests) {
+            req.node.wishRenderRadius(120)
+            req.node.wishDrawOnTop()
+        }
+
+        // ================================
+        // update nodes
+        // ================================
+        for (let i = 0; i < this.nodeManager.nodes.length; i++) {
+            const node = this.nodeManager.nodes[i]
+
+            if (!node.syncedToRender) {
+                let t1 = math.distSquared(
+                    node.renderX - node.posX, node.renderY - node.posY)
+                let t2 = t1 / 50000.0
+
+                t2 = math.clamp(t2, 0, 0.2)
+
+                const x = math.lerp(node.renderX, node.posX, t2)
+                const y = math.lerp(node.renderY, node.posY, t2)
+
+                node.renderX = x
+                node.renderY = y
+            }
+
+            // update node glow
+            {
+                let newGlow = math.lerp(Math.max(0, node.glowMin), node.glow, 0.995)
+                node.glow = newGlow
+                node.glow = math.clamp(node.glow, 0, 1)
+            }
+
+            // update node render radius
+            {
+                let newRadius = math.lerp(
+                    Math.max(node.renderRadiusMin, node.getRadius()), node.renderRadius, 0.8)
+                node.renderRadius = newRadius
+            }
+        }
+
+        // ================================
+        // submit to gpu
+        // ================================
+        this.gpuRenderer.submitNodeManager(
+            this.nodeManager,
+            RenderSyncFlags.NodeRenderPosAndOrder
+        )
+
+        this.renderParam.zoom = this.zoom
+        this.renderParam.offset.x = this.offset.x
+        this.renderParam.offset.y = this.offset.y
+        this.renderParam.mouse.x = this.mouse.x
+        this.renderParam.mouse.y = this.mouse.y
+    }
+
+    _visibleNodeCache: util.Stack<DocNode> = new util.Stack()
+
+    draw(deltaTime: DOMHighResTimeStamp) {
+        this.gpuRenderer.render()
+
+        // =======================
+        // cache node visibility
+        // =======================
+        {
+            this._visibleNodeCache.clear()
+
+            const viewMin = this.viewportToWorld(0, 0)
+            const viewMax = this.viewportToWorld(this.width, this.height)
+
+            const vx = viewMax.x - viewMin.x
+            const vy = viewMax.y - viewMin.y
+
+            viewMin.x -= vx * 0.5
+            viewMax.x += vx * 0.5
+
+            viewMin.y -= vy * 0.5
+            viewMax.y += vy * 0.5
+
+            for (let i = 0; i < this.nodeManager.nodes.length; i++) {
+                const node = this.nodeManager.nodes[i]
+                const radius = node.renderRadius
+
+                const minX = node.posX - radius
+                const maxX = node.posX + radius
+
+                const minY = node.posY - radius
+                const maxY = node.posY + radius
+
+                if (math.boxIntersects(
+                    minX, minY, maxX, maxY,
+                    viewMin.x, viewMin.y, viewMax.x, viewMax.y
+                )) {
+                    this._visibleNodeCache.push(node)
+                }
+            }
+        }
+
+        const forVisibleNodes = (f: (node: DocNode) => void) => {
+            for (let i = 0; i < this._visibleNodeCache.length; i++) {
+                f(this._visibleNodeCache.peekAt(i))
+            }
+        }
+
+
+        this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height)
+        this.resetTransform()
+
+        // =========================
+        // draw loading circle
+        // =========================
+        if (assets.loadingCircleImage !== null) {
+            this.resetTransform()
+
+            for (const req of this.expandRequests) {
+                const node = req.node
+
+                const image = assets.loadingCircleImage as ImageBitmap
+                this.resetTransform()
+
+                const pos = this.worldToViewport(node.renderX, node.renderY)
+                this.overlayCtx.translate(pos.x, pos.y)
+
+                let scaleX = node.renderRadius * this.zoom / (image.width * 0.5)
+                let scaleY = node.renderRadius * this.zoom / (image.height * 0.5)
+
+                this.overlayCtx.scale(scaleX, scaleY)
+
+                this.overlayCtx.rotate(this.globalTick * 0.008)
+
+                this.overlayCtx.drawImage(image, -image.width * 0.5, -image.height * 0.5)
+            }
+        }
+        this.resetTransform()
+
+        // =========================
+        // draw link open timer
+        // =========================
+        {
+            const focusedNode = this.focusedNode()
+            if (focusedNode !== null) {
+                let tickSinceFocused = this.globalTick - this.focusedTick
+                if (tickSinceFocused > this.linkOpenDuration * 0.1) {
+                    tickSinceFocused -= this.linkOpenDuration * 0.1
+                    this.overlayCtx.beginPath();
+                    const pos = this.worldToViewport(focusedNode.renderX, focusedNode.renderY)
+                    let lineWidth = focusedNode.renderRadius * 0.4
+                    this.overlayCtx.lineWidth = lineWidth * this.zoom
+                    this.overlayCtx.lineCap = 'round'
+                    this.overlayCtx.strokeStyle = this.colorTable.timerStroke.toCssString()
+
+                    this.overlayCtx.arc(
+                        pos.x, pos.y,
+                        (focusedNode.renderRadius + lineWidth * 0.5 + 2) * this.zoom,
+                        0 - Math.PI * 0.5,
+                        (tickSinceFocused / (this.linkOpenDuration * 0.9)) * Math.PI * 2 - Math.PI * 0.5
+                    )
+                    this.overlayCtx.stroke()
+                }
+            }
+        }
+
+        // =========================
+        // draw texts
+        // =========================
+        this.overlayCtx.fillStyle = this.colorTable.titleTextFill.toCssString()
+        this.overlayCtx.strokeStyle = this.colorTable.titleTextStroke.toCssString()
+        this.overlayCtx.textAlign = "center"
+        this.overlayCtx.textBaseline = "bottom"
+        this.overlayCtx.lineJoin = 'round'
+
+        forVisibleNodes((node: DocNode) => {
+            if (this.zoom > 0.3 || node.mass > 20) {
+                let fontSize = this.zoom * 14
+
+                this.overlayCtx.lineWidth = this.zoom * 4
+                if (node.mass > 20) {
+                    fontSize = 12
+                    this.overlayCtx.lineWidth = 4
+                }
+
+                this.overlayCtx.font = `bold ${fontSize}px sans-serif`
+
+                const pos = this.worldToViewport(node.renderX, node.renderY)
+
+                this.overlayCtx.strokeText(
+                    node.title,
+                    pos.x, pos.y - (node.renderRadius + 5.0) * this.zoom
+                )
+                this.overlayCtx.fillText(
+                    node.title,
+                    pos.x, pos.y - (node.renderRadius + 5.0) * this.zoom
+                )
+            }
+        })
+    }
+
     handleEvent(e: Event) {
         const focusLoseDist = 50
 
@@ -232,68 +614,6 @@ class App {
             const nodeUnderCurosor = this.getNodeUnderCursor(x, y)
             if (nodeUnderCurosor !== null) {
                 this.focusOnNode(nodeUnderCurosor)
-
-                let quit = false
-
-                const node = nodeUnderCurosor
-                const prevMass = node.mass
-                let ogRadius = node.getRadius()
-                let radius = node.getRadius()
-
-                // add node animation
-                const update = (deltaTime: number) => {
-                    const clickMinRadius = 90
-                    const expandMinRadius = 120
-
-                    const focusedNode = this.focusedNode()
-
-                    let isFocused = true
-                    if (focusedNode === null) {
-                        isFocused = false
-                    } else if (focusedNode.id !== node.id) {
-                        isFocused = false
-                    }
-                    let isExpanding = this.nodeManager.isNodeExpanding(node)
-                    let gotBigger = node.mass > prevMass
-
-                    let targetRadius = ogRadius
-
-                    if (isFocused) {
-                        targetRadius = Math.max(clickMinRadius, ogRadius)
-                    }
-                    if (isExpanding) {
-                        targetRadius = Math.max(expandMinRadius, ogRadius)
-                    }
-                    if (gotBigger) {
-                        targetRadius = node.getRadius()
-                    }
-
-                    const newRadius = math.lerp(radius, targetRadius, 0.2)
-                    const scale = newRadius / node.getRadius()
-
-                    node.renderRadiusScale = scale
-
-                    radius = newRadius
-
-                    if (!isFocused && !isExpanding && math.prettySame(radius, node.getRadius())) {
-                        node.renderRadiusScale = 1
-                        quit = true
-                    }
-                }
-                const didEnd = (): boolean => {
-                    return quit
-                }
-                const skip = () => {
-                    node.renderRadiusScale = 1
-                }
-
-                let anim: Animation = {
-                    update: update,
-                    didEnd: didEnd,
-                    skip: skip
-                }
-
-                this.addNodeAnimation(nodeUnderCurosor.id, anim)
             }
         }
 
@@ -502,374 +822,6 @@ class App {
         }
     }
 
-    update(deltaTime: DOMHighResTimeStamp) {
-        this.updateWidthAndHeight()
-        this.globalTick += deltaTime
-
-        // debug print stuff
-        {
-            let estimate = 1000.0 / deltaTime
-            debugPrint('FPS', Math.round(estimate).toString())
-        }
-        debugPrint('node count', this.nodeManager.nodes.length.toString())
-        debugPrint('connection count', this.nodeManager.connections.length.toString())
-        debugPrint('zoom', this.zoom.toFixed(2))
-        debugPrint('animation count', this._animations.size.toString())
-        debugPrint('do hover', this.renderParam.doHover.toString())
-
-        // ================================
-        // node position updating
-        // ================================
-        debugPrint('before cb count', this._beforeSimCBs.length.toString())
-
-        if (!this._simulating) {
-            this._doingBeforeSimCBs = true
-            for (const cb of this._beforeSimCBs) {
-                cb()
-            }
-            this._doingBeforeSimCBs = false
-            this._beforeSimCBs.length = 0
-
-            this._simulating = true
-            this.gpuSimulator.simulatePhysics(this.nodeManager).then(() => {
-                this._simulating = false
-
-                this._doingAfterSimCBS = true
-                for (const cb of this._afterSimCBS) {
-                    cb()
-                }
-                this._doingAfterSimCBS = false
-                this._afterSimCBS.length = 0
-            })
-        }
-
-        // ================================
-        // handle expand requests
-        // ================================
-        {
-            let finished: Array<ExpandRequest> = []
-            let unfinished: Array<ExpandRequest> = []
-
-            for (const req of this._expandRequests) {
-                if (req.doneRequesting) {
-                    finished.push(req)
-                } else {
-                    unfinished.push(req)
-                }
-            }
-
-            // =======================================
-            // actually add nodes from links we got
-            // =======================================
-            if (finished.length > 0) {
-                this.beforeSimulation(() => {
-                    for (const req of finished) {
-                        if (req.links === null) {
-                            continue
-                        }
-
-                        const angle: number = Math.PI * 2 / req.links.length
-
-                        // not an accurate mass of node that will expand
-                        // but good enough
-                        const offsetV = { x: 0, y: - (100 + DocNode.nodeMassToRadius(req.node.mass + req.links.length)) }
-
-                        let index = req.node.index
-
-                        const colorGenerator = this.getConnectedNodeColorGenerator(req.node.color)
-
-                        for (let i = 0; i < req.links.length; i++) {
-                            const link = req.links[i]
-
-                            const otherIndex = this.nodeManager.findNodeFromTitle(link)
-
-                            if (index === otherIndex) {
-                                continue;
-                            }
-
-                            if (otherIndex < 0) { // we have to make a new node
-                                const newNode = new DocNode()
-                                const newNodeIndex = this.nodeManager.nodes.length
-                                newNode.title = link
-
-                                const v = math.vector2Rotate(offsetV, angle * i)
-                                newNode.posX = req.node.posX + v.x
-                                newNode.posY = req.node.posY + v.y
-                                newNode.renderX = newNode.posX
-                                newNode.renderY = newNode.posY
-
-                                this.nodeManager.pushNode(newNode)
-                                this.nodeManager.setConnected(index, newNodeIndex, true)
-
-                                req.node.mass += 1
-                                newNode.mass += 1
-
-                                newNode.color = colorGenerator()
-                            } else {
-                                const otherNode = this.nodeManager.nodes[otherIndex]
-
-                                // we have to make a new connection
-                                if (!this.nodeManager.isConnected(index, otherIndex)) {
-                                    this.nodeManager.setConnected(index, otherIndex, true)
-                                    req.node.mass += 1
-                                    otherNode.mass += 1
-                                }
-                            }
-                        }
-                        // ==========================
-                        // make connected nodes glow
-                        // ==========================
-                        req.node.glow = 1
-                        for (const node of this.nodeManager.nodes) {
-                            if (this.nodeManager.isConnected(req.node.index, node.index)) {
-                                node.glow = 1
-                            }
-                        }
-
-                        // ==========================
-                        // submit to gpu
-                        // ==========================
-                        this.gpuSimulator.submitNodeManager(
-                            this.nodeManager,
-                        )
-                        this.gpuRenderer.submitNodeManager(
-                            this.nodeManager,
-                            RenderSyncFlags.Everything
-                        )
-                    }
-                })
-            }
-
-            // =====================================================
-            // nodes with finished request are no longer expanding
-            // =====================================================
-            for (const req of finished) {
-                this.nodeManager.setNodeExpanding(req.node, false)
-                this.nodeManager.setNodeOnTop(req.node, false)
-            }
-
-            this._expandRequests = unfinished
-        }
-
-        // ================================
-        // update node render positions
-        // ================================
-        for (let i = 0; i < this.nodeManager.nodes.length; i++) {
-            const node = this.nodeManager.nodes[i]
-
-            if (node.syncedToRender) {
-                continue
-            }
-
-            let t1 = math.distSquared(
-                node.renderX - node.posX, node.renderY - node.posY)
-            let t2 = t1 / 50000.0
-
-            t2 = math.clamp(t2, 0, 0.2)
-
-            const x = math.lerp(node.renderX, node.posX, t2)
-            const y = math.lerp(node.renderY, node.posY, t2)
-
-            node.renderX = x
-            node.renderY = y
-
-            let newGlow = math.lerp(0, node.glow, 0.995)
-            // let newGlow = node.glow - 0.001
-            node.glow = newGlow
-            node.glow = math.clamp(node.glow, 0, 1)
-        }
-
-        // ================================
-        // update animations
-        // ================================
-        this._animations.forEach((anim: Animation, nodeId: number, _: any) => {
-            anim.update(deltaTime)
-            if (anim.didEnd()) {
-                this._animations.delete(nodeId)
-            }
-        })
-
-        // ================================
-        // submit to gpu
-        // ================================
-        this.gpuRenderer.submitNodeManager(
-            this.nodeManager,
-            RenderSyncFlags.NodeRenderPos
-        )
-
-        // ======================================
-        // open wikipedia article
-        // if user held on to node long enough
-        // ======================================
-        {
-            const focusedNode = this.focusedNode()
-            if (
-                focusedNode !== null &&
-                this.globalTick - this.focusedTick > this.linkOpenDuration
-            ) {
-                wiki.openWikipedia(focusedNode.title)
-                this.unfocusNode()
-            }
-        }
-
-        this.renderParam.zoom = this.zoom
-        this.renderParam.offset.x = this.offset.x
-        this.renderParam.offset.y = this.offset.y
-        this.renderParam.mouse.x = this.mouse.x
-        this.renderParam.mouse.y = this.mouse.y
-    }
-
-    _visibleNodeCache: util.Stack<DocNode> = new util.Stack()
-
-    draw(deltaTime: DOMHighResTimeStamp) {
-        this.gpuRenderer.render(this.nodeManager.drawOnTopNodes)
-
-        // =======================
-        // cache node visibility
-        // =======================
-        {
-            this._visibleNodeCache.clear()
-
-            const viewMin = this.viewportToWorld(0, 0)
-            const viewMax = this.viewportToWorld(this.width, this.height)
-
-            const vx = viewMax.x - viewMin.x
-            const vy = viewMax.y - viewMin.y
-
-            viewMin.x -= vx * 0.5
-            viewMax.x += vx * 0.5
-
-            viewMin.y -= vy * 0.5
-            viewMax.y += vy * 0.5
-
-            for (let i = 0; i < this.nodeManager.nodes.length; i++) {
-                const node = this.nodeManager.nodes[i]
-                const radius = node.getRenderRadius()
-
-                const minX = node.posX - radius
-                const maxX = node.posX + radius
-
-                const minY = node.posY - radius
-                const maxY = node.posY + radius
-
-                if (math.boxIntersects(
-                    minX, minY, maxX, maxY,
-                    viewMin.x, viewMin.y, viewMax.x, viewMax.y
-                )) {
-                    this._visibleNodeCache.push(node)
-                }
-            }
-        }
-
-        const forVisibleNodes = (f: (node: DocNode) => void) => {
-            for (let i = 0; i < this._visibleNodeCache.length; i++) {
-                f(this._visibleNodeCache.peekAt(i))
-            }
-        }
-
-
-        this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height)
-        this.resetTransform()
-
-        // =========================
-        // draw loading circle
-        // =========================
-        if (assets.loadingCircleImage !== null) {
-            this.resetTransform()
-
-            for (const node of this.nodeManager.expandingNodes) {
-                const image = assets.loadingCircleImage as ImageBitmap
-                this.resetTransform()
-
-                const pos = this.worldToViewport(node.renderX, node.renderY)
-                this.overlayCtx.translate(pos.x, pos.y)
-
-                let scaleX = node.getRenderRadius() * this.zoom / (image.width * 0.5)
-                let scaleY = node.getRenderRadius() * this.zoom / (image.height * 0.5)
-
-                this.overlayCtx.scale(scaleX, scaleY)
-
-                this.overlayCtx.rotate(this.globalTick * 0.008)
-
-                this.overlayCtx.drawImage(image, -image.width * 0.5, -image.height * 0.5)
-            }
-        }
-        this.resetTransform()
-
-        // =========================
-        // draw link open timer
-        // =========================
-        {
-            const focusedNode = this.focusedNode()
-            if (focusedNode !== null) {
-                let tickSinceFocused = this.globalTick - this.focusedTick
-                if (tickSinceFocused > this.linkOpenDuration * 0.1) {
-                    tickSinceFocused -= this.linkOpenDuration * 0.1
-                    this.overlayCtx.beginPath();
-                    const pos = this.worldToViewport(focusedNode.renderX, focusedNode.renderY)
-                    let lineWidth = focusedNode.getRenderRadius() * 0.4
-                    this.overlayCtx.lineWidth = lineWidth * this.zoom
-                    this.overlayCtx.lineCap = 'round'
-                    this.overlayCtx.strokeStyle = this.colorTable.timerStroke.toCssString()
-
-                    this.overlayCtx.arc(
-                        pos.x, pos.y,
-                        (focusedNode.getRenderRadius() + lineWidth * 0.5 + 2) * this.zoom,
-                        0 - Math.PI * 0.5,
-                        (tickSinceFocused / (this.linkOpenDuration * 0.9)) * Math.PI * 2 - Math.PI * 0.5
-                    )
-                    this.overlayCtx.stroke()
-                }
-            }
-        }
-
-        // =========================
-        // draw texts
-        // =========================
-        this.overlayCtx.fillStyle = this.colorTable.titleTextFill.toCssString()
-        this.overlayCtx.strokeStyle = this.colorTable.titleTextStroke.toCssString()
-        this.overlayCtx.textAlign = "center"
-        this.overlayCtx.textBaseline = "bottom"
-        this.overlayCtx.lineJoin = 'round'
-
-        forVisibleNodes((node: DocNode) => {
-            if (this.zoom > 0.3 || node.mass > 20) {
-                let fontSize = this.zoom * 14
-
-                this.overlayCtx.lineWidth = this.zoom * 4
-                if (node.mass > 20) {
-                    fontSize = 12
-                    this.overlayCtx.lineWidth = 4
-                }
-
-                this.overlayCtx.font = `bold ${fontSize}px sans-serif`
-
-                const pos = this.worldToViewport(node.renderX, node.renderY)
-
-                this.overlayCtx.strokeText(
-                    node.title,
-                    pos.x, pos.y - (node.getRenderRadius() + 5.0) * this.zoom
-                )
-                this.overlayCtx.fillText(
-                    node.title,
-                    pos.x, pos.y - (node.getRenderRadius() + 5.0) * this.zoom
-                )
-            }
-        })
-    }
-
-    setColorTable(table: ColorTable) {
-        copyTable(table, this.colorTable)
-    }
-
-    addNodeAnimation(nodeId: number, anim: Animation) {
-        if (this._animations.has(nodeId)) {
-            const anim = this._animations.get(nodeId) as Animation
-            anim.skip()
-        }
-        this._animations.set(nodeId, anim)
-    }
-
     updateWidthAndHeight() {
         const rect = this.mainCanvas.getBoundingClientRect()
 
@@ -1014,6 +966,10 @@ class App {
         this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.NodeColors)
     }
 
+    setColorTable(table: ColorTable) {
+        copyTable(table, this.colorTable)
+    }
+
     resetTransform() {
         this.overlayCtx.resetTransform()
         this.overlayCtx.scale(this.dpiAdujustScaleX, this.dpiAdujustScaleY)
@@ -1055,10 +1011,7 @@ class App {
             doneRequesting: false
         }
 
-        this.nodeManager.setNodeExpanding(node, true)
-        this.nodeManager.setNodeOnTop(node, true)
-
-        this._expandRequests.push(request)
+        this.expandRequests.push(request)
 
         try {
             const regex = / /g
@@ -1079,7 +1032,7 @@ class App {
             if (math.posInCircle(
                 pos.x, pos.y,
                 node.renderX, node.renderY,
-                node.getRenderRadius()
+                node.renderRadius
             )) {
                 return node
             }
@@ -1151,6 +1104,11 @@ class App {
                     )
                 }
 
+                // set node renderRadius
+                for (const node of this.nodeManager.nodes) {
+                    node.renderRadius = node.getRadius()
+                }
+
                 this.offset.x = container.offsetX
                 this.offset.y = container.offsetY
 
@@ -1186,7 +1144,7 @@ class App {
         this.focusedTick = this.globalTick
 
         this.gpuRenderer.submitNodeManager(
-            this.nodeManager, RenderSyncFlags.NodeRenderPos
+            this.nodeManager, RenderSyncFlags.NodeRenderPosAndOrder
         )
     }
 
@@ -1196,7 +1154,7 @@ class App {
         }
         this._focusedNode.syncedToRender = false
         this.gpuRenderer.submitNodeManager(
-            this.nodeManager, RenderSyncFlags.NodeRenderPos
+            this.nodeManager, RenderSyncFlags.NodeRenderPosAndOrder
         )
         this._focusedNode = null
     }
@@ -1219,8 +1177,7 @@ class App {
 
     reset() {
         this.beforeSimulation(() => {
-            this._expandRequests.length = 0
-            this._animations.clear()
+            this.expandRequests.length = 0
 
             this.offset.x = 0
             this.offset.y = 0
@@ -1250,6 +1207,7 @@ class App {
             node.renderY = this.height * 0.5
             node.title = title
             node.color = this.getNewNodeColor()
+            node.renderRadius = node.getRadius()
             this.nodeManager.pushNode(node)
 
             this.gpuRenderer.submitNodeManager(
@@ -1681,13 +1639,6 @@ async function main() {
         renderDebugPrint()
 
         requestAnimationFrame(onFrame)
-
-        /*
-        // TODO: very bad way of keeping a 60 frames per second
-        setTimeout(() => {
-        requestAnimationFrame(onFrame)
-        }, 1000 / 60)
-        */
     }
 
     requestAnimationFrame(onFrame)

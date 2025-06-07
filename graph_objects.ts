@@ -31,9 +31,13 @@ export class DocNode {
     renderX: number = 0
     renderY: number = 0
 
-    glow: number = 0
+    renderRadius: number = 0
+    renderRadiusMin: number = 0
 
-    renderRadiusScale: number = 1
+    glow: number = 0
+    glowMin: number = 0
+
+    drawOnTop: boolean = false
 
     syncedToRender: boolean = false
 
@@ -50,8 +54,16 @@ export class DocNode {
         return DocNode.nodeMassToRadius(this.mass)
     }
 
-    getRenderRadius(): number {
-        return this.getRadius() * this.renderRadiusScale
+    wishRenderRadius(radius: number) {
+        this.renderRadiusMin = Math.max(radius, this.renderRadiusMin)
+    }
+
+    wishGlow(glow: number) {
+        this.glowMin = Math.max(glow, this.glowMin)
+    }
+
+    wishDrawOnTop() {
+        this.drawOnTop = true
     }
 }
 
@@ -78,9 +90,6 @@ export class NodeManager {
 
     connections: Array<NodeConnection> = []
 
-    expandingNodes: Array<DocNode> = []
-    drawOnTopNodes: Array<DocNode> = []
-
     constructor() {
         this.reset()
     }
@@ -95,9 +104,6 @@ export class NodeManager {
 
         this.nodes.length = 0
         this.connections.length = 0
-
-        this.expandingNodes = []
-        this.drawOnTopNodes = []
     }
 
     isConnected(nodeIndexA: number, nodeIndexB: number): boolean {
@@ -195,61 +201,6 @@ export class NodeManager {
             return -1
         }
         return index
-    }
-
-    // returns index if node is in array
-    // returns -1 if not
-    _isNodeInPropertyArr(node: DocNode, array: Array<DocNode>): number {
-        for (let i = 0; i < array.length; i++) {
-            const other = array[i]
-            if (node.id === other.id) {
-                return i
-            }
-        }
-        return -1
-    }
-
-    _addNodeToPropertyArr(node: DocNode, array: Array<DocNode>) {
-        const exists = this._isNodeInPropertyArr(node, array) >= 0
-        if (!exists) {
-            array.push(node)
-        }
-    }
-
-    _removeNodeFromPropertyArr(
-        node: DocNode, array: Array<DocNode>,
-        maintainOrder: boolean
-    ) {
-        const index = this._isNodeInPropertyArr(node, array)
-        if (index >= 0) {
-            if (maintainOrder) {
-                util.arrayRemove(array, index)
-            } else {
-                util.arrayRemoveFast(array, index)
-            }
-        }
-    }
-
-    setNodeExpanding(node: DocNode, expanding: boolean) {
-        if (expanding) {
-            this._addNodeToPropertyArr(node, this.expandingNodes)
-        } else {
-            this._removeNodeFromPropertyArr(node, this.expandingNodes, true)
-        }
-    }
-    isNodeExpanding(node: DocNode): boolean {
-        return this._isNodeInPropertyArr(node, this.expandingNodes) >= 0
-    }
-
-    setNodeOnTop(node: DocNode, onTop: boolean) {
-        if (onTop) {
-            this._addNodeToPropertyArr(node, this.drawOnTopNodes)
-        } else {
-            this._removeNodeFromPropertyArr(node, this.drawOnTopNodes, false)
-        }
-    }
-    isNodeOnTop(node: DocNode): boolean {
-        return this._isNodeInPropertyArr(node, this.drawOnTopNodes) >= 0
     }
 }
 
