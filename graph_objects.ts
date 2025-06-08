@@ -19,6 +19,9 @@ export class DocNode {
         '}\n'
 
 
+    // ====================
+    // physics
+    // ====================
     posX: number = 0
     posY: number = 0
 
@@ -26,6 +29,9 @@ export class DocNode {
 
     mass: number = 0
 
+    // ====================
+    // styles
+    // ====================
     color: color.Color = new color.Color()
 
     renderX: number = 0
@@ -39,6 +45,9 @@ export class DocNode {
 
     drawOnTop: boolean = false
 
+    // ====================
+    // misc
+    // ====================
     syncedToRender: boolean = false
 
     id: number = 0

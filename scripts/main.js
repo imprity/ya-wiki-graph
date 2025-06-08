@@ -57,12 +57,16 @@ class App {
         // misc
         // ========================
         this.globalTick = 0;
-        this.expandRequests = [];
+        this._expandRequests = [];
         this.colorTable = new ColorTable();
+        this._highlightedNodes = new util.Stack();
+        this._isNodeHighlighted = new Array();
         // how long a user has to hold node
         // before we open the wikipedia link
         this.linkOpenDuration = 1000; // constant
-        this._visibleNodeCache = new util.Stack();
+        this._visibleNodesCache = new util.Stack();
+        this._visibleAndOnTopNodesCache = new util.Stack();
+        this._visibleAndHLNodesCache = new util.Stack();
         this.expandNode = (nodeIndex) => __awaiter(this, void 0, void 0, function* () {
             if (!(0 <= nodeIndex && nodeIndex < this.nodeManager.nodes.length)) {
                 console.error(`node id ${nodeIndex} out of bound`);
@@ -75,7 +79,7 @@ class App {
                 links: null,
                 doneRequesting: false
             };
-            this.expandRequests.push(request);
+            this._expandRequests.push(request);
             try {
                 const regex = / /g;
                 const links = yield wiki.retrieveAllLiks(node.title.replace(regex, "_"));
@@ -97,6 +101,43 @@ class App {
             }
             this.overlayCtx = ctx;
         }
+        // get UI elements
+        {
+            const textInput = document.getElementById('text-input');
+            const searchButton = document.getElementById('search-button');
+            const resetButton = document.getElementById('reset-button');
+            if (textInput === null) {
+                throw new Error('failed to get text-input');
+            }
+            if (searchButton === null) {
+                throw new Error('failed to get search-button');
+            }
+            if (resetButton === null) {
+                throw new Error('failed to get reset-button');
+            }
+            this.textInput = textInput;
+            this.searchButton = searchButton;
+            this.resetButton = resetButton;
+        }
+        this.textInput.addEventListener('input', () => {
+            if (this.textInput.value.length <= 0) {
+                this.clearHighlights();
+            }
+        });
+        this.textInput.addEventListener('change', () => {
+            this.clearHighlights();
+            if (this.textInput.value.length <= 0) {
+                return;
+            }
+            this.doSearch(this.textInput.value);
+        });
+        this.searchButton.onclick = () => {
+            this.clearHighlights();
+            if (this.textInput.value.length <= 0) {
+                return;
+            }
+            this.doSearch(this.textInput.value);
+        };
         this.updateWidthAndHeight();
         this.nodeManager = new NodeManager();
         this.renderParam.colorTable = this.colorTable;
@@ -180,7 +221,7 @@ class App {
         {
             let finished = [];
             let unfinished = [];
-            for (const req of this.expandRequests) {
+            for (const req of this._expandRequests) {
                 if (req.doneRequesting) {
                     finished.push(req);
                 }
@@ -252,7 +293,7 @@ class App {
                     }
                 });
             }
-            this.expandRequests = unfinished;
+            this._expandRequests = unfinished;
         }
         // ======================================
         // open wikipedia article
@@ -279,9 +320,16 @@ class App {
         // =================================
         // expanding nodes styling
         // =================================
-        for (const req of this.expandRequests) {
+        for (const req of this._expandRequests) {
             req.node.wishRenderRadius(120);
             req.node.wishDrawOnTop();
+        }
+        // =================================
+        // expanding nodes styling
+        // =================================
+        for (let i = 0; i < this._highlightedNodes.length; i++) {
+            const node = this._highlightedNodes.peekAt(i);
+            node.wishGlow(0.6);
         }
         // ================================
         // update nodes
@@ -322,10 +370,12 @@ class App {
     draw(deltaTime) {
         this.gpuRenderer.render();
         // =======================
-        // cache node visibility
+        // cache stuff
         // =======================
         {
-            this._visibleNodeCache.clear();
+            this._visibleNodesCache.clear();
+            this._visibleAndOnTopNodesCache.clear();
+            this._visibleAndHLNodesCache.clear();
             const viewMin = this.viewportToWorld(0, 0);
             const viewMax = this.viewportToWorld(this.width, this.height);
             const vx = viewMax.x - viewMin.x;
@@ -336,19 +386,39 @@ class App {
             viewMax.y += vy * 0.5;
             for (let i = 0; i < this.nodeManager.nodes.length; i++) {
                 const node = this.nodeManager.nodes[i];
-                const radius = node.renderRadius;
-                const minX = node.posX - radius;
-                const maxX = node.posX + radius;
-                const minY = node.posY - radius;
-                const maxY = node.posY + radius;
-                if (math.boxIntersects(minX, minY, maxX, maxY, viewMin.x, viewMin.y, viewMax.x, viewMax.y)) {
-                    this._visibleNodeCache.push(node);
+                // check if node is in viewport
+                {
+                    const radius = node.renderRadius;
+                    const minX = node.posX - radius;
+                    const maxX = node.posX + radius;
+                    const minY = node.posY - radius;
+                    const maxY = node.posY + radius;
+                    if (math.boxIntersects(minX, minY, maxX, maxY, viewMin.x, viewMin.y, viewMax.x, viewMax.y)) {
+                        this._visibleNodesCache.push(node);
+                    }
+                    // check if node is on top
+                    if (node.drawOnTop) {
+                        this._visibleAndOnTopNodesCache.push(node);
+                    }
+                    if (this.isNodeHighlighted(node)) {
+                        this._visibleAndHLNodesCache.push(node);
+                    }
                 }
             }
         }
         const forVisibleNodes = (f) => {
-            for (let i = 0; i < this._visibleNodeCache.length; i++) {
-                f(this._visibleNodeCache.peekAt(i));
+            for (let i = 0; i < this._visibleNodesCache.length; i++) {
+                f(this._visibleNodesCache.peekAt(i));
+            }
+        };
+        const forNodesOnTop = (f) => {
+            for (let i = 0; i < this._visibleAndOnTopNodesCache.length; i++) {
+                f(this._visibleAndOnTopNodesCache.peekAt(i));
+            }
+        };
+        const forHighlightedNodes = (f) => {
+            for (let i = 0; i < this._visibleAndHLNodesCache.length; i++) {
+                f(this._visibleAndHLNodesCache.peekAt(i));
             }
         };
         this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
@@ -358,7 +428,7 @@ class App {
         // =========================
         if (assets.loadingCircleImage !== null) {
             this.resetTransform();
-            for (const req of this.expandRequests) {
+            for (const req of this._expandRequests) {
                 const node = req.node;
                 const image = assets.loadingCircleImage;
                 this.resetTransform();
@@ -400,19 +470,38 @@ class App {
         this.overlayCtx.textAlign = "center";
         this.overlayCtx.textBaseline = "bottom";
         this.overlayCtx.lineJoin = 'round';
-        forVisibleNodes((node) => {
-            if (this.zoom > 0.3 || node.mass > 20) {
-                let fontSize = this.zoom * 14;
-                this.overlayCtx.lineWidth = this.zoom * 4;
-                if (node.mass > 20) {
-                    fontSize = 12;
-                    this.overlayCtx.lineWidth = 4;
-                }
-                this.overlayCtx.font = `bold ${fontSize}px sans-serif`;
-                const pos = this.worldToViewport(node.renderX, node.renderY);
-                this.overlayCtx.strokeText(node.title, pos.x, pos.y - (node.renderRadius + 5.0) * this.zoom);
-                this.overlayCtx.fillText(node.title, pos.x, pos.y - (node.renderRadius + 5.0) * this.zoom);
+        const drawText = (node, ignoreZoom) => {
+            let fontSize = this.zoom * 14;
+            this.overlayCtx.lineWidth = this.zoom * 4;
+            if (ignoreZoom) {
+                fontSize = 12;
+                this.overlayCtx.lineWidth = 4;
             }
+            this.overlayCtx.font = `bold ${fontSize}px sans-serif`;
+            const pos = this.worldToViewport(node.renderX, node.renderY);
+            this.overlayCtx.strokeText(node.title, pos.x, pos.y - (node.renderRadius + 5.0) * this.zoom);
+            this.overlayCtx.fillText(node.title, pos.x, pos.y - (node.renderRadius + 5.0) * this.zoom);
+        };
+        forVisibleNodes((node) => {
+            if (node.drawOnTop || this.isNodeHighlighted(node)) {
+                return;
+            }
+            if (this.zoom > 0.3 || node.mass > 20) {
+                drawText(node, node.mass > 20);
+            }
+        });
+        forNodesOnTop((node) => {
+            if (this.isNodeHighlighted(node)) {
+                return;
+            }
+            if (this.zoom > 0.3 || node.mass > 20) {
+                drawText(node, node.mass > 20);
+            }
+        });
+        this.overlayCtx.fillStyle = this.colorTable.titleHLTextFill.toCssString();
+        this.overlayCtx.strokeStyle = this.colorTable.titleHLTextStroke.toCssString();
+        forHighlightedNodes((node) => {
+            drawText(node, true);
         });
     }
     handleEvent(e) {
@@ -438,6 +527,24 @@ class App {
             this.draggingCanvas = false;
         };
         const handlePointerDown = (x, y) => {
+            var _a, _b, _c, _d, _e;
+            // unfocus ui
+            {
+                // unselect texts
+                // copy pasted from https://stackoverflow.com/questions/6562727/is-there-a-function-to-deselect-all-text-using-javascript
+                if (window.getSelection) {
+                    (_c = (_b = (_a = window.getSelection) === null || _a === void 0 ? void 0 : _a.call(window)) === null || _b === void 0 ? void 0 : _b.removeAllRanges) === null || _c === void 0 ? void 0 : _c.call(_b);
+                    //@ts-expect-error
+                }
+                else if (document.selection) {
+                    //@ts-expect-error
+                    (_e = (_d = document.selection) === null || _d === void 0 ? void 0 : _d.empty) === null || _e === void 0 ? void 0 : _e.call(_d);
+                }
+                // unfocus UI elements
+                this.textInput.blur();
+                this.resetButton.blur();
+                this.searchButton.blur();
+            }
             startDragging(x, y);
             this.tappedPos.x = x;
             this.tappedPos.y = y;
@@ -737,6 +844,39 @@ class App {
         y -= this.offset.y;
         return new math.Vector2(x, y);
     }
+    _ensureIsNodeHighlightedCap() {
+        if (this._isNodeHighlighted.length < this.nodeManager.nodes.length) {
+            let start = this._isNodeHighlighted.length;
+            this._isNodeHighlighted.length = this.nodeManager.nodes.length;
+            this._isNodeHighlighted.fill(false, start, this._isNodeHighlighted.length);
+        }
+    }
+    isNodeHighlighted(node) {
+        this._ensureIsNodeHighlightedCap();
+        return this._isNodeHighlighted[node.index];
+    }
+    highlightNode(node) {
+        if (this.isNodeHighlighted(node)) {
+            return;
+        }
+        this._isNodeHighlighted[node.index] = true;
+        this._highlightedNodes.push(node);
+        node.mass = Math.max(node.mass, 100);
+    }
+    clearHighlights() {
+        if (this._highlightedNodes.length <= 0) {
+            return;
+        }
+        this._isNodeHighlighted.fill(false);
+        this._highlightedNodes.clear();
+        for (const node of this.nodeManager.nodes) {
+            node.mass = 0;
+        }
+        for (const con of this.nodeManager.connections) {
+            this.nodeManager.nodes[con.nodeIndexA].mass++;
+            this.nodeManager.nodes[con.nodeIndexB].mass++;
+        }
+    }
     getNodeUnderCursor(x, y) {
         let pos = this.viewportToWorld(x, y);
         for (let i = 0; i < this.nodeManager.nodes.length; i++) {
@@ -746,6 +886,25 @@ class App {
             }
         }
         return null;
+    }
+    doSearch(search) {
+        this.clearHighlights();
+        search = search.toLowerCase();
+        let maxDist = 2;
+        if (search.length < 10) {
+            maxDist = 1;
+        }
+        if (search.length < 5) {
+            maxDist = 0;
+        }
+        for (const node of this.nodeManager.nodes) {
+            const title = node.title.toLowerCase();
+            const res = util.fuzzyMatch(title, search);
+            if (res.distance <= maxDist) {
+                console.log(node.title);
+                this.highlightNode(node);
+            }
+        }
     }
     serialize() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -847,7 +1006,9 @@ class App {
     }
     reset() {
         this.beforeSimulation(() => {
-            this.expandRequests.length = 0;
+            this._expandRequests.length = 0;
+            this._highlightedNodes.length = 0;
+            this._isNodeHighlighted.fill(false);
             this.offset.x = 0;
             this.offset.y = 0;
             this.zoom = 1;

@@ -14,6 +14,8 @@ export class ColorTable {
         this.background = new color.Color(255, 255, 255, 255);
         this.titleTextStroke = new color.Color(255, 255, 255, 255);
         this.titleTextFill = new color.Color(0, 0, 0, 255);
+        this.titleHLTextStroke = new color.Color(255, 255, 255, 255);
+        this.titleHLTextFill = new color.Color(0, 0, 0, 255);
         // TODO: remove this if not necessary
         this.nodeStroke = new color.Color(255, 255, 255, 255);
         this.timerStroke = new color.Color(0, 0, 0, 255);

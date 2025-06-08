@@ -10,10 +10,16 @@ export class DocNode {
         return 15 + mass * 0.5;
     }
     constructor() {
+        // ====================
+        // physics
+        // ====================
         this.posX = 0;
         this.posY = 0;
         this.temp = 0;
         this.mass = 0;
+        // ====================
+        // styles
+        // ====================
         this.color = new color.Color();
         this.renderX = 0;
         this.renderY = 0;
@@ -22,6 +28,9 @@ export class DocNode {
         this.glow = 0;
         this.glowMin = 0;
         this.drawOnTop = false;
+        // ====================
+        // misc
+        // ====================
         this.syncedToRender = false;
         this.id = 0;
         this.index = 0; // index of this node in node manager

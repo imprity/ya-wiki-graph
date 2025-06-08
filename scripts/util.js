@@ -154,3 +154,96 @@ export function arrayRemoveFast(array, toRemove) {
     array.length -= 1;
     return array;
 }
+export function fuzzyMatch(str, sub) {
+    if (sub.length === 0 || str.length === 0) {
+        return {
+            start: 0,
+            length: 0,
+            distance: 0
+        };
+    }
+    const width = str.length + 1;
+    const height = sub.length + 1;
+    const matrix = new Array(width * height).fill(0);
+    const get = (x, y) => {
+        return matrix[x + y * width];
+    };
+    const set = (x, y, to) => {
+        matrix[x + y * width] = to;
+    };
+    // fill the first column
+    for (let y = 1; y < height; y++) {
+        set(0, y, y);
+    }
+    for (let y = 1; y < height; y++) {
+        for (let x = 1; x < width; x++) {
+            const c = str[x - 1];
+            const subC = sub[y - 1];
+            if (c === subC) {
+                set(x, y, get(x - 1, y - 1));
+            }
+            else {
+                set(x, y, 1 + Math.min(get(x, y - 1), get(x - 1, y), get(x - 1, y - 1)));
+            }
+        }
+    }
+    // TEST TEST TEST TEST
+    // for (let y = 0; y < height; y++) {
+    //     let row = ''
+    //     for (let x = 0; x < width; x++) {
+    //         row += `${get(x, y)} `
+    //     }
+    //     console.log(row)
+    // }
+    // TEST TEST TEST TEST
+    let minCol = 0;
+    let minDidst = Number.MAX_SAFE_INTEGER;
+    for (let x = 0; x < width; x++) {
+        let dist = get(x, height - 1);
+        if (dist < minDidst) {
+            minCol = x;
+            minDidst = dist;
+        }
+    }
+    // there is no matching word
+    if (minCol === 0) {
+        return {
+            start: 0,
+            length: 0,
+            distance: minDidst
+        };
+    }
+    let posX = minCol;
+    let posY = height - 1;
+    while (true) {
+        let diag = get(posX - 1, posY - 1);
+        let cur = get(posX, posY);
+        if (diag === cur) {
+            posX -= 1;
+            posY -= 1;
+        }
+        else {
+            let up = get(posX, posY - 1);
+            let left = get(posX - 1, posY);
+            let min = Math.min(up, left, diag);
+            if (up === min) {
+                posY -= 1;
+            }
+            else if (diag === min) {
+                posX -= 1;
+                posY -= 1;
+            }
+            else { // left === min
+                posX -= 1;
+            }
+        }
+        if (posX <= 0 || posY <= 0) {
+            break;
+        }
+    }
+    return {
+        start: posX,
+        length: minCol - posX,
+        distance: minDidst
+    };
+}
