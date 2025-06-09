@@ -61,6 +61,8 @@ class App {
         this.colorTable = new ColorTable();
         this._highlightedNodes = new util.Stack();
         this._isNodeHighlighted = new Array();
+        this.currentWiki = new wiki.WikipediSite("en", "English", "English");
+        this.wikiSites = [this.currentWiki];
         // how long a user has to hold node
         // before we open the wikipedia link
         this.linkOpenDuration = 1000; // constant
@@ -82,7 +84,7 @@ class App {
             this._expandRequests.push(request);
             try {
                 const regex = / /g;
-                const links = yield wiki.retrieveAllLiks(node.title.replace(regex, "_"));
+                const links = yield wiki.retrieveAllLiks(this.currentWiki, node.title.replace(regex, "_"));
                 request.links = links;
             }
             catch (err) {
@@ -101,43 +103,6 @@ class App {
             }
             this.overlayCtx = ctx;
         }
-        // get UI elements
-        {
-            const textInput = document.getElementById('text-input');
-            const searchButton = document.getElementById('search-button');
-            const resetButton = document.getElementById('reset-button');
-            if (textInput === null) {
-                throw new Error('failed to get text-input');
-            }
-            if (searchButton === null) {
-                throw new Error('failed to get search-button');
-            }
-            if (resetButton === null) {
-                throw new Error('failed to get reset-button');
-            }
-            this.textInput = textInput;
-            this.searchButton = searchButton;
-            this.resetButton = resetButton;
-        }
-        this.textInput.addEventListener('input', () => {
-            if (this.textInput.value.length <= 0) {
-                this.clearHighlights();
-            }
-        });
-        this.textInput.addEventListener('change', () => {
-            this.clearHighlights();
-            if (this.textInput.value.length <= 0) {
-                return;
-            }
-            this.doSearch(this.textInput.value);
-        });
-        this.searchButton.onclick = () => {
-            this.clearHighlights();
-            if (this.textInput.value.length <= 0) {
-                return;
-            }
-            this.doSearch(this.textInput.value);
-        };
         this.updateWidthAndHeight();
         this.nodeManager = new NodeManager();
         this.renderParam.colorTable = this.colorTable;
@@ -171,6 +136,98 @@ class App {
         }
         this.gpuSimulator.submitNodeManager(this.nodeManager);
         this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
+        // get UI elements
+        {
+            const textInput = document.getElementById('text-input');
+            const searchButton = document.getElementById('search-button');
+            const resetButton = document.getElementById('reset-button');
+            const languageSelect = document.getElementById('wiki-language-select');
+            if (textInput === null) {
+                throw new Error('failed to get text-input');
+            }
+            if (searchButton === null) {
+                throw new Error('failed to get search-button');
+            }
+            if (resetButton === null) {
+                throw new Error('failed to get reset-button');
+            }
+            if (languageSelect === null) {
+                throw new Error('failed to get wiki-language-select');
+            }
+            this.textInput = textInput;
+            this.searchButton = searchButton;
+            this.resetButton = resetButton;
+            this.languageSelect = languageSelect;
+        }
+        this.textInput.addEventListener('input', () => {
+            if (this.textInput.value.length <= 0) {
+                this.clearHighlights();
+            }
+        });
+        this.textInput.addEventListener('change', () => {
+            this.clearHighlights();
+            if (this.textInput.value.length <= 0) {
+                return;
+            }
+            this.doSearch(this.textInput.value);
+        });
+        this.searchButton.onclick = () => {
+            this.clearHighlights();
+            if (this.textInput.value.length <= 0) {
+                return;
+            }
+            this.doSearch(this.textInput.value);
+        };
+        const addSiteOpt = (site) => {
+            const opt = document.createElement('option');
+            opt.value = site.code;
+            opt.innerText = site.name;
+            this.languageSelect.appendChild(opt);
+        };
+        for (const site of this.wikiSites) {
+            addSiteOpt(site);
+        }
+        wiki.getWikipediaSites().then((sites) => {
+            const siteMap = new Map();
+            for (const site of this.wikiSites) {
+                siteMap.set(site.code, site);
+            }
+            for (const site of sites) {
+                if (!siteMap.has(site.code)) {
+                    this.wikiSites.push(site);
+                    addSiteOpt(site);
+                }
+            }
+            console.log(this.wikiSites);
+        }).catch((err) => {
+            console.log(err);
+        });
+        this.resetButton.onclick = () => {
+            const search = this.textInput.value;
+            if (search.length <= 0) {
+                // TODO: tell users that you can't reset without providing title
+                return;
+            }
+            let selectedSite = null;
+            for (const site of this.wikiSites) {
+                if (site.code === this.languageSelect.value) {
+                    selectedSite = site;
+                    break;
+                }
+            }
+            if (selectedSite === null) {
+                return;
+            }
+            wiki.searchWiki(selectedSite, search).then((result) => {
+                if (result === null) {
+                    // TODO: again, we should tell users about this
+                    console.log(`no search result for ${this.textInput.value}`);
+                    return;
+                }
+                this.resetAndAddFirstNode(result);
+                this.currentWiki = selectedSite;
+            });
+        };
     }
     update(deltaTime) {
         this.updateWidthAndHeight();
@@ -303,7 +360,14 @@ class App {
             const focusedNode = this.focusedNode();
             if (focusedNode !== null &&
                 this.globalTick - this.focusedTick > this.linkOpenDuration) {
-                wiki.openWikipedia(focusedNode.title);
+                try {
+                    wiki.openWikipedia(this.currentWiki, focusedNode.title);
+                }
+                catch (err) {
+                    // TODO: we should report this to our user as well.
+                    // not just to console
+                    console.error(`failed to open a page to ${focusedNode.title}`);
+                }
                 this.unfocusNode();
             }
         }
@@ -544,6 +608,7 @@ class App {
                 this.textInput.blur();
                 this.resetButton.blur();
                 this.searchButton.blur();
+                this.languageSelect.blur();
             }
             startDragging(x, y);
             this.tappedPos.x = x;

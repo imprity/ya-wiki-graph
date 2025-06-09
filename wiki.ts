@@ -4,7 +4,51 @@
 const RATE_LIMIT: number = 20 // rate / second
 let LAST_REQUEST_AT: number = 0
 
-export async function makeRequestToWiki(query: Record<string, string>): Promise<any> {
+export class WikipediSite {
+    code: string
+    name: string
+    localname: string
+
+    constructor(
+        code: string,
+        name: string,
+        localname: string
+    ) {
+        this.code = code
+        this.name = name
+        this.localname = localname
+    }
+}
+
+// check the domain name and see if wikipedia domain
+export function isWikipediaURL(urlStr: string): boolean {
+    let url: URL
+
+    try {
+        url = new URL(urlStr)
+    } catch (err) {
+        return false
+    }
+
+    const allowedDomains = [
+        'wikimedia.org',
+        'wikipedia.org'
+    ]
+
+    for (const domain of allowedDomains) {
+        if (url.hostname.endsWith('.' + domain)) {
+            return true
+        }
+    }
+
+    return false
+}
+
+export async function makeRequestToWiki(urlStr: string, query: Record<string, string>): Promise<any> {
+    if (!isWikipediaURL(urlStr)) {
+        throw new Error(`${urlStr} is not a wikipedia url`)
+    }
+
     const wait = (milliseconds: number): Promise<void> => {
         return new Promise(res => {
             setTimeout(() => {
@@ -25,19 +69,61 @@ export async function makeRequestToWiki(query: Record<string, string>): Promise<
 
     LAST_REQUEST_AT = now
 
-    let link = 'https://en.wikipedia.org/w/api.php?'
+    const url = new URL(urlStr)
+    const params = url.searchParams
 
     for (const key in query) {
-        link = link + `&${key}=${query[key]}`
+        params.append(key, query[key])
     }
 
-    const response = await fetch(link)
+    const response = await fetch(url)
     const json = await response.json()
 
     return json
 }
 
-export async function retrieveAllLiks(title: string): Promise<Array<string>> {
+export async function getWikipediaSites(): Promise<Array<WikipediSite>> {
+    let url = 'https://commons.wikimedia.org/w/api.php'
+
+    const query: Record<string, string> = {
+        "action": "sitematrix",
+        "format": "json",
+        "smtype": "language",
+        "origin": "*",
+        'smlimit': "100"
+    }
+
+    let sites: Array<WikipediSite> = []
+
+    while (true) {
+        const res = await makeRequestToWiki(url, query)
+
+        for (const key in res.sitematrix) {
+            if (key !== 'count') {
+                const site = res.sitematrix[key]
+
+                if (
+                    typeof site.code === 'string' &&
+                    typeof site.name === 'string' &&
+                    typeof site.localname === 'string'
+                ) {
+                    sites.push(new WikipediSite(
+                        site.code, site.name, site.localname))
+                }
+            }
+        }
+
+        if (res['query-continue']?.sitematrix?.smcontinue) {
+            query['smcontinue'] = `${res['query-continue'].sitematrix.smcontinue}`
+        } else {
+            break
+        }
+    }
+
+    return sites
+}
+
+export async function retrieveAllLiks(site: WikipediSite, title: string): Promise<Array<string>> {
     let results: Array<string> = []
 
     let doContinue = false
@@ -60,10 +146,11 @@ export async function retrieveAllLiks(title: string): Promise<Array<string>> {
             query["plcontinue"] = nextContinue
         }
 
-        const response: any = await makeRequestToWiki(query)
-        // TEST TEST TEST TEST TEST
-        //console.log(response)
-        // TEST TEST TEST TEST TEST
+        const link = `https://${site.code}.wikipedia.org/w/api.php`
+
+        const response: any = await makeRequestToWiki(
+            link, query
+        )
 
         if (!("continue" in response)) {
             doBreak = true
@@ -76,9 +163,6 @@ export async function retrieveAllLiks(title: string): Promise<Array<string>> {
             const page = response.query.pages[pageId]
 
             for (const link of page.links) {
-                // TEST TEST TEST TEST TEST
-                //console.log(link)
-                // TEST TEST TEST TEST TEST
                 results.push(link.title)
             }
         }
@@ -91,8 +175,34 @@ export async function retrieveAllLiks(title: string): Promise<Array<string>> {
     return results
 }
 
-export function openWikipedia(title: string) {
+export async function searchWiki(site: WikipediSite, search: string): Promise<string | null> {
+    const link = `https://${site.code}.wikipedia.org/w/api.php`
+    const query: Record<string, string> = {
+        "action": "opensearch",
+        "search": `${search}`,
+        "limit": "1",
+        "redirects": "resolve",
+        "format": "json",
+        "origin": "*",
+    }
+
+    const res = await makeRequestToWiki(link, query)
+
+    console.log(res)
+
+    if (res['1'].length <= 0) {
+        return null
+    } else {
+        return res['1'][0]
+    }
+}
+
+export function openWikipedia(site: WikipediSite, title: string) {
     const regex = / /g
     title = title.replace(regex, "_")
-    window.open(`https://en.wikipedia.org/wiki/${title}`)
+    let url = `https://${site.code}.wikipedia.org/wiki/${title}`
+    if (!isWikipediaURL(url)) {
+        throw new Error(`${url} is not a wikipedia url`)
+    }
+    window.open(url)
 }
