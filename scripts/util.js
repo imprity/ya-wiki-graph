@@ -247,3 +247,10 @@ export function fuzzyMatch(str, sub) {
         distance: minDidst
     };
 }
+export function mustGetElementById(id) {
+    const elem = document.getElementById(id);
+    if (elem === null) {
+        throw new Error(`failed to get ${id}`);
+    }
+    return elem;
+}

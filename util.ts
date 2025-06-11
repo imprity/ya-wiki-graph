@@ -318,3 +318,11 @@ export function fuzzyMatch(str: string, sub: string): {
         distance: minDidst
     }
 }
+
+export function mustGetElementById(id: string): HTMLElement {
+    const elem = document.getElementById(id)
+    if (elem === null) {
+        throw new Error(`failed to get ${id}`)
+    }
+    return elem
+}

@@ -55,6 +55,86 @@ interface Animation {
     skip: () => void
 }
 
+class AppUI {
+    mainUIDiv: HTMLElement
+
+    textInput: HTMLInputElement
+    searchToggle: HTMLInputElement
+    searchToggleSpan: HTMLSpanElement
+    languageSelect: HTMLSelectElement
+    languageSelectLabelSet: boolean = false
+    languageSelectLabel: HTMLLabelElement
+
+    onTextInput: ((str: string) => void) | null = null
+    onTextCommit: ((str: string) => void) | null = null
+
+    constructor() {
+        this.mainUIDiv = util.mustGetElementById('main-ui-container')
+        this.textInput = util.mustGetElementById('search-bar-text') as HTMLInputElement
+        this.searchToggle = util.mustGetElementById('search-toggle') as HTMLInputElement
+        this.searchToggleSpan = util.mustGetElementById('search-toggle-span') as HTMLSpanElement
+        this.languageSelect = util.mustGetElementById('language-select') as HTMLSelectElement
+        this.languageSelectLabel = util.mustGetElementById('language-select-label') as HTMLLabelElement
+
+        const searchButton = util.mustGetElementById('search-bar-button') as HTMLButtonElement
+
+        // add callbacks
+        this.textInput.addEventListener('input', () => {
+            if (this.onTextInput !== null) {
+                this.onTextInput(this.textInput.value)
+            }
+        })
+
+        const form = util.mustGetElementById('search-form') as HTMLFormElement
+        form.addEventListener('submit', (e) => {
+            e.preventDefault()
+            this.blur()
+            if (this.onTextCommit !== null) {
+                this.onTextCommit(this.textInput.value)
+            }
+
+            util.mustGetElementById('main-ui-container').blur()
+        })
+
+        this.languageSelect.addEventListener('change', () => {
+            this.languageSelectLabel.innerText = this.languageSelect.value.toUpperCase()
+        })
+    }
+
+    addLangOption(site: wiki.WikipediSite) {
+        const opt = document.createElement('option')
+        opt.value = site.code
+        opt.innerText = site.name
+
+        this.languageSelect.appendChild(opt)
+
+        if (!this.languageSelectLabelSet) {
+            this.languageSelectLabel.innerText = site.code.toUpperCase()
+            this.languageSelectLabelSet = true
+        }
+    }
+
+    selectedLangeCode(): string {
+        return this.languageSelect.value
+    }
+
+    shouldDoWikiSearch(): boolean {
+        return this.searchToggle.checked
+    }
+
+    blur() {
+        const toRecurse = (e: HTMLElement) => {
+            e.blur()
+            //@ts-expect-error
+            for (const child of e.children) {
+                toRecurse(child)
+            }
+        }
+
+        toRecurse(this.mainUIDiv)
+    }
+}
+
 class App {
     // ==========================
     // canvas stuff
@@ -70,10 +150,11 @@ class App {
     // ==========================
     // UI stuff
     // ==========================
-    textInput: HTMLInputElement
-    searchButton: HTMLButtonElement
-    resetButton: HTMLButtonElement
-    languageSelect: HTMLSelectElement
+    // textInput: HTMLInputElement
+    // searchButton: HTMLButtonElement
+    // resetButton: HTMLButtonElement
+    // languageSelect: HTMLSelectElement
+    appUI: AppUI = new AppUI()
 
     // ==========================
     // components
@@ -212,59 +293,44 @@ class App {
         )
 
         // get UI elements
-        {
-            const textInput = document.getElementById('text-input')
-            const searchButton = document.getElementById('search-button')
-            const resetButton = document.getElementById('reset-button')
-            const languageSelect = document.getElementById('wiki-language-select')
+        // {
+        //     const textInput = document.getElementById('text-input')
+        //     const searchButton = document.getElementById('search-button')
+        //     const resetButton = document.getElementById('reset-button')
+        //     const languageSelect = document.getElementById('wiki-language-select')
+        //
+        //     if (textInput === null) { throw new Error('failed to get text-input') }
+        //     if (searchButton === null) { throw new Error('failed to get search-button') }
+        //     if (resetButton === null) { throw new Error('failed to get reset-button') }
+        //     if (languageSelect === null) { throw new Error('failed to get wiki-language-select') }
+        //
+        //     this.textInput = textInput as HTMLInputElement
+        //     this.searchButton = searchButton as HTMLButtonElement
+        //     this.resetButton = resetButton as HTMLButtonElement
+        //     this.languageSelect = languageSelect as HTMLSelectElement
+        // }
 
-            if (textInput === null) { throw new Error('failed to get text-input') }
-            if (searchButton === null) { throw new Error('failed to get search-button') }
-            if (resetButton === null) { throw new Error('failed to get reset-button') }
-            if (languageSelect === null) { throw new Error('failed to get wiki-language-select') }
-
-            this.textInput = textInput as HTMLInputElement
-            this.searchButton = searchButton as HTMLButtonElement
-            this.resetButton = resetButton as HTMLButtonElement
-            this.languageSelect = languageSelect as HTMLSelectElement
+        // this.textInput.addEventListener('input', () => {
+        //     if (this.textInput.value.length <= 0) {
+        //         this.clearHighlights()
+        //     }
+        // })
+        this.appUI.onTextInput = (str: string) => {
+            if (str.length <= 0) {
+                this.clearNodeHighlights()
+            }
         }
 
-        this.textInput.addEventListener('input', () => {
-            if (this.textInput.value.length <= 0) {
-                this.clearHighlights()
+        this.appUI.onTextCommit = (str: string) => {
+            if (this.appUI.shouldDoWikiSearch()) {
+                this.doWikiSearch(str)
+            } else {
+                this.doSearch(str)
             }
-        })
-
-        this.textInput.addEventListener('change', () => {
-            this.clearHighlights()
-
-            if (this.textInput.value.length <= 0) {
-                return
-            }
-
-            this.doSearch(this.textInput.value)
-        })
-
-        this.searchButton.onclick = () => {
-            this.clearHighlights()
-
-            if (this.textInput.value.length <= 0) {
-                return
-            }
-
-            this.doSearch(this.textInput.value)
-        }
-
-        const addSiteOpt = (site: wiki.WikipediSite) => {
-            const opt = document.createElement('option')
-            opt.value = site.code
-            opt.innerText = site.name
-
-            this.languageSelect.appendChild(opt)
         }
 
         for (const site of this.wikiSites) {
-            addSiteOpt(site)
+            this.appUI.addLangOption(site)
         }
 
         wiki.getWikipediaSites().then((sites) => {
@@ -277,7 +343,7 @@ class App {
             for (const site of sites) {
                 if (!siteMap.has(site.code)) {
                     this.wikiSites.push(site)
-                    addSiteOpt(site)
+                    this.appUI.addLangOption(site)
                 }
             }
 
@@ -285,39 +351,6 @@ class App {
         }).catch((err) => {
             console.log(err)
         })
-
-        this.resetButton.onclick = () => {
-            const search = this.textInput.value
-
-            if (search.length <= 0) {
-                // TODO: tell users that you can't reset without providing title
-                return
-            }
-
-            let selectedSite: wiki.WikipediSite | null = null
-
-            for (const site of this.wikiSites) {
-                if (site.code === this.languageSelect.value) {
-                    selectedSite = site
-                    break
-                }
-            }
-
-            if (selectedSite === null) {
-                return
-            }
-
-            wiki.searchWiki(selectedSite, search).then((result) => {
-                if (result === null) {
-                    // TODO: again, we should tell users about this
-                    console.log(`no search result for ${this.textInput.value}`)
-                    return
-                }
-
-                this.resetAndAddFirstNode(result)
-                this.currentWiki = selectedSite
-            })
-        }
     }
 
     update(deltaTime: DOMHighResTimeStamp) {
@@ -810,10 +843,7 @@ class App {
                 }
 
                 // unfocus UI elements
-                this.textInput.blur()
-                this.resetButton.blur()
-                this.searchButton.blur()
-                this.languageSelect.blur()
+                this.appUI.blur()
             }
             startDragging(x, y)
 
@@ -1261,7 +1291,7 @@ class App {
         node.mass = Math.max(node.mass, 100)
     }
 
-    clearHighlights() {
+    clearNodeHighlights() {
         if (this._highlightedNodes.length <= 0) {
             return
         }
@@ -1296,7 +1326,10 @@ class App {
     }
 
     doSearch(search: string) {
-        this.clearHighlights()
+        this.clearNodeHighlights()
+        if (search.length <= 0) {
+            return
+        }
 
         search = search.toLowerCase()
 
@@ -1318,6 +1351,37 @@ class App {
                 this.highlightNode(node)
             }
         }
+    }
+
+    doWikiSearch(search: string) {
+        this.clearNodeHighlights()
+        if (search.length <= 0) {
+            return
+        }
+
+        let selectedSite: wiki.WikipediSite | null = null
+
+        for (const site of this.wikiSites) {
+            if (site.code === this.appUI.selectedLangeCode()) {
+                selectedSite = site
+                break
+            }
+        }
+
+        if (selectedSite === null) {
+            return
+        }
+
+        wiki.searchWiki(selectedSite, search).then((result) => {
+            if (result === null) {
+                // TODO: we should tell users about this
+                console.log(`no search result for ${search}`)
+                return
+            }
+
+            this.resetAndAddFirstNode(result)
+            this.currentWiki = selectedSite
+        })
     }
 
     async serialize(): Promise<string> {
