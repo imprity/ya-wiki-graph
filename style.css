@@ -1,5 +1,4 @@
 :root {
-  --toggle-width: 2.3rem;
   font-size: 10pt;
 }
 
@@ -10,9 +9,9 @@
 }
 
 .full-screen-canvas {
-  position : absolute;
-  width : 100%;
-  height : 100%;
+  position: absolute;
+  width: 100%;
+  height: 100%;
 }
 
 .debug-ui-container {
@@ -128,34 +127,39 @@
 }
 
 #search-option-container {
-  display : flex;
-  align-items : center;
+  display: flex;
+  align-items: center;
 }
 
 #search-toggle {
+  --toggle-width: 2.3rem;
+  --toggle-height: 1.1rem;
+
   position: relative;
   appearance: none;
-  width: 2.3rem;
-  min-width: 2.3rem;
-  height: 1.1rem;
+  width: var(--toggle-width);
+  min-width: var(--toggle-width);
+  height: var(--toggle-height);
   border-radius: calc(1.1rem / 2);
   background-color: white;
 }
 
 #search-toggle::before {
+  --thumb-size: 0.9rem;
+
   content: "";
   position: absolute;
   background-color: black;
-  width: 1rem;
-  height: 1rem;
-  top: 0.05rem;
-  left: 0.05rem;
+  width: var(--thumb-size);
+  height: var(--thumb-size);
+  top: calc((var(--toggle-height) - var(--thumb-size)) / 2);
+  left: calc((var(--toggle-height) - var(--thumb-size)) / 2);
   border-radius: 100%;
   transition: left 30ms ease-out;
 }
 
 #search-toggle:checked::before {
-  left: calc(var(--toggle-width) - 1rem - 0.05rem);
+  left: calc(var(--toggle-width) - var(--thumb-size) - ((var(--toggle-height) - var(--thumb-size)) / 2));
 }
 
 #search-toggle-span {
