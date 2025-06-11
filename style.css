@@ -1,5 +1,14 @@
 :root {
-  font-size: 10pt;
+  font-size: 12pt;
+  --text-grey: #303030;
+  --text-black: #141414;
+  --grey: #c6c6c6;
+  --dark-grey: #666666;
+  --light-grey: #ececec;
+  --white: #ffffff;
+
+  --sans-serif: Arial, Helvetica, sans-serif;
+  --serif: Georgia, 'Times New Roman', Times, serif;
 }
 
 .parent-div {
@@ -52,18 +61,23 @@
     supported by Chrome, Edge, Opera and Firefox */
 }
 
+.shadow-focus:focus-within {
+  box-shadow: 0px 0px 4px 2px rgba(0, 0, 0, 0.3);
+}
+
 #main-ui-container {
-  background-color: #C6C6C6;
+  background-color: var(--grey);
   height: auto;
   position: absolute;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   margin: 5px;
-  padding: 5px;
+  padding: 8px;
   border-radius: 8px;
-  font-size: 5px;
+  column-gap: 5px;
   row-gap: 10px;
+  box-shadow: 0px 0px 9px 0px rgba(255, 255, 255, 0.4);
 }
 
 #search-form {
@@ -75,11 +89,12 @@
   padding-bottom: 2px;
   flex-grow: 1;
   border-radius: 3pt;
-  background-color: white;
+  background-color: var(--white);
 }
 
 #search-bar-text {
   font-size: 1rem;
+  font-family: var(--sans-serif);
   height: 1.3rem;
   flex-grow: 1;
   width: auto;
@@ -89,6 +104,7 @@
   border: none;
   margin-left: 3px;
   margin-right: 3px;
+  color: var(--text-black)
 }
 
 #search-bar-text:active {
@@ -116,6 +132,7 @@
   outline: none;
   margin-left: 3px;
   margin-right: 3px;
+  color: var(--text-black)
 }
 
 #search-bar-button:hover {
@@ -129,69 +146,78 @@
 #search-option-container {
   display: flex;
   align-items: center;
+  min-height: 1.5rem;
+  margin-left: 3px;
+  margin-right: 3px;
 }
 
 #search-toggle {
-  --toggle-width: 2.3rem;
-  --toggle-height: 1.1rem;
+  --toggle-width: 2.5rem;
+  --toggle-height: 1.3rem;
 
   position: relative;
   appearance: none;
   width: var(--toggle-width);
   min-width: var(--toggle-width);
   height: var(--toggle-height);
-  border-radius: calc(1.1rem / 2);
-  background-color: white;
+  border-radius: calc(var(--toggle-height) / 2.0);
+  background-color: var(--white);
+  margin: 0px 3px;
 }
 
 #search-toggle::before {
-  --thumb-size: 0.9rem;
-
   content: "";
   position: absolute;
-  background-color: black;
-  width: var(--thumb-size);
-  height: var(--thumb-size);
-  top: calc((var(--toggle-height) - var(--thumb-size)) / 2);
-  left: calc((var(--toggle-height) - var(--thumb-size)) / 2);
+  background-color: var(--dark-grey);
+  width: var(--toggle-height);
+  height: var(--toggle-height);
+  top: 0;
+  left: 0;
   border-radius: 100%;
+  transform-origin: center;
+  transform: scale(0.8);
   transition: left 30ms ease-out;
 }
 
 #search-toggle:checked::before {
-  left: calc(var(--toggle-width) - var(--thumb-size) - ((var(--toggle-height) - var(--thumb-size)) / 2));
+  left: calc(var(--toggle-width) - var(--toggle-height));
 }
 
 #search-toggle-span {
   font-size: 1rem;
+  font-family: var(--serif);
   margin-left: 3px;
   margin-right: 3px;
   white-space: nowrap;
+  color: var(--text-grey);
 }
 
 #language-select-container {
+  --height: 1.5rem;
+
   width: auto;
+  height: var(--height);
   position: relative;
   display: flex;
   align-items: center;
-  height: 1.5rem;
-  background: orange;
+  background: var(--white);
   border-radius: 0.5rem;
-  margin-left: 3px;
+  margin: 0px;
+  margin-left: 6px;
   margin-right: 3px;
 }
 
 #language-select-icon {
   position: relative;
   width: 2rem;
-  height: 1.5rem;
-  background-color: rgba(0, 255, 0, 1.0);
+  height: var(--height);
+  background-color: var(--light-grey);
   border-radius: 0.5rem 0rem 0rem 0.5rem;
 }
 
 #language-select-icon::before {
-  width: 1.3rem;
-  height: 1.3rem;
+  width: 1.2rem;
+  height: 1.2rem;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -201,10 +227,15 @@
   background-attachment: local;
   background-position: center;
   background-size: contain;
+  color: var(--text-black);
 }
 
 #language-select-label {
-  font-size: 1rem;
+  text-align: center;
+  line-height: var(--height);
+  height: var(--height);
+  font-size: 0.9rem;
+  font-family: var(--sans-serif);
   margin-left: 3px;
   margin-right: 5px;
 }
@@ -221,7 +252,7 @@
 }
 
 #language-select>option {
-  color: rgba(0, 0, 0, 1);
+  color: var(--text-black)
 }
 
 @media only screen and (max-width: 600px) {
