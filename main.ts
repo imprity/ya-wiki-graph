@@ -56,11 +56,12 @@ interface Animation {
 }
 
 class AppUI {
-    mainUIDiv: HTMLElement
+    mainUIContainer: HTMLElement
 
     textInput: HTMLInputElement
+
     searchToggle: HTMLInputElement
-    searchToggleSpan: HTMLSpanElement
+
     languageSelect: HTMLSelectElement
     languageSelectLabelSet: boolean = false
     languageSelectLabel: HTMLLabelElement
@@ -69,10 +70,9 @@ class AppUI {
     onTextCommit: ((str: string) => void) | null = null
 
     constructor() {
-        this.mainUIDiv = util.mustGetElementById('main-ui-container')
+        this.mainUIContainer = util.mustGetElementById('main-ui-container')
         this.textInput = util.mustGetElementById('search-bar-text') as HTMLInputElement
         this.searchToggle = util.mustGetElementById('search-toggle') as HTMLInputElement
-        this.searchToggleSpan = util.mustGetElementById('search-toggle-span') as HTMLSpanElement
         this.languageSelect = util.mustGetElementById('language-select') as HTMLSelectElement
         this.languageSelectLabel = util.mustGetElementById('language-select-label') as HTMLLabelElement
 
@@ -98,6 +98,22 @@ class AppUI {
 
         this.languageSelect.addEventListener('change', () => {
             this.languageSelectLabel.innerText = this.languageSelect.value.toUpperCase()
+        })
+
+        const lsContainer = util.mustGetElementById('language-select-container')
+        lsContainer.style.display = 'none'
+
+        const span = util.mustGetElementById('search-toggle-span')
+        span.innerText = 'search graph'
+
+        this.searchToggle.addEventListener('change', () => {
+            if (this.searchToggle.checked) {
+                lsContainer.style.display = 'flex'
+                span.innerText = 'search wikipedia'
+            } else {
+                lsContainer.style.display = 'none'
+                span.innerText = 'search graph'
+            }
         })
     }
 
@@ -131,7 +147,7 @@ class AppUI {
             }
         }
 
-        toRecurse(this.mainUIDiv)
+        toRecurse(this.mainUIContainer)
     }
 }
 
@@ -150,10 +166,6 @@ class App {
     // ==========================
     // UI stuff
     // ==========================
-    // textInput: HTMLInputElement
-    // searchButton: HTMLButtonElement
-    // resetButton: HTMLButtonElement
-    // languageSelect: HTMLSelectElement
     appUI: AppUI = new AppUI()
 
     // ==========================

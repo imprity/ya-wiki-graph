@@ -23,10 +23,9 @@ class AppUI {
         this.languageSelectLabelSet = false;
         this.onTextInput = null;
         this.onTextCommit = null;
-        this.mainUIDiv = util.mustGetElementById('main-ui-container');
+        this.mainUIContainer = util.mustGetElementById('main-ui-container');
         this.textInput = util.mustGetElementById('search-bar-text');
         this.searchToggle = util.mustGetElementById('search-toggle');
-        this.searchToggleSpan = util.mustGetElementById('search-toggle-span');
         this.languageSelect = util.mustGetElementById('language-select');
         this.languageSelectLabel = util.mustGetElementById('language-select-label');
         const searchButton = util.mustGetElementById('search-bar-button');
@@ -47,6 +46,20 @@ class AppUI {
         });
         this.languageSelect.addEventListener('change', () => {
             this.languageSelectLabel.innerText = this.languageSelect.value.toUpperCase();
+        });
+        const lsContainer = util.mustGetElementById('language-select-container');
+        lsContainer.style.display = 'none';
+        const span = util.mustGetElementById('search-toggle-span');
+        span.innerText = 'search graph';
+        this.searchToggle.addEventListener('change', () => {
+            if (this.searchToggle.checked) {
+                lsContainer.style.display = 'flex';
+                span.innerText = 'search wikipedia';
+            }
+            else {
+                lsContainer.style.display = 'none';
+                span.innerText = 'search graph';
+            }
         });
     }
     addLangOption(site) {
@@ -73,7 +86,7 @@ class AppUI {
                 toRecurse(child);
             }
         };
-        toRecurse(this.mainUIDiv);
+        toRecurse(this.mainUIContainer);
     }
 }
 class App {
@@ -83,10 +96,6 @@ class App {
         // ==========================
         // UI stuff
         // ==========================
-        // textInput: HTMLInputElement
-        // searchButton: HTMLButtonElement
-        // resetButton: HTMLButtonElement
-        // languageSelect: HTMLSelectElement
         this.appUI = new AppUI();
         this.renderParam = new RenderParameter();
         this.simParam = new SimulationParameter();
