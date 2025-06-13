@@ -40,6 +40,9 @@ import {
 
 } from "./graph_objects.js"
 
+//@ts-expect-error
+import IS_DEBUG from "./debug.js"
+
 const FirstTitle = "English language"
 //const FirstTitle = "Miss Meyers"
 
@@ -962,7 +965,6 @@ class App {
             case "mouseleave": {
                 endDragging()
                 this.unfocusNode()
-                console.log('mouse left')
             } break
 
             case "touchstart": {
@@ -1603,16 +1605,21 @@ async function main() {
         console.error(`failed to load color table: ${err}`)
     }
 
-    // load color table
-
     // set up debug UI elements
     const setupDebugUI = () => {
         let debugUICounter = 0
 
-        let debugUIdiv = document.getElementById('debug-ui-div')
-        if (debugUIdiv === null) {
-            return
+        let debugUIContainer = document.getElementById('debug-ui-container')
+        if (debugUIContainer === null) {
+            return;
         }
+
+        if (!IS_DEBUG) {
+            debugUIContainer.style.display = "none"
+        }
+
+        let debugUIdiv = document.createElement('div')
+        debugUIContainer.appendChild(debugUIdiv)
 
         const getUIid = (): string => {
             debugUICounter++;
@@ -1959,10 +1966,9 @@ async function main() {
         )
 
         let isShowing = true
-        const debugUIHideShowButton = document.getElementById('debug-ui-hide-show-button')
-        if (debugUIHideShowButton === null) {
-            return
-        }
+        const debugUIHideShowButton = document.createElement('button')
+        debugUIContainer.insertBefore(debugUIHideShowButton, debugUIContainer.firstChild)
+
         debugUIHideShowButton.innerText = 'hide'
         debugUIHideShowButton.onclick = () => {
             if (isShowing) {

@@ -17,6 +17,8 @@ import { GpuSimulator, SimulationParameter, } from "./gpu_simulate.js";
 import { debugPrint, renderDebugPrint, setDebugPrintVisible, } from './debug_print.js';
 import { ColorTable, serializeColorTable, deserializeColorTable, loadColorTable, tableNodeColors, copyTable } from "./color_table.js";
 import { NodeManager, DocNode, SerializationContainer, isSerializationContainer, } from "./graph_objects.js";
+//@ts-expect-error
+import IS_DEBUG from "./debug.js";
 const FirstTitle = "English language";
 class AppUI {
     constructor() {
@@ -725,7 +727,6 @@ class App {
                 {
                     endDragging();
                     this.unfocusNode();
-                    console.log('mouse left');
                 }
                 break;
             case "touchstart":
@@ -1188,14 +1189,18 @@ function main() {
         catch (err) {
             console.error(`failed to load color table: ${err}`);
         }
-        // load color table
         // set up debug UI elements
         const setupDebugUI = () => {
             let debugUICounter = 0;
-            let debugUIdiv = document.getElementById('debug-ui-div');
-            if (debugUIdiv === null) {
+            let debugUIContainer = document.getElementById('debug-ui-container');
+            if (debugUIContainer === null) {
                 return;
             }
+            if (!IS_DEBUG) {
+                debugUIContainer.style.display = "none";
+            }
+            let debugUIdiv = document.createElement('div');
+            debugUIContainer.appendChild(debugUIdiv);
             const getUIid = () => {
                 debugUICounter++;
                 return `debug-ui-id-${debugUICounter}`;
@@ -1389,10 +1394,8 @@ function main() {
             addSlider(0.5, 0, 5, 0.01, "Barnes Hut threshold", (value) => { app.simParam.bhThreshold = value; });
             addButton('recolor graph', () => { app.recolorWholeGraph(); });
             let isShowing = true;
-            const debugUIHideShowButton = document.getElementById('debug-ui-hide-show-button');
-            if (debugUIHideShowButton === null) {
-                return;
-            }
+            const debugUIHideShowButton = document.createElement('button');
+            debugUIContainer.insertBefore(debugUIHideShowButton, debugUIContainer.firstChild);
             debugUIHideShowButton.innerText = 'hide';
             debugUIHideShowButton.onclick = () => {
                 if (isShowing) {

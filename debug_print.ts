@@ -1,15 +1,24 @@
 let debugMsgs: Map<string, string> = new Map()
 let debugPrintBox = document.getElementById('debug-print-box')
 
+//@ts-expect-error
+import IS_DEBUG from "./debug.js"
+
 export function clearDebugPrint() {
+    if (!IS_DEBUG) { return }
+
     debugMsgs.clear()
 }
 
 export function debugPrint(key: string, value: string) {
+    if (!IS_DEBUG) { return }
+
     debugMsgs.set(key, value)
 }
 
 export function renderDebugPrint() {
+    if (!IS_DEBUG) { return }
+
     if (debugPrintBox === null) {
         return
     }
@@ -44,6 +53,8 @@ export function renderDebugPrint() {
 }
 
 export function setDebugPrintVisible(visible: boolean) {
+    if (!IS_DEBUG) { return }
+
     if (debugPrintBox === null) {
         return
     }
@@ -55,6 +66,8 @@ export function setDebugPrintVisible(visible: boolean) {
 }
 
 export function isDebugPrintVisible(): boolean {
+    if (!IS_DEBUG) { return false }
+
     if (debugPrintBox === null) {
         return false
     }
