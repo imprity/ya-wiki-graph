@@ -296,3 +296,9 @@
     flex-direction: column;
   }
 }
+
+@media only screen and (max-width: 35rem) {
+  #search-form {
+    min-width : 80vw;
+  }
+}
