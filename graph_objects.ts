@@ -104,8 +104,6 @@ export class NodeManager {
     }
 
     reset() {
-        const initCapacity = 24
-
         this._connectionMatrix = new Map()
 
         this._titleToNodes = new Map()
@@ -183,7 +181,6 @@ export class NodeManager {
 
     pushNode(node: DocNode) {
         if (this._matrixCapacity <= this.nodes.length) {
-            const oldCap = this._matrixCapacity
             const newCap = this._matrixCapacity * 2
 
             // grow connection matrix

@@ -4,6 +4,7 @@
     "target": "ES2015",
     "strict" : true,
     "outDir" : "scripts",
-    "pretty" : false
+    "pretty" : false,
+    "noUnusedLocals" : true
   }
 }

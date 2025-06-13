@@ -14,9 +14,17 @@ import * as assets from "./assets.js";
 import * as color from "./color.js";
 import { GpuRenderer, RenderSyncFlags, RenderParameter } from "./gpu_render.js";
 import { GpuSimulator, SimulationParameter, } from "./gpu_simulate.js";
-import { debugPrint, renderDebugPrint, setDebugPrintVisible, } from './debug_print.js';
+import { 
+//clearDebugPrint,
+debugPrint, renderDebugPrint, setDebugPrintVisible,
+//isDebugPrintVisible,
+ } from './debug_print.js';
 import { ColorTable, serializeColorTable, deserializeColorTable, loadColorTable, tableNodeColors, copyTable } from "./color_table.js";
-import { NodeManager, DocNode, SerializationContainer, isSerializationContainer, } from "./graph_objects.js";
+import { NodeManager, DocNode, 
+//NodeConnection,
+//DocNodeContainer,
+//NodeConnectionContainer,
+SerializationContainer, isSerializationContainer, } from "./graph_objects.js";
 //@ts-expect-error
 import IS_DEBUG from "./debug.js";
 const FirstTitle = "English language";
@@ -30,7 +38,6 @@ class AppUI {
         this.searchToggle = util.mustGetElementById('search-toggle');
         this.languageSelect = util.mustGetElementById('language-select');
         this.languageSelectLabel = util.mustGetElementById('language-select-label');
-        const searchButton = util.mustGetElementById('search-bar-button');
         // add callbacks
         this.textInput.addEventListener('input', () => {
             if (this.onTextInput !== null) {
@@ -712,7 +719,7 @@ class App {
                 break;
             case "mousedown":
                 {
-                    const mouseEvent = e;
+                    //const mouseEvent = e as MouseEvent
                     this.isMouseDown = true;
                     handlePointerDown(this.mouse.x, this.mouse.y);
                 }

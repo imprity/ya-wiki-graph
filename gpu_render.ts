@@ -3,9 +3,7 @@ import * as util from "./util.js"
 import * as gpu from "./gpu_common.js"
 import { NodeManager, DocNode } from "./graph_objects.js"
 import * as assets from "./assets.js"
-import * as color from "./color.js"
 import { ColorTable } from "./color_table.js"
-import { debugPrint } from './debug_print.js'
 
 const glslViewportTransform = `
 #ifndef _GLSL_VIEWPORT_HEADER_GUARD_
@@ -848,7 +846,7 @@ export class GpuRenderer {
 
             gpu.useTexture(this.gl, this.drawGlowUnit, this.nodeRenderPosTex, 'u_node_render_pos_tex')
             gpu.useTexture(this.gl, this.drawGlowUnit, this.nodeColorsTex, 'u_node_colors_tex')
-
+            gpu.useTexture(this.gl, this.drawGlowUnit, this.nodeRenderSkipTex, 'u_node_render_skip_tex')
             gpu.useTexture(this.gl, this.drawGlowUnit, this.glowTex, 'u_glow_tex')
 
             this.gl.uniform1i(

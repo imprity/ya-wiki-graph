@@ -4,7 +4,6 @@ import { debugPrint } from './debug_print.js'
 import {
     NodeManager,
     DocNode,
-    NodeConnection,
 } from "./graph_objects.js"
 
 const forceCalcVShaderSrc = `#version 300 es

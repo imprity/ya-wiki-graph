@@ -97,7 +97,7 @@ function createShader(
 
     let shader_type = 'vertex'
     if (type == gl.FRAGMENT_SHADER) {
-        let shader_type = 'fragment'
+        shader_type = 'fragment'
     }
 
     if (shader === null) {
@@ -189,7 +189,7 @@ let textureUnitCounter: number = 0
 export function getNewTextureUnitNumber(): number {
     let toReturn = textureUnitCounter
     textureUnitCounter += 1
-    return textureUnitCounter
+    return toReturn
 }
 
 export function resetTextureUnitCounter() {

@@ -1,4 +1,3 @@
-import * as cd from "./canvas.js"
 import * as wiki from "./wiki.js"
 import * as util from "./util.js"
 import * as math from "./math.js"
@@ -14,11 +13,11 @@ import {
     SimulationParameter,
 } from "./gpu_simulate.js"
 import {
-    clearDebugPrint,
+    //clearDebugPrint,
     debugPrint,
     renderDebugPrint,
     setDebugPrintVisible,
-    isDebugPrintVisible,
+    //isDebugPrintVisible,
 } from './debug_print.js'
 import {
     ColorTable,
@@ -31,10 +30,10 @@ import {
 import {
     NodeManager,
     DocNode,
-    NodeConnection,
+    //NodeConnection,
 
-    DocNodeContainer,
-    NodeConnectionContainer,
+    //DocNodeContainer,
+    //NodeConnectionContainer,
     SerializationContainer,
     isSerializationContainer,
 
@@ -50,12 +49,6 @@ interface ExpandRequest {
     node: DocNode
     links: Array<string> | null
     doneRequesting: boolean
-}
-
-interface Animation {
-    update: (deltaTime: number) => void
-    didEnd: () => boolean
-    skip: () => void
 }
 
 class AppUI {
@@ -78,8 +71,6 @@ class AppUI {
         this.searchToggle = util.mustGetElementById('search-toggle') as HTMLInputElement
         this.languageSelect = util.mustGetElementById('language-select') as HTMLSelectElement
         this.languageSelectLabel = util.mustGetElementById('language-select-label') as HTMLLabelElement
-
-        const searchButton = util.mustGetElementById('search-bar-button') as HTMLButtonElement
 
         // add callbacks
         this.textInput.addEventListener('input', () => {
@@ -949,7 +940,7 @@ class App {
             } break
 
             case "mousedown": {
-                const mouseEvent = e as MouseEvent
+                //const mouseEvent = e as MouseEvent
 
                 this.isMouseDown = true
 

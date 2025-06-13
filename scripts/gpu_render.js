@@ -651,6 +651,7 @@ export class GpuRenderer {
             supplyViewportInfo(this.drawGlowUnit);
             gpu.useTexture(this.gl, this.drawGlowUnit, this.nodeRenderPosTex, 'u_node_render_pos_tex');
             gpu.useTexture(this.gl, this.drawGlowUnit, this.nodeColorsTex, 'u_node_colors_tex');
+            gpu.useTexture(this.gl, this.drawGlowUnit, this.nodeRenderSkipTex, 'u_node_render_skip_tex');
             gpu.useTexture(this.gl, this.drawGlowUnit, this.glowTex, 'u_glow_tex');
             this.gl.uniform1i(this.drawGlowUnit.locs.uLoc('u_node_index_override'), drawSpecificNode);
             if (drawSpecificNode >= 0) {

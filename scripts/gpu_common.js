@@ -76,7 +76,7 @@ function createShader(gl, type, src) {
     const shader = gl.createShader(type);
     let shader_type = 'vertex';
     if (type == gl.FRAGMENT_SHADER) {
-        let shader_type = 'fragment';
+        shader_type = 'fragment';
     }
     if (shader === null) {
         throw new Error(`failed to create a ${shader_type} shader`);
@@ -138,7 +138,7 @@ let textureUnitCounter = 0;
 export function getNewTextureUnitNumber() {
     let toReturn = textureUnitCounter;
     textureUnitCounter += 1;
-    return textureUnitCounter;
+    return toReturn;
 }
 export function resetTextureUnitCounter() {
     textureUnitCounter = 0;
