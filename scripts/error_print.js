@@ -19,7 +19,7 @@ let errorMsgsToRemove = new Map();
 const MAX_ERROR_MSGS = 10;
 const MIN_ERROR_MSGS = 3;
 const ERROR_MSG_LIFESPAN = 2500;
-export function printError(str) {
+function printMsg(str, isInfo) {
     if (errorPrintBox === null) {
         return;
     }
@@ -37,6 +37,11 @@ export function printError(str) {
     errorP.style.left = '-30px';
     errorP.style.bottom = '15px';
     errorPrintBox.appendChild(errorP);
+    if (isInfo) {
+        errorP.style.setProperty('--msg-text-color', 'var(--text-black)');
+        errorP.style.setProperty('--msg-border-color', 'var(--grey)');
+        errorP.style.setProperty('--msg-bg-color', 'var(--white)');
+    }
     const dummyP = document.createElement('p');
     dummyP.innerText = str;
     dummyP.classList.add('error-message-dummy');
@@ -44,6 +49,12 @@ export function printError(str) {
     errorPrintBox.appendChild(dummyP);
     const msg = new ErrorMsg(errorP, dummyP);
     errorMsgs.set(msg.id, msg);
+}
+export function printError(str) {
+    printMsg(str, false);
+}
+export function printInfo(str) {
+    printMsg(str, true);
 }
 function removeErrorMessage(toRemove) {
     errorMsgs.delete(toRemove.id);

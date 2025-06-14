@@ -20,7 +20,8 @@ import {
     //isDebugPrintVisible,
 } from './debug_print.js'
 import {
-    // printError,
+    printError,
+    printInfo,
     updateErrorMsgs
 } from './error_print.js'
 import {
@@ -302,29 +303,6 @@ class App {
             RenderSyncFlags.Everything
         )
 
-        // get UI elements
-        // {
-        //     const textInput = document.getElementById('text-input')
-        //     const searchButton = document.getElementById('search-button')
-        //     const resetButton = document.getElementById('reset-button')
-        //     const languageSelect = document.getElementById('wiki-language-select')
-        //
-        //     if (textInput === null) { throw new Error('failed to get text-input') }
-        //     if (searchButton === null) { throw new Error('failed to get search-button') }
-        //     if (resetButton === null) { throw new Error('failed to get reset-button') }
-        //     if (languageSelect === null) { throw new Error('failed to get wiki-language-select') }
-        //
-        //     this.textInput = textInput as HTMLInputElement
-        //     this.searchButton = searchButton as HTMLButtonElement
-        //     this.resetButton = resetButton as HTMLButtonElement
-        //     this.languageSelect = languageSelect as HTMLSelectElement
-        // }
-
-        // this.textInput.addEventListener('input', () => {
-        //     if (this.textInput.value.length <= 0) {
-        //         this.clearHighlights()
-        //     }
-        // })
         this.appUI.onTextInput = (str: string) => {
             if (str.length <= 0) {
                 this.clearNodeHighlights()
@@ -335,7 +313,12 @@ class App {
             if (this.appUI.shouldDoWikiSearch()) {
                 this.doWikiSearch(str)
             } else {
-                this.doSearch(str)
+                if (str.length <= 0) {
+                    this.clearNodeHighlights()
+                } else {
+                    const count = this.doSearch(str)
+                    printInfo(`(${str}) found ${count} results`)
+                }
             }
         }
 
@@ -527,9 +510,8 @@ class App {
                 try {
                     wiki.openWikipedia(this.currentWiki, focusedNode.title)
                 } catch (err) {
-                    // TODO: we should report this to our user as well.
-                    // not just to console
                     console.error(`failed to open a page to ${focusedNode.title}`)
+                    printError(`failed to open a page to ${focusedNode.title}`)
                 }
 
                 this.unfocusNode()
@@ -1271,6 +1253,7 @@ class App {
             request.links = links
         } catch (err) {
             console.error(err)
+            printError(`failed to open "${node.title}"`)
         } finally {
             request.doneRequesting = true
         }
@@ -1334,10 +1317,10 @@ class App {
         return null
     }
 
-    doSearch(search: string) {
+    doSearch(search: string): number {
         this.clearNodeHighlights()
         if (search.length <= 0) {
-            return
+            return 0
         }
 
         search = search.toLowerCase()
@@ -1351,15 +1334,19 @@ class App {
             maxDist = 0
         }
 
+        let foundNodeCount = 0
+
         for (const node of this.nodeManager.nodes) {
             const title = node.title.toLowerCase()
             const res = util.fuzzyMatch(title, search)
 
             if (res.distance <= maxDist) {
-                console.log(node.title)
                 this.highlightNode(node)
+                foundNodeCount++
             }
         }
+
+        return foundNodeCount
     }
 
     doWikiSearch(search: string) {
@@ -1383,13 +1370,16 @@ class App {
 
         wiki.searchWiki(selectedSite, search).then((result) => {
             if (result === null) {
-                // TODO: we should tell users about this
-                console.log(`no search result for ${search}`)
+                console.log(`no search result for "${search}"`)
+                printInfo(`no search result for "${search}"`)
                 return
             }
 
             this.resetAndAddFirstNode(result)
             this.currentWiki = selectedSite
+        }).catch((err) => {
+            console.log(`failed to search wiki: ${err}`)
+            printInfo(`failed to search wiki: ${err}`)
         })
     }
 
@@ -1476,7 +1466,8 @@ class App {
                     RenderSyncFlags.Everything
                 )
             } catch (err) {
-                console.error(err)
+                console.error(`failed to deserialize: ${err}`)
+                printError(`failed to deserialize: ${err}`)
             }
         })
     }
@@ -1590,6 +1581,7 @@ async function main() {
         await assets.loadAssets()
     } catch (err) {
         console.error(`failed to load assets: ${err}`)
+        printError(`failed to load assets: ${err}`)
     }
 
     const app = new App(mainCanvas, overlayCanvas, simCanvas)
@@ -1598,6 +1590,7 @@ async function main() {
         app.setColorTable(table)
     } catch (err) {
         console.error(`failed to load color table: ${err}`)
+        printError(`failed to load color table: ${err}`)
     }
 
     // set up debug UI elements
@@ -1823,13 +1816,9 @@ async function main() {
             'upload graph',
             async (files) => {
                 if (files.length > 0) {
-                    try {
-                        const file = files[0]
-                        const text = await file.text()
-                        app.deserialize(text)
-                    } catch (err) {
-                        console.error(err)
-                    }
+                    const file = files[0]
+                    const text = await file.text()
+                    app.deserialize(text)
                 }
             }
         )
@@ -1904,7 +1893,8 @@ async function main() {
 
                         app.recolorWholeGraph()
                     } catch (err) {
-                        console.error(err)
+                        console.error(`failed to upload color table: ${err}`)
+                        printError(`failed to upload color table: ${err}`)
                     }
                 }
             }

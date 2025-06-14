@@ -30,7 +30,7 @@ const MAX_ERROR_MSGS = 10
 const MIN_ERROR_MSGS = 3
 const ERROR_MSG_LIFESPAN = 2500
 
-export function printError(str: string) {
+function printMsg(str: string, isInfo: boolean) {
     if (errorPrintBox === null) { return }
 
     if (errorMsgs.size > MAX_ERROR_MSGS) {
@@ -49,6 +49,12 @@ export function printError(str: string) {
     errorP.style.bottom = '15px'
     errorPrintBox.appendChild(errorP)
 
+    if (isInfo) {
+        errorP.style.setProperty('--msg-text-color', 'var(--text-black)')
+        errorP.style.setProperty('--msg-border-color', 'var(--grey)')
+        errorP.style.setProperty('--msg-bg-color', 'var(--white)')
+    }
+
     const dummyP = document.createElement('p')
     dummyP.innerText = str
     dummyP.classList.add('error-message-dummy')
@@ -58,6 +64,14 @@ export function printError(str: string) {
     const msg = new ErrorMsg(errorP, dummyP)
 
     errorMsgs.set(msg.id, msg)
+}
+
+export function printError(str: string) {
+    printMsg(str, false)
+}
+
+export function printInfo(str: string) {
+    printMsg(str, true)
 }
 
 function removeErrorMessage(toRemove: ErrorMsg) {

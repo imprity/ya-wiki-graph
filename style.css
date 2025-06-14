@@ -299,10 +299,15 @@
   pointer-events: none;
 }
 
+.error-message {
+  --msg-text-color : var(--white);
+  --msg-border-color : var(--white);
+  --msg-bg-color : #FF3C29;
+}
+
 .error-message,
 .error-message-dummy {
   position: relative;
-  color: var(--white);
   font-family: var(--sans-serif);
   font-size: 0.9rem;
   margin: 10px;
@@ -322,6 +327,7 @@
 
 .error-message {
   margin: 0px;
+  color: var(--msg-text-color);
   position: absolute;
 }
 
@@ -330,7 +336,6 @@
   content: "";
   width: 100%;
   height: 100%;
-  background-color: #FF3C29;
   position: absolute;
   border-radius: 9px;
   top: 0px;
@@ -338,10 +343,14 @@
   z-index: -1;
 }
 
+.error-message::after {
+  background-color: var(--msg-bg-color);
+}
+
 .error-message::before {
   left: -3px;
   top: 3px;
-  background-color: var(--white);
+  background-color: var(--msg-border-color);
 }
 
 
