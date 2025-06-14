@@ -19,6 +19,9 @@ import {
 debugPrint, renderDebugPrint, setDebugPrintVisible,
 //isDebugPrintVisible,
  } from './debug_print.js';
+import { 
+// printError,
+updateErrorMsgs } from './error_print.js';
 import { ColorTable, serializeColorTable, deserializeColorTable, loadColorTable, tableNodeColors, copyTable } from "./color_table.js";
 import { NodeManager, DocNode, 
 //NodeConnection,
@@ -1426,6 +1429,7 @@ function main() {
             }
             const deltaTime = timestamp - prevTime;
             prevTime = timestamp;
+            updateErrorMsgs(deltaTime);
             app.update(deltaTime);
             app.draw(deltaTime);
             renderDebugPrint();

@@ -20,6 +20,10 @@ import {
     //isDebugPrintVisible,
 } from './debug_print.js'
 import {
+    // printError,
+    updateErrorMsgs
+} from './error_print.js'
+import {
     ColorTable,
     serializeColorTable,
     deserializeColorTable,
@@ -1986,6 +1990,8 @@ async function main() {
         }
         const deltaTime = timestamp - prevTime
         prevTime = timestamp
+
+        updateErrorMsgs(deltaTime)
 
         app.update(deltaTime)
         app.draw(deltaTime)
