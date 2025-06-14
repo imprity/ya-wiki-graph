@@ -146,6 +146,7 @@ class App {
         this.colorTable = new ColorTable();
         this._highlightedNodes = new util.Stack();
         this._isNodeHighlighted = new Array();
+        this.toSearchOnExpand = "";
         this.currentWiki = new wiki.WikipediSite("en", "English", "English");
         this.wikiSites = [this.currentWiki];
         // how long a user has to hold node
@@ -225,6 +226,7 @@ class App {
         this.appUI.onTextInput = (str) => {
             if (str.length <= 0) {
                 this.clearNodeHighlights();
+                this.toSearchOnExpand = "";
             }
         };
         this.appUI.onTextCommit = (str) => {
@@ -232,12 +234,14 @@ class App {
                 this.doWikiSearch(str);
             }
             else {
+                this.toSearchOnExpand = "";
                 if (str.length <= 0) {
                     this.clearNodeHighlights();
                 }
                 else {
                     const count = this.doSearch(str);
                     printInfo(`(${str}) found ${count} results`);
+                    this.toSearchOnExpand = str;
                 }
             }
         };
@@ -322,6 +326,7 @@ class App {
             // =======================================
             if (finished.length > 0) {
                 this.beforeSimulation(() => {
+                    let createdNewNode = false;
                     for (const req of finished) {
                         if (req.links === null) {
                             continue;
@@ -339,6 +344,7 @@ class App {
                                 continue;
                             }
                             if (otherIndex < 0) { // we have to make a new node
+                                createdNewNode = true;
                                 const newNode = new DocNode();
                                 const newNodeIndex = this.nodeManager.nodes.length;
                                 newNode.title = link;
@@ -378,6 +384,9 @@ class App {
                         // ==========================
                         this.gpuSimulator.submitNodeManager(this.nodeManager);
                         this.gpuRenderer.submitNodeManager(this.nodeManager, RenderSyncFlags.Everything);
+                    }
+                    if (createdNewNode && this.toSearchOnExpand.length > 0) {
+                        this.doSearch(this.toSearchOnExpand);
                     }
                 });
             }

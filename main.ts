@@ -231,6 +231,8 @@ class App {
     _highlightedNodes: util.Stack<DocNode> = new util.Stack<DocNode>()
     _isNodeHighlighted: Array<boolean> = new Array()
 
+    toSearchOnExpand: string = ""
+
     currentWiki: wiki.WikipediSite = new wiki.WikipediSite("en", "English", "English")
 
     wikiSites: Array<wiki.WikipediSite> = [this.currentWiki]
@@ -306,6 +308,7 @@ class App {
         this.appUI.onTextInput = (str: string) => {
             if (str.length <= 0) {
                 this.clearNodeHighlights()
+                this.toSearchOnExpand = ""
             }
         }
 
@@ -313,11 +316,15 @@ class App {
             if (this.appUI.shouldDoWikiSearch()) {
                 this.doWikiSearch(str)
             } else {
+                this.toSearchOnExpand = ""
+
                 if (str.length <= 0) {
                     this.clearNodeHighlights()
                 } else {
                     const count = this.doSearch(str)
                     printInfo(`(${str}) found ${count} results`)
+
+                    this.toSearchOnExpand = str;
                 }
             }
         }
@@ -416,6 +423,8 @@ class App {
             // =======================================
             if (finished.length > 0) {
                 this.beforeSimulation(() => {
+                    let createdNewNode = false
+
                     for (const req of finished) {
                         if (req.links === null) {
                             continue
@@ -441,6 +450,8 @@ class App {
                             }
 
                             if (otherIndex < 0) { // we have to make a new node
+                                createdNewNode = true
+
                                 const newNode = new DocNode()
                                 const newNodeIndex = this.nodeManager.nodes.length
                                 newNode.title = link
@@ -490,6 +501,10 @@ class App {
                             this.nodeManager,
                             RenderSyncFlags.Everything
                         )
+                    }
+
+                    if (createdNewNode && this.toSearchOnExpand.length > 0) {
+                        this.doSearch(this.toSearchOnExpand)
                     }
                 })
             }
