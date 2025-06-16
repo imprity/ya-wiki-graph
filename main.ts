@@ -2007,6 +2007,9 @@ async function main() {
     {
         const first = FirstTitles[math.randomBetweenInt(0, FirstTitles.length - 1)]
         app.resetAndAddFirstNode(first)
+        setTimeout(() => {
+            printInfo(`Try clicking the \"${first}\"!`)
+        }, 500)
     }
 
     let prevTime: DOMHighResTimeStamp | undefined
