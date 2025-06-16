@@ -109,10 +109,9 @@ class AppUI {
         })
 
         const lsContainer = util.mustGetElementById('language-select-container')
-        lsContainer.style.display = 'none'
 
         const span = util.mustGetElementById('search-toggle-span')
-        span.innerText = 'search graph'
+        span.innerText = 'search wikipedia'
 
         this.searchToggle.addEventListener('change', () => {
             if (this.searchToggle.checked) {
