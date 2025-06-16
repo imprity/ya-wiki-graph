@@ -28,7 +28,14 @@ import { NodeManager, DocNode,
 SerializationContainer, isSerializationContainer, } from "./graph_objects.js";
 //@ts-expect-error
 import IS_DEBUG from "./debug.js";
-const FirstTitle = "English language";
+const FirstTitles = [
+    "Apple",
+    "Cat",
+    "Dog",
+    "Video game",
+    "Cookie",
+    "Cookie",
+];
 class AppUI {
     constructor() {
         this.languageSelectLabelSet = false;
@@ -1362,7 +1369,8 @@ function main() {
                 }
             }));
             addButton('reset', () => {
-                app.resetAndAddFirstNode(FirstTitle);
+                const first = FirstTitles[math.randomBetweenInt(0, FirstTitles.length - 1)];
+                app.resetAndAddFirstNode(first);
             });
             addSlider(1.8, 0, 5, 0.05, 'glowSize', (val) => {
                 app.renderParam.glowSize = val;
@@ -1425,7 +1433,10 @@ function main() {
             };
         };
         setupDebugUI();
-        app.resetAndAddFirstNode(FirstTitle);
+        {
+            const first = FirstTitles[math.randomBetweenInt(0, FirstTitles.length - 1)];
+            app.resetAndAddFirstNode(first);
+        }
         let prevTime;
         const onFrame = (timestamp) => {
             //clearDebugPrint()

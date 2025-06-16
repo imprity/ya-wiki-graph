@@ -47,8 +47,14 @@ import {
 //@ts-expect-error
 import IS_DEBUG from "./debug.js"
 
-const FirstTitle = "English language"
-//const FirstTitle = "Miss Meyers"
+const FirstTitles: Array<string> = [
+    "Apple",
+    "Cat",
+    "Dog",
+    "Video game",
+    "Cookie",
+    "Cookie",
+]
 
 interface ExpandRequest {
     node: DocNode
@@ -1855,7 +1861,8 @@ async function main() {
 
         addButton(
             'reset', () => {
-                app.resetAndAddFirstNode(FirstTitle)
+                const first = FirstTitles[math.randomBetweenInt(0, FirstTitles.length - 1)]
+                app.resetAndAddFirstNode(first)
             }
         )
 
@@ -1998,7 +2005,10 @@ async function main() {
     }
     setupDebugUI()
 
-    app.resetAndAddFirstNode(FirstTitle)
+    {
+        const first = FirstTitles[math.randomBetweenInt(0, FirstTitles.length - 1)]
+        app.resetAndAddFirstNode(first)
+    }
 
     let prevTime: DOMHighResTimeStamp | undefined
 
