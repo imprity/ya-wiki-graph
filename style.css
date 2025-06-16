@@ -125,7 +125,7 @@
   outline: none;
   border: none;
 
-  color: var(--text-black)
+  color: var(--text-black);
 }
 
 #search-bar-text:hover,
@@ -138,13 +138,36 @@
   width: 1.3rem;
 
   background: no-repeat url(assets/search-button.svg);
+  background-size: contain;
   background-attachment: local;
   background-position: center;
 
   border: none;
   outline: none;
 
-  color: var(--text-black)
+  color: var(--text-black);
+}
+
+@Keyframes rotate {
+  from {
+    transform: rotate(0turn);
+  }
+
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+#search-bar-button.rotating-loading-circle {
+  background: no-repeat url(assets/loading-circle-dark.png);
+  background-size: contain;
+  background-attachment: local;
+  background-position: center;
+
+  animation-name: rotate;
+  animation-duration: 1s;
+  animation-iteration-count: infinite;
+  animation-timing-function: linear;
 }
 
 #search-option-container {
@@ -300,9 +323,9 @@
 }
 
 .error-message {
-  --msg-text-color : var(--white);
-  --msg-border-color : var(--white);
-  --msg-bg-color : #FF3C29;
+  --msg-text-color: var(--white);
+  --msg-border-color: var(--white);
+  --msg-bg-color: #FF3C29;
 }
 
 .error-message,

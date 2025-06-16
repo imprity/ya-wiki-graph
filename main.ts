@@ -63,6 +63,8 @@ class AppUI {
 
     searchToggle: HTMLInputElement
 
+    searchBarButton: HTMLButtonElement
+
     languageSelect: HTMLSelectElement
     languageSelectLabelSet: boolean = false
     languageSelectLabel: HTMLLabelElement
@@ -74,6 +76,7 @@ class AppUI {
         this.mainUIContainer = util.mustGetElementById('main-ui-container')
         this.textInput = util.mustGetElementById('search-bar-text') as HTMLInputElement
         this.searchToggle = util.mustGetElementById('search-toggle') as HTMLInputElement
+        this.searchBarButton = util.mustGetElementById('search-bar-button') as HTMLButtonElement
         this.languageSelect = util.mustGetElementById('language-select') as HTMLSelectElement
         this.languageSelectLabel = util.mustGetElementById('language-select-label') as HTMLLabelElement
 
@@ -147,6 +150,14 @@ class AppUI {
         }
 
         toRecurse(this.mainUIContainer)
+    }
+
+    showLoadingCircleOnSearchButton() {
+        this.searchBarButton.classList.add('rotating-loading-circle')
+    }
+
+    hideLoadingCircleOnSearchButton() {
+        this.searchBarButton.classList.remove('rotating-loading-circle')
     }
 }
 
@@ -1383,7 +1394,10 @@ class App {
             return
         }
 
+        this.appUI.showLoadingCircleOnSearchButton()
+
         wiki.searchWiki(selectedSite, search).then((result) => {
+            this.appUI.hideLoadingCircleOnSearchButton()
             if (result === null) {
                 console.log(`no search result for "${search}"`)
                 printInfo(`no search result for "${search}"`)
@@ -1393,6 +1407,7 @@ class App {
             this.resetAndAddFirstNode(result)
             this.currentWiki = selectedSite
         }).catch((err) => {
+            this.appUI.hideLoadingCircleOnSearchButton()
             console.log(`failed to search wiki: ${err}`)
             printInfo(`failed to search wiki: ${err}`)
         })

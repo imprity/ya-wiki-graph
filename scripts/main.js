@@ -37,6 +37,7 @@ class AppUI {
         this.mainUIContainer = util.mustGetElementById('main-ui-container');
         this.textInput = util.mustGetElementById('search-bar-text');
         this.searchToggle = util.mustGetElementById('search-toggle');
+        this.searchBarButton = util.mustGetElementById('search-bar-button');
         this.languageSelect = util.mustGetElementById('language-select');
         this.languageSelectLabel = util.mustGetElementById('language-select-label');
         // add callbacks
@@ -97,6 +98,12 @@ class AppUI {
             }
         };
         toRecurse(this.mainUIContainer);
+    }
+    showLoadingCircleOnSearchButton() {
+        this.searchBarButton.classList.add('rotating-loading-circle');
+    }
+    hideLoadingCircleOnSearchButton() {
+        this.searchBarButton.classList.remove('rotating-loading-circle');
     }
 }
 class App {
@@ -1026,7 +1033,9 @@ class App {
         if (selectedSite === null) {
             return;
         }
+        this.appUI.showLoadingCircleOnSearchButton();
         wiki.searchWiki(selectedSite, search).then((result) => {
+            this.appUI.hideLoadingCircleOnSearchButton();
             if (result === null) {
                 console.log(`no search result for "${search}"`);
                 printInfo(`no search result for "${search}"`);
@@ -1035,6 +1044,7 @@ class App {
             this.resetAndAddFirstNode(result);
             this.currentWiki = selectedSite;
         }).catch((err) => {
+            this.appUI.hideLoadingCircleOnSearchButton();
             console.log(`failed to search wiki: ${err}`);
             printInfo(`failed to search wiki: ${err}`);
         });
