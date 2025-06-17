@@ -12,6 +12,7 @@ import * as util from "./util.js";
 import * as math from "./math.js";
 import * as assets from "./assets.js";
 import * as color from "./color.js";
+// import * as cd from "./canvas.js"
 import { GpuRenderer, RenderSyncFlags, RenderParameter } from "./gpu_render.js";
 import { GpuSimulator, SimulationParameter, } from "./gpu_simulate.js";
 import { 
@@ -107,6 +108,10 @@ class AppUI {
 }
 class App {
     constructor() {
+        // TEST TEST TEST TEST TEST
+        this.testLerpX = 0;
+        this.testLerpY = 0;
+        this.testLerpValue = 1;
         this.dpiAdjustScaleX = 2;
         this.dpiAdjustScaleY = 2;
         // ==========================
@@ -446,20 +451,20 @@ class App {
                 let t1 = math.distSquared(node.renderX - node.posX, node.renderY - node.posY);
                 let t2 = t1 / 50000.0;
                 t2 = math.clamp(t2, 0, 0.2);
-                const x = math.lerp(node.renderX, node.posX, t2);
-                const y = math.lerp(node.renderY, node.posY, t2);
+                const x = math.expDecay(node.renderX, node.posX, t2 * 200, deltaTime);
+                const y = math.expDecay(node.renderY, node.posY, t2 * 200, deltaTime);
                 node.renderX = x;
                 node.renderY = y;
             }
             // update node glow
             {
-                let newGlow = math.lerp(Math.max(0, node.glowMin), node.glow, 0.995);
+                let newGlow = math.expDecay(node.glow, Math.max(0, node.glowMin), 0.2, deltaTime);
                 node.glow = newGlow;
                 node.glow = math.clamp(node.glow, 0, 1);
             }
             // update node render radius
             {
-                let newRadius = math.lerp(Math.max(node.renderRadiusMin, node.getRadius()), node.renderRadius, 0.8);
+                let newRadius = math.expDecay(node.renderRadius, Math.max(node.renderRadiusMin, node.getRadius()), 10, deltaTime);
                 node.renderRadius = newRadius;
             }
         }
@@ -609,6 +614,17 @@ class App {
         forHighlightedNodes((node) => {
             drawText(node, true);
         });
+        // TEST TEST TEST TEST TEST TEST
+        // {
+        //     this.testLerpX = math.expDecay(this.testLerpX, this.mouse.x, this.testLerpValue, deltaTime)
+        //     this.testLerpY = math.expDecay(this.testLerpY, this.mouse.y, this.testLerpValue, deltaTime)
+        //     cd.fillCircle(
+        //         this.overlayCtx,
+        //         this.testLerpX, this.testLerpY, 20,
+        //         'rgba(255,0,0,0.5)'
+        //     )
+        // }
+        // TEST TEST TEST TEST TEST TEST
     }
     handleEvent(e) {
         const focusLoseDist = 50;
@@ -1349,6 +1365,11 @@ function main() {
             addCheckBox(false, 'view debug msgs', (visible) => {
                 setDebugPrintVisible(visible);
             });
+            // TEST TEST TEST TEST TEST TEST TEST TEST
+            addSlider(1, 1, 100, 1, 'testLerpValue', (val) => {
+                app.testLerpValue = val;
+            });
+            // TEST TEST TEST TEST TEST TEST TEST TEST
             addButton('download graph', () => __awaiter(this, void 0, void 0, function* () {
                 const jsonString = yield app.serialize();
                 util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.graph');

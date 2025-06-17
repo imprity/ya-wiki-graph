@@ -3,6 +3,7 @@ import * as util from "./util.js"
 import * as math from "./math.js"
 import * as assets from "./assets.js"
 import * as color from "./color.js"
+// import * as cd from "./canvas.js"
 import {
     GpuRenderer,
     RenderSyncFlags,
@@ -159,6 +160,12 @@ class AppUI {
 }
 
 class App {
+    // TEST TEST TEST TEST TEST
+    testLerpX: number = 0
+    testLerpY: number = 0
+    testLerpValue: number = 1
+    // TEST TEST TEST TEST TEST
+
     // ==========================
     // canvas stuff
     // ==========================
@@ -574,8 +581,8 @@ class App {
 
                 t2 = math.clamp(t2, 0, 0.2)
 
-                const x = math.lerp(node.renderX, node.posX, t2)
-                const y = math.lerp(node.renderY, node.posY, t2)
+                const x = math.expDecay(node.renderX, node.posX, t2 * 200, deltaTime)
+                const y = math.expDecay(node.renderY, node.posY, t2 * 200, deltaTime)
 
                 node.renderX = x
                 node.renderY = y
@@ -583,15 +590,23 @@ class App {
 
             // update node glow
             {
-                let newGlow = math.lerp(Math.max(0, node.glowMin), node.glow, 0.995)
+                let newGlow = math.expDecay(
+                    node.glow,
+                    Math.max(0, node.glowMin),
+                    0.2, deltaTime,
+                )
                 node.glow = newGlow
                 node.glow = math.clamp(node.glow, 0, 1)
             }
 
             // update node render radius
             {
-                let newRadius = math.lerp(
-                    Math.max(node.renderRadiusMin, node.getRadius()), node.renderRadius, 0.8)
+                let newRadius = math.expDecay(
+                    node.renderRadius,
+                    Math.max(node.renderRadiusMin, node.getRadius()),
+                    10,
+                    deltaTime,
+                )
                 node.renderRadius = newRadius
             }
         }
@@ -806,6 +821,19 @@ class App {
         forHighlightedNodes((node: DocNode) => {
             drawText(node, true)
         })
+
+
+        // TEST TEST TEST TEST TEST TEST
+        // {
+        //     this.testLerpX = math.expDecay(this.testLerpX, this.mouse.x, this.testLerpValue, deltaTime)
+        //     this.testLerpY = math.expDecay(this.testLerpY, this.mouse.y, this.testLerpValue, deltaTime)
+        //     cd.fillCircle(
+        //         this.overlayCtx,
+        //         this.testLerpX, this.testLerpY, 20,
+        //         'rgba(255,0,0,0.5)'
+        //     )
+        // }
+        // TEST TEST TEST TEST TEST TEST
     }
 
     handleEvent(e: Event) {
@@ -1828,6 +1856,18 @@ async function main() {
                 setDebugPrintVisible(visible)
             }
         )
+
+        // TEST TEST TEST TEST TEST TEST TEST TEST
+        addSlider(
+            1,
+            1, 100,
+            1,
+            'testLerpValue',
+            (val: number) => {
+                app.testLerpValue = val
+            }
+        )
+        // TEST TEST TEST TEST TEST TEST TEST TEST
 
         addButton(
             'download graph', async () => {

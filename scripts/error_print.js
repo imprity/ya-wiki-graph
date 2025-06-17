@@ -118,8 +118,10 @@ export function updateErrorMsgs(deltaTime) {
         rect.y -= parentRect.y;
         let x = rect.x;
         let y = rect.y;
-        x = math.lerp(x, dummyRect.x, 0.1);
-        y = math.lerp(y, dummyRect.y, 0.1);
+        // x = math.lerp(x, dummyRect.x, 0.1)
+        // y = math.lerp(y, dummyRect.y, 0.1)
+        x = math.expDecay(x, dummyRect.x, 9, deltaTime);
+        y = math.expDecay(y, dummyRect.y, 9, deltaTime);
         msg.element.style.left = `${x}px`;
         msg.element.style.bottom = `${parentRect.height - y - rect.height}px`;
         msg.element.style.width = `${dummyRect.width}px`;

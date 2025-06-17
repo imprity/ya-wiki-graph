@@ -164,3 +164,12 @@ export function splitmix32(a: number) {
     }
 }
 
+// copy pasted from https://youtu.be/LSNQuFEDOyQ?t=3011
+//
+// use this instead of lerp for frame indipendent lerping
+// 1 is pretty slow
+// 30 is almost same as just assigning
+export function expDecay(a: number, b: number, decay: number, dt: number): number {
+    return b + (a - b) * Math.exp(-decay * dt / 1000)
+}
+
