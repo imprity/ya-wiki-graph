@@ -389,22 +389,6 @@
   box-sizing: border-box;
 }
 
-#about-page.page-show {
-  animation-name: fade-show;
-  animation-duration: 100ms;
-  animation-iteration-count: 1;
-  animation-timing-function: linear;
-  animation-fill-mode: forwards;
-}
-
-#about-page.page-hide {
-  animation-name: fade-hide;
-  animation-duration: 100ms;
-  animation-iteration-count: 1;
-  animation-timing-function: linear;
-  animation-fill-mode: forwards;
-}
-
 #about-page>* {
   margin-top: 30px;
 }
