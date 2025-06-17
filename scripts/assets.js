@@ -13,12 +13,15 @@ export let glowImage = null;
 export let loadingCircleImage = null;
 export function loadAssets() {
     return __awaiter(this, void 0, void 0, function* () {
-        const loadImage = (url) => __awaiter(this, void 0, void 0, function* () {
+        const loadImage = (url, cb) => __awaiter(this, void 0, void 0, function* () {
             const blob = yield util.fetchBlob(url);
-            return yield createImageBitmap(blob);
+            let result = yield createImageBitmap(blob);
+            cb(result);
         });
-        circleImage = yield loadImage('assets/circle.png');
-        glowImage = yield loadImage('assets/glow.png');
-        loadingCircleImage = yield loadImage('assets/loading-circle.png');
+        yield Promise.all([
+            loadImage('assets/circle.png', (img) => { circleImage = img; }),
+            loadImage('assets/glow.png', (img) => { glowImage = img; }),
+            loadImage('assets/loading-circle.png', (img) => { loadingCircleImage = img; })
+        ]);
     });
 }

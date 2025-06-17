@@ -5,12 +5,15 @@ export let glowImage: ImageBitmap | null = null
 export let loadingCircleImage: ImageBitmap | null = null
 
 export async function loadAssets() {
-    const loadImage = async (url: string): Promise<ImageBitmap> => {
+    const loadImage = async (url: string, cb: (img: ImageBitmap | null) => void) => {
         const blob = await util.fetchBlob(url)
-        return await createImageBitmap(blob)
+        let result = await createImageBitmap(blob)
+        cb(result)
     }
 
-    circleImage = await loadImage('assets/circle.png')
-    glowImage = await loadImage('assets/glow.png')
-    loadingCircleImage = await loadImage('assets/loading-circle.png')
+    await Promise.all([
+        loadImage('assets/circle.png', (img) => { circleImage = img }),
+        loadImage('assets/glow.png', (img) => { glowImage = img }),
+        loadImage('assets/loading-circle.png', (img) => { loadingCircleImage = img })
+    ])
 }

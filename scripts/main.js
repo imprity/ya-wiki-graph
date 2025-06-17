@@ -1195,21 +1195,48 @@ function main() {
         if (simCanvas === null) {
             throw new Error("failed to get sim-canvas");
         }
-        try {
-            yield assets.loadAssets();
-        }
-        catch (err) {
-            console.error(`failed to load assets: ${err}`);
-            printError(`failed to load assets: ${err}`);
-        }
+        // try {
+        //     await assets.loadAssets()
+        // } catch (err) {
+        //     console.error(`failed to load assets: ${err}`)
+        //     printError(`failed to load assets: ${err}`)
+        // }
+        //
+        // try {
+        //     const table = await loadColorTable('assets/color-table.table')
+        //     app.setColorTable(table)
+        // } catch (err) {
+        //     console.error(`failed to load color table: ${err}`)
+        //     printError(`failed to load color table: ${err}`)
+        // }
+        let loadedTable = null;
+        yield Promise.all([
+            (() => __awaiter(this, void 0, void 0, function* () {
+                console.log('loading assets');
+                try {
+                    yield assets.loadAssets();
+                }
+                catch (err) {
+                    console.error(`failed to load assets: ${err}`);
+                    printError(`failed to load assets: ${err}`);
+                }
+            }))(),
+            (() => __awaiter(this, void 0, void 0, function* () {
+                console.log('loading color table');
+                try {
+                    const table = yield loadColorTable('assets/color-table.table');
+                    loadedTable = table;
+                }
+                catch (err) {
+                    console.error(`failed to load color table: ${err}`);
+                    printError(`failed to load color table: ${err}`);
+                }
+            }))(),
+        ]);
+        console.log('creating app');
         const app = new App(mainCanvas, overlayCanvas, simCanvas);
-        try {
-            const table = yield loadColorTable('assets/color-table.table');
-            app.setColorTable(table);
-        }
-        catch (err) {
-            console.error(`failed to load color table: ${err}`);
-            printError(`failed to load color table: ${err}`);
+        if (loadedTable !== null) {
+            app.setColorTable(loadedTable);
         }
         // set up debug UI elements
         const setupDebugUI = () => {
