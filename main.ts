@@ -2012,6 +2012,74 @@ async function main() {
         }, 500)
     }
 
+    // setup about page
+    const setupAboutPage = () => {
+        let aboutPage = document.getElementById('about-page')
+        let aboutPageHideButton = document.getElementById('about-page-hide-button')
+        let aboutPageShowButton = document.getElementById('about-page-show-button')
+
+        if (aboutPage === null) {return}
+        if (aboutPageHideButton === null) {return}
+        if (aboutPageShowButton === null) {return}
+
+        let anim : Animation | null = null
+
+        aboutPageHideButton.onclick = () => {
+            if (anim !== null) {
+                anim.cancel()
+            }
+
+            aboutPage.style.display = 'block'
+            aboutPage.style.opacity = '1'
+
+            anim = aboutPage.animate(
+                [
+                    {
+                        opacity: `1`,
+                    },
+                    {
+                        opacity: `0`,
+                    },
+                ],
+                {
+                    duration: 100,
+                    fill: 'forwards',
+                    easing: 'linear'
+                }
+            )
+
+            anim.onfinish = ()=>{
+                aboutPage.style.display = 'none'
+            }
+        }
+        aboutPageShowButton.onclick = () => {
+            if (anim !== null) {
+                anim.cancel()
+            }
+
+            aboutPage.style.display = 'block'
+            aboutPage.style.opacity = '0'
+
+            anim = aboutPage.animate(
+                [
+                    {
+                        opacity: `0`,
+                    },
+                    {
+                        opacity: `1`,
+                    },
+                ],
+                {
+                    duration: 100,
+                    fill: 'forwards',
+                    easing: 'linear'
+                }
+            )
+        }
+    }
+
+    setupAboutPage()
+
     let prevTime: DOMHighResTimeStamp | undefined
 
     const onFrame = (timestamp: DOMHighResTimeStamp) => {
