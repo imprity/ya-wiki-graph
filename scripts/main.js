@@ -106,7 +106,7 @@ class AppUI {
     }
 }
 class App {
-    constructor(mainCanvas, overlayCanvas, simCanvas) {
+    constructor() {
         this.dpiAdujustScaleX = 2;
         this.dpiAdujustScaleY = 2;
         // ==========================
@@ -188,10 +188,11 @@ class App {
                 request.doneRequesting = true;
             }
         });
-        this.mainCanvas = mainCanvas;
-        this.overlayCanvas = overlayCanvas;
+        this.mainCanvas = util.mustGetElementById('main-canvas');
+        this.overlayCanvas = util.mustGetElementById('overlay-canvas');
+        const simCanvas = util.mustGetElementById('sim-canvas');
         {
-            const ctx = overlayCanvas.getContext('2d');
+            const ctx = this.overlayCanvas.getContext('2d');
             if (ctx === null) {
                 throw new Error('failed to get CanvasRenderingContext2D');
             }
@@ -206,12 +207,6 @@ class App {
         this.gpuRenderer.renderParam = this.renderParam;
         this.gpuSimulator = new GpuSimulator(simCanvas);
         this.gpuSimulator.simParam = this.simParam;
-        // NOTE: we have to add it to window because canvas
-        // doesn't take keyboard input
-        // TODO: put canvas inside a div
-        window.addEventListener("keydown", (e) => {
-            this.handleEvent(e);
-        });
         for (const eName of [
             "wheel",
             "mousedown",
@@ -1183,32 +1178,6 @@ class App {
 }
 function main() {
     return __awaiter(this, void 0, void 0, function* () {
-        const mainCanvas = document.getElementById('main-canvas');
-        if (mainCanvas === null) {
-            throw new Error("failed to get main-canvas");
-        }
-        const overlayCanvas = document.getElementById('overlay-canvas');
-        if (overlayCanvas === null) {
-            throw new Error("failed to get overlay-canvas");
-        }
-        const simCanvas = document.getElementById('sim-canvas');
-        if (simCanvas === null) {
-            throw new Error("failed to get sim-canvas");
-        }
-        // try {
-        //     await assets.loadAssets()
-        // } catch (err) {
-        //     console.error(`failed to load assets: ${err}`)
-        //     printError(`failed to load assets: ${err}`)
-        // }
-        //
-        // try {
-        //     const table = await loadColorTable('assets/color-table.table')
-        //     app.setColorTable(table)
-        // } catch (err) {
-        //     console.error(`failed to load color table: ${err}`)
-        //     printError(`failed to load color table: ${err}`)
-        // }
         let loadedTable = null;
         yield Promise.all([
             (() => __awaiter(this, void 0, void 0, function* () {
@@ -1233,8 +1202,8 @@ function main() {
                 }
             }))(),
         ]);
-        console.log('creating app');
-        const app = new App(mainCanvas, overlayCanvas, simCanvas);
+        console.log('creating an app');
+        const app = new App();
         if (loadedTable !== null) {
             app.setColorTable(loadedTable);
         }

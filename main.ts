@@ -250,16 +250,13 @@ class App {
     // before we open the wikipedia link
     linkOpenDuration: number = 1000 // constant
 
-    constructor(
-        mainCanvas: HTMLCanvasElement,
-        overlayCanvas: HTMLCanvasElement,
-        simCanvas: HTMLCanvasElement
-    ) {
-        this.mainCanvas = mainCanvas
-        this.overlayCanvas = overlayCanvas
+    constructor() {
+        this.mainCanvas = util.mustGetElementById('main-canvas') as HTMLCanvasElement
+        this.overlayCanvas = util.mustGetElementById('overlay-canvas') as HTMLCanvasElement
+        const simCanvas = util.mustGetElementById('sim-canvas') as HTMLCanvasElement
 
         {
-            const ctx = overlayCanvas.getContext('2d')
+            const ctx = this.overlayCanvas.getContext('2d')
             if (ctx === null) {
                 throw new Error('failed to get CanvasRenderingContext2D')
             }
@@ -279,13 +276,6 @@ class App {
 
         this.gpuSimulator = new GpuSimulator(simCanvas)
         this.gpuSimulator.simParam = this.simParam
-
-        // NOTE: we have to add it to window because canvas
-        // doesn't take keyboard input
-        // TODO: put canvas inside a div
-        window.addEventListener("keydown", (e) => {
-            this.handleEvent(e)
-        })
 
         for (const eName of [
             "wheel",
@@ -1596,19 +1586,6 @@ class App {
 }
 
 async function main() {
-    const mainCanvas = document.getElementById('main-canvas') as HTMLCanvasElement
-    if (mainCanvas === null) {
-        throw new Error("failed to get main-canvas")
-    }
-    const overlayCanvas = document.getElementById('overlay-canvas') as HTMLCanvasElement
-    if (overlayCanvas === null) {
-        throw new Error("failed to get overlay-canvas")
-    }
-    const simCanvas = document.getElementById('sim-canvas') as HTMLCanvasElement
-    if (simCanvas === null) {
-        throw new Error("failed to get sim-canvas")
-    }
-
     let loadedTable: ColorTable | null = null
 
     await Promise.all([
@@ -1634,7 +1611,7 @@ async function main() {
     ])
 
     console.log('creating an app')
-    const app = new App(mainCanvas, overlayCanvas, simCanvas)
+    const app = new App()
 
     if (loadedTable !== null) {
         app.setColorTable(loadedTable)
