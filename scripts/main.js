@@ -1454,7 +1454,12 @@ function main() {
                 return;
             }
             let anim = null;
+            let aboutPageVisible = false;
             aboutPageHideButton.onclick = () => {
+                if (!aboutPageVisible) {
+                    return;
+                }
+                aboutPageVisible = false;
                 if (anim !== null) {
                     anim.cancel();
                 }
@@ -1477,6 +1482,10 @@ function main() {
                 };
             };
             aboutPageShowButton.onclick = () => {
+                if (aboutPageVisible) {
+                    return;
+                }
+                aboutPageVisible = true;
                 if (anim !== null) {
                     anim.cancel();
                 }

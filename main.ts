@@ -2018,13 +2018,20 @@ async function main() {
         let aboutPageHideButton = document.getElementById('about-page-hide-button')
         let aboutPageShowButton = document.getElementById('about-page-show-button')
 
-        if (aboutPage === null) {return}
-        if (aboutPageHideButton === null) {return}
-        if (aboutPageShowButton === null) {return}
+        if (aboutPage === null) { return }
+        if (aboutPageHideButton === null) { return }
+        if (aboutPageShowButton === null) { return }
 
-        let anim : Animation | null = null
+        let anim: Animation | null = null
+
+        let aboutPageVisible = false
 
         aboutPageHideButton.onclick = () => {
+            if (!aboutPageVisible) {
+                return
+            }
+            aboutPageVisible = false
+
             if (anim !== null) {
                 anim.cancel()
             }
@@ -2048,11 +2055,16 @@ async function main() {
                 }
             )
 
-            anim.onfinish = ()=>{
+            anim.onfinish = () => {
                 aboutPage.style.display = 'none'
             }
         }
         aboutPageShowButton.onclick = () => {
+            if (aboutPageVisible) {
+                return
+            }
+            aboutPageVisible = true
+
             if (anim !== null) {
                 anim.cancel()
             }
