@@ -107,8 +107,8 @@ class AppUI {
 }
 class App {
     constructor() {
-        this.dpiAdujustScaleX = 2;
-        this.dpiAdujustScaleY = 2;
+        this.dpiAdjustScaleX = 2;
+        this.dpiAdjustScaleY = 2;
         // ==========================
         // UI stuff
         // ==========================
@@ -836,8 +836,8 @@ class App {
             - Math.round(devicePixelRatio * rect.left);
         this.overlayCanvas.height = Math.round(devicePixelRatio * rect.bottom)
             - Math.round(devicePixelRatio * rect.top);
-        this.dpiAdujustScaleX = this.overlayCanvas.width / this.width;
-        this.dpiAdujustScaleY = this.overlayCanvas.height / this.height;
+        this.dpiAdjustScaleX = this.overlayCanvas.width / this.width;
+        this.dpiAdjustScaleY = this.overlayCanvas.height / this.height;
     }
     getNewNodeColor() {
         const nodeColors = tableNodeColors(this.colorTable);
@@ -933,7 +933,7 @@ class App {
     }
     resetTransform() {
         this.overlayCtx.resetTransform();
-        this.overlayCtx.scale(this.dpiAdujustScaleX, this.dpiAdujustScaleY);
+        this.overlayCtx.scale(this.dpiAdjustScaleX, this.dpiAdjustScaleY);
     }
     worldToViewport(x, y) {
         x += this.offset.x;
