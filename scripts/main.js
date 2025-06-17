@@ -96,14 +96,7 @@ class AppUI {
         return this.searchToggle.checked;
     }
     blur() {
-        const toRecurse = (e) => {
-            e.blur();
-            //@ts-expect-error
-            for (const child of e.children) {
-                toRecurse(child);
-            }
-        };
-        toRecurse(this.mainUIContainer);
+        util.blurItAndChildren(this.mainUIContainer);
     }
     showLoadingCircleOnSearchButton() {
         this.searchBarButton.classList.add('rotating-loading-circle');
@@ -120,6 +113,7 @@ class App {
         // UI stuff
         // ==========================
         this.appUI = new AppUI();
+        this.toBlur = [];
         this.renderParam = new RenderParameter();
         this.simParam = new SimulationParameter();
         // ==========================
@@ -276,6 +270,7 @@ class App {
         }).catch((err) => {
             console.log(err);
         });
+        this.toBlur.push(this.appUI);
     }
     update(deltaTime) {
         this.updateWidthAndHeight();
@@ -657,7 +652,9 @@ class App {
                     (_e = (_d = document.selection) === null || _d === void 0 ? void 0 : _d.empty) === null || _e === void 0 ? void 0 : _e.call(_d);
                 }
                 // unfocus UI elements
-                this.appUI.blur();
+                for (const e of this.toBlur) {
+                    e.blur();
+                }
             }
             startDragging(x, y);
             this.tappedPos.x = x;
@@ -1453,6 +1450,12 @@ function main() {
             if (aboutPageShowButton === null) {
                 return;
             }
+            app.toBlur.push(aboutPageShowButton);
+            app.toBlur.push({
+                blur: () => {
+                    util.blurItAndChildren(aboutPage);
+                }
+            });
             let anim = null;
             let aboutPageVisible = false;
             aboutPageHideButton.onclick = () => {

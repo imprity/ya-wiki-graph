@@ -254,3 +254,13 @@ export function mustGetElementById(id) {
     }
     return elem;
 }
+export function blurItAndChildren(element) {
+    const toRecurse = (e) => {
+        e.blur();
+        //@ts-expect-error
+        for (const child of e.children) {
+            toRecurse(child);
+        }
+    };
+    toRecurse(element);
+}

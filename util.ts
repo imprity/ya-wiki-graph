@@ -326,3 +326,15 @@ export function mustGetElementById(id: string): HTMLElement {
     }
     return elem
 }
+
+export function blurItAndChildren(element: HTMLElement) {
+    const toRecurse = (e: HTMLElement) => {
+        e.blur()
+        //@ts-expect-error
+        for (const child of e.children) {
+            toRecurse(child)
+        }
+    }
+
+    toRecurse(element)
+}

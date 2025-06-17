@@ -146,15 +146,7 @@ class AppUI {
     }
 
     blur() {
-        const toRecurse = (e: HTMLElement) => {
-            e.blur()
-            //@ts-expect-error
-            for (const child of e.children) {
-                toRecurse(child)
-            }
-        }
-
-        toRecurse(this.mainUIContainer)
+        util.blurItAndChildren(this.mainUIContainer)
     }
 
     showLoadingCircleOnSearchButton() {
@@ -182,6 +174,7 @@ class App {
     // UI stuff
     // ==========================
     appUI: AppUI = new AppUI()
+    toBlur: Array<({ blur: () => void })> = []
 
     // ==========================
     // components
@@ -367,6 +360,8 @@ class App {
         }).catch((err) => {
             console.log(err)
         })
+
+        this.toBlur.push(this.appUI)
     }
 
     update(deltaTime: DOMHighResTimeStamp) {
@@ -866,7 +861,9 @@ class App {
                 }
 
                 // unfocus UI elements
-                this.appUI.blur()
+                for (const e of this.toBlur) {
+                    e.blur()
+                }
             }
             startDragging(x, y)
 
@@ -2021,6 +2018,13 @@ async function main() {
         if (aboutPage === null) { return }
         if (aboutPageHideButton === null) { return }
         if (aboutPageShowButton === null) { return }
+
+        app.toBlur.push(aboutPageShowButton)
+        app.toBlur.push({
+            blur: () => {
+                util.blurItAndChildren(aboutPage)
+            }
+        })
 
         let anim: Animation | null = null
 
