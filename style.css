@@ -148,7 +148,7 @@
   color: var(--text-black);
 }
 
-@Keyframes rotate {
+@keyframes rotate {
   from {
     transform: rotate(0turn);
   }
