@@ -207,7 +207,15 @@ void main() {
     float len = length(atob);
     vec2 center = (pos_a + pos_b) * 0.5;
 
-    float pixel_height = 2.0 / u_screen_size.y;
+    // float pixel_height = 2.0 / u_screen_size.y;
+    float pixel_height = 0.0;
+    {
+        vec2 ad = normalize(vec2(atob.y, atob.x));
+
+        ad /= u_screen_size;
+
+        pixel_height = sqrt(dot(ad, ad)) * 2.0f;
+    }
 
     // NOTE: we multiply u_line_thickness by 2 because
     // it'll be thinner because of antialiasing

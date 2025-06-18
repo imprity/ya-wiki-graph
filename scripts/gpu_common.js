@@ -212,7 +212,7 @@ export function clientWaitAsync(gl, sync, interval_ms) {
                 return;
             }
             if (res === gl.TIMEOUT_EXPIRED) {
-                setTimeout(test, interval_ms);
+                requestAnimationFrame(test);
                 return;
             }
             resolve();

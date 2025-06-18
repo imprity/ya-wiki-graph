@@ -247,6 +247,8 @@ class App {
 
     wikiSites: Array<wiki.WikipediSite> = [this.currentWiki]
 
+    renderPosInterp: number = 10
+
     // how long a user has to hold node
     // before we open the wikipedia link
     linkOpenDuration: number = 1000 // constant
@@ -355,6 +357,35 @@ class App {
         })
 
         this.toBlur.push(this.appUI)
+
+        const simLoop = () => {
+            if (!this._simulating) {
+                this._doingBeforeSimCBs = true
+                for (const cb of this._beforeSimCBs) {
+                    cb()
+                }
+                this._doingBeforeSimCBs = false
+                this._beforeSimCBs.length = 0
+
+                this._simulating = true
+                this.gpuSimulator.simulatePhysics(this.nodeManager).then(() => {
+                    this._simulating = false
+
+                    this._doingAfterSimCBS = true
+                    for (const cb of this._afterSimCBS) {
+                        cb()
+                    }
+                    this._doingAfterSimCBS = false
+                    this._afterSimCBS.length = 0
+
+                })
+            }
+
+            requestAnimationFrame(simLoop)
+        }
+
+        requestAnimationFrame(simLoop)
+        // setInterval(simLoop)
     }
 
     update(deltaTime: DOMHighResTimeStamp) {
@@ -386,26 +417,26 @@ class App {
         // ================================
         debugPrint('before cb count', this._beforeSimCBs.length.toString())
 
-        if (!this._simulating) {
-            this._doingBeforeSimCBs = true
-            for (const cb of this._beforeSimCBs) {
-                cb()
-            }
-            this._doingBeforeSimCBs = false
-            this._beforeSimCBs.length = 0
-
-            this._simulating = true
-            this.gpuSimulator.simulatePhysics(this.nodeManager).then(() => {
-                this._simulating = false
-
-                this._doingAfterSimCBS = true
-                for (const cb of this._afterSimCBS) {
-                    cb()
-                }
-                this._doingAfterSimCBS = false
-                this._afterSimCBS.length = 0
-            })
-        }
+        // if (!this._simulating) {
+        //     this._doingBeforeSimCBs = true
+        //     for (const cb of this._beforeSimCBs) {
+        //         cb()
+        //     }
+        //     this._doingBeforeSimCBs = false
+        //     this._beforeSimCBs.length = 0
+        //
+        //     this._simulating = true
+        //     this.gpuSimulator.simulatePhysics(this.nodeManager).then(() => {
+        //         this._simulating = false
+        //
+        //         this._doingAfterSimCBS = true
+        //         for (const cb of this._afterSimCBS) {
+        //             cb()
+        //         }
+        //         this._doingAfterSimCBS = false
+        //         this._afterSimCBS.length = 0
+        //     })
+        // }
 
         // ================================
         // handle expand requests
@@ -571,14 +602,14 @@ class App {
             const node = this.nodeManager.nodes[i]
 
             if (!node.syncedToRender) {
-                let t1 = math.distSquared(
-                    node.renderX - node.posX, node.renderY - node.posY)
-                let t2 = t1 / 100000.0
+                // let t1 = math.distSquared(
+                //     node.renderX - node.posX, node.renderY - node.posY)
+                // let t2 = t1 / 10000.0
+                //
+                // t2 = math.clamp(t2, 0, 1)
 
-                t2 = math.clamp(t2, 0, 1)
-
-                const x = math.expDecay(node.renderX, node.posX, t2 * 100, deltaTime)
-                const y = math.expDecay(node.renderY, node.posY, t2 * 100, deltaTime)
+                const x = math.expDecay(node.renderX, node.posX, this.renderPosInterp, deltaTime)
+                const y = math.expDecay(node.renderY, node.posY, this.renderPosInterp, deltaTime)
 
                 node.renderX = x
                 node.renderY = y
@@ -1863,6 +1894,16 @@ async function main() {
             'reset', () => {
                 const first = FirstTitles[math.randomBetweenInt(0, FirstTitles.length - 1)]
                 app.resetAndAddFirstNode(first)
+            }
+        )
+
+        addSlider(
+            10,
+            0, 100,
+            1,
+            'renderPosInterp',
+            (val: number) => {
+                app.renderPosInterp = val
             }
         )
 

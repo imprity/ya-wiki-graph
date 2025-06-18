@@ -335,7 +335,7 @@ export function clientWaitAsync(
                 return;
             }
             if (res === gl.TIMEOUT_EXPIRED) {
-                setTimeout(test, interval_ms);
+                requestAnimationFrame(test);
                 return;
             }
             resolve();
