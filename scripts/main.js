@@ -108,10 +108,6 @@ class AppUI {
 }
 class App {
     constructor() {
-        // TEST TEST TEST TEST TEST
-        this.testLerpX = 0;
-        this.testLerpY = 0;
-        this.testLerpValue = 1;
         this.dpiAdjustScaleX = 2;
         this.dpiAdjustScaleY = 2;
         // ==========================
@@ -164,6 +160,7 @@ class App {
         // how long a user has to hold node
         // before we open the wikipedia link
         this.linkOpenDuration = 1000; // constant
+        this.highlightedNodeGlow = 0.6; // constant
         this._visibleNodesCache = new util.Stack();
         this._visibleAndOnTopNodesCache = new util.Stack();
         this._visibleAndHLNodesCache = new util.Stack();
@@ -440,7 +437,7 @@ class App {
         // =================================
         for (let i = 0; i < this._highlightedNodes.length; i++) {
             const node = this._highlightedNodes.peekAt(i);
-            node.wishGlow(0.6);
+            node.wishGlow(this.highlightedNodeGlow);
         }
         // ================================
         // update nodes
@@ -449,10 +446,10 @@ class App {
             const node = this.nodeManager.nodes[i];
             if (!node.syncedToRender) {
                 let t1 = math.distSquared(node.renderX - node.posX, node.renderY - node.posY);
-                let t2 = t1 / 50000.0;
-                t2 = math.clamp(t2, 0, 0.2);
-                const x = math.expDecay(node.renderX, node.posX, t2 * 200, deltaTime);
-                const y = math.expDecay(node.renderY, node.posY, t2 * 200, deltaTime);
+                let t2 = t1 / 100000.0;
+                t2 = math.clamp(t2, 0, 1);
+                const x = math.expDecay(node.renderX, node.posX, t2 * 100, deltaTime);
+                const y = math.expDecay(node.renderY, node.posY, t2 * 100, deltaTime);
                 node.renderX = x;
                 node.renderY = y;
             }
@@ -614,17 +611,6 @@ class App {
         forHighlightedNodes((node) => {
             drawText(node, true);
         });
-        // TEST TEST TEST TEST TEST TEST
-        // {
-        //     this.testLerpX = math.expDecay(this.testLerpX, this.mouse.x, this.testLerpValue, deltaTime)
-        //     this.testLerpY = math.expDecay(this.testLerpY, this.mouse.y, this.testLerpValue, deltaTime)
-        //     cd.fillCircle(
-        //         this.overlayCtx,
-        //         this.testLerpX, this.testLerpY, 20,
-        //         'rgba(255,0,0,0.5)'
-        //     )
-        // }
-        // TEST TEST TEST TEST TEST TEST
     }
     handleEvent(e) {
         const focusLoseDist = 50;
@@ -983,6 +969,7 @@ class App {
         this._isNodeHighlighted[node.index] = true;
         this._highlightedNodes.push(node);
         node.mass = Math.max(node.mass, 100);
+        node.glow = Math.max(node.glow, this.highlightedNodeGlow);
     }
     clearNodeHighlights() {
         if (this._highlightedNodes.length <= 0) {
@@ -1365,11 +1352,6 @@ function main() {
             addCheckBox(false, 'view debug msgs', (visible) => {
                 setDebugPrintVisible(visible);
             });
-            // TEST TEST TEST TEST TEST TEST TEST TEST
-            addSlider(1, 1, 100, 1, 'testLerpValue', (val) => {
-                app.testLerpValue = val;
-            });
-            // TEST TEST TEST TEST TEST TEST TEST TEST
             addButton('download graph', () => __awaiter(this, void 0, void 0, function* () {
                 const jsonString = yield app.serialize();
                 util.saveBlob(new Blob([jsonString], { type: 'application/json' }), 'graph.graph');
@@ -1423,10 +1405,10 @@ function main() {
                 }
             }));
             addSlider(10, 0, 10, 0.01, "nodeMinDist", (value) => { app.simParam.nodeMinDist = value; });
-            addSlider(7000, 0, 10000, 1, "repulsion", (value) => { app.simParam.repulsion = value; });
-            addSlider(5, 0, 50, 0.0001, "spring", (value) => { app.simParam.spring = value; });
-            addSlider(600, 1, 1000, 1, "springDist", (value) => { app.simParam.springDist = value; });
-            addSlider(100, 1, 1000, 1, "forceCap", (value) => { app.simParam.forceCap = value; });
+            addSlider(61000, 0, 100000, 1, "repulsion", (value) => { app.simParam.repulsion = value; });
+            addSlider(10, 0, 50, 0.0001, "spring", (value) => { app.simParam.spring = value; });
+            addSlider(20, 1, 50, 1, "springDist", (value) => { app.simParam.springDist = value; });
+            addSlider(10, 1, 100, 1, "forceCap", (value) => { app.simParam.forceCap = value; });
             addSlider(0.5, 0, 5, 0.01, "Barnes Hut threshold", (value) => { app.simParam.bhThreshold = value; });
             addButton('recolor graph', () => { app.recolorWholeGraph(); });
             let isShowing = true;

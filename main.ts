@@ -160,12 +160,6 @@ class AppUI {
 }
 
 class App {
-    // TEST TEST TEST TEST TEST
-    testLerpX: number = 0
-    testLerpY: number = 0
-    testLerpValue: number = 1
-    // TEST TEST TEST TEST TEST
-
     // ==========================
     // canvas stuff
     // ==========================
@@ -256,6 +250,8 @@ class App {
     // how long a user has to hold node
     // before we open the wikipedia link
     linkOpenDuration: number = 1000 // constant
+
+    highlightedNodeGlow: number = 0.6 // constant
 
     constructor() {
         this.mainCanvas = util.mustGetElementById('main-canvas') as HTMLCanvasElement
@@ -565,7 +561,7 @@ class App {
         // =================================
         for (let i = 0; i < this._highlightedNodes.length; i++) {
             const node = this._highlightedNodes.peekAt(i)
-            node.wishGlow(0.6)
+            node.wishGlow(this.highlightedNodeGlow)
         }
 
         // ================================
@@ -577,12 +573,12 @@ class App {
             if (!node.syncedToRender) {
                 let t1 = math.distSquared(
                     node.renderX - node.posX, node.renderY - node.posY)
-                let t2 = t1 / 50000.0
+                let t2 = t1 / 100000.0
 
-                t2 = math.clamp(t2, 0, 0.2)
+                t2 = math.clamp(t2, 0, 1)
 
-                const x = math.expDecay(node.renderX, node.posX, t2 * 200, deltaTime)
-                const y = math.expDecay(node.renderY, node.posY, t2 * 200, deltaTime)
+                const x = math.expDecay(node.renderX, node.posX, t2 * 100, deltaTime)
+                const y = math.expDecay(node.renderY, node.posY, t2 * 100, deltaTime)
 
                 node.renderX = x
                 node.renderY = y
@@ -821,19 +817,6 @@ class App {
         forHighlightedNodes((node: DocNode) => {
             drawText(node, true)
         })
-
-
-        // TEST TEST TEST TEST TEST TEST
-        // {
-        //     this.testLerpX = math.expDecay(this.testLerpX, this.mouse.x, this.testLerpValue, deltaTime)
-        //     this.testLerpY = math.expDecay(this.testLerpY, this.mouse.y, this.testLerpValue, deltaTime)
-        //     cd.fillCircle(
-        //         this.overlayCtx,
-        //         this.testLerpX, this.testLerpY, 20,
-        //         'rgba(255,0,0,0.5)'
-        //     )
-        // }
-        // TEST TEST TEST TEST TEST TEST
     }
 
     handleEvent(e: Event) {
@@ -1327,6 +1310,7 @@ class App {
         this._highlightedNodes.push(node)
 
         node.mass = Math.max(node.mass, 100)
+        node.glow = Math.max(node.glow, this.highlightedNodeGlow)
     }
 
     clearNodeHighlights() {
@@ -1857,18 +1841,6 @@ async function main() {
             }
         )
 
-        // TEST TEST TEST TEST TEST TEST TEST TEST
-        addSlider(
-            1,
-            1, 100,
-            1,
-            'testLerpValue',
-            (val: number) => {
-                app.testLerpValue = val
-            }
-        )
-        // TEST TEST TEST TEST TEST TEST TEST TEST
-
         addButton(
             'download graph', async () => {
                 const jsonString = await app.serialize()
@@ -1974,30 +1946,30 @@ async function main() {
         )
 
         addSlider(
-            7000,
-            0, 10000,
+            61000,
+            0, 100000,
             1,
             "repulsion",
             (value) => { app.simParam.repulsion = value }
         )
 
         addSlider(
-            5,
+            10,
             0, 50,
             0.0001,
             "spring",
             (value) => { app.simParam.spring = value }
         )
         addSlider(
-            600,
-            1, 1000,
+            20,
+            1, 50,
             1,
             "springDist",
             (value) => { app.simParam.springDist = value }
         )
         addSlider(
-            100,
-            1, 1000,
+            10,
+            1, 100,
             1,
             "forceCap",
             (value) => { app.simParam.forceCap = value }
