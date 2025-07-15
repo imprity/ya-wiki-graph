@@ -4,6 +4,8 @@
 
 ![screenshot](screenshot.png)
 
+### Link to Live Demo [HERE!](https://imprity.github.io/posts/ya-wiki-graph/)
+
 This is an app that visualizes Wikipedia pages using a [force-directed graph.](https://en.wikipedia.org/wiki/Force-directed_graph_drawing) Each circle is a Wikipedia page.
 
 Click on a circle to see links a page has to other pages. Hold to open the actual Wikipedia page.
